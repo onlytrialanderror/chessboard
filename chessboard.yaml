@@ -1880,7 +1880,7 @@ script:
           
           // for example as an external class
           ChessMoveValidator validator(id(fen_position_last));
-          valid_check = validator.is_legal_move(id(current_move_uci));
+          valid_check = validator.is_legal_move(id(current_move_from), id(current_move_to));
 
           // reset flag if not valid
           if (!valid_check) {
