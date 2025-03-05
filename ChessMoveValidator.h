@@ -9,8 +9,22 @@
 class ChessMoveValidator{
 public:
 
+    /*
+    Example fen-array for initial position and white to move
+      {
+        "r","n","b","q","k","b","n","r",
+        "p","p","p","p","p","p","p","p",
+        "0","0","0","0","0","0","0","0",
+        "0","0","0","0","0","0","0","0",
+        "0","0","0","0","0","0","0","0",
+        "0","0","0","0","0","0","0","0",
+        "P","P","P","P","P","P","P","P",
+        "R","N","B","Q","K","B","N","R",
+        "w"
+      }
+    */
     ChessMoveValidator(const std::array<std::string, 65>& fen) {
-        updateFEN(fen);
+        parseFEN(fen);
     }
 
     bool is_legal_move(const std::string& uci_move) {
@@ -27,6 +41,11 @@ public:
         int from = square_to_index(from_sq);
         int to = square_to_index(to_sq);
 
+        return is_legal_move(from, to);
+    }
+
+    bool is_legal_move(const int& from, const int& to) {
+
         char piece = board_[from];
         char target = board_[to];
         
@@ -36,13 +55,7 @@ public:
         if (would_cause_check(from, to)) return false;
 
         return true;
-    }
-
-    void updateFEN(const std::array<std::string, 65>& fen) {        
-        parseFEN(fen);
-    }
-
-
+    }    
 private:
 
 

@@ -1931,16 +1931,15 @@ script:
                 to = std::distance(pos_difference.begin(), it_to);
             }
 
-            // we call update_pgn if valid move only -> rise flag
-            id(valid_move) = true;
-            id(moved_piece) = id(fen_position_last)[from];
-
             // update global variables
+            id(moved_piece) = id(fen_position_last)[from];
             id(current_move_from) = from;
             id(current_move_to) = to;
             id(current_move_type) = "MOVE";
 
+            // prepare uci notation
             id(update_uci_notation).execute();
+            // check if move is legal
             id(check_chess_rules).execute();
 
             // still valid
@@ -1974,15 +1973,15 @@ script:
                 to = std::distance(pos_difference.begin(), it_to);
             }
 
-            // we call update_pgn if valid move only -> rise flag
-            id(valid_move) = true;
+            // update global variables
             id(moved_piece) = id(fen_position_last)[from];
-
             id(current_move_from) = from;
             id(current_move_to) = to;
             id(current_move_type) = "TAKE";
 
+            // prepare uci notation
             id(update_uci_notation).execute();
+            // check if move is legal
             id(check_chess_rules).execute();
 
             // still valid
@@ -2038,15 +2037,16 @@ script:
               }
             }
 
-            // we call update_pgn if valid move only -> rise flag
-            id(valid_move) = true;
+            // update global variables
             id(moved_piece) = id(fen_position_last)[from_k];
 
             // king move only is set as from - to
             id(current_move_from) = from_k;
             id(current_move_to) = to_k;
 
+            // prepare uci notation
             id(update_uci_notation).execute();
+            // check if move is legal
             id(check_chess_rules).execute();
 
             // still valid
@@ -2091,15 +2091,15 @@ script:
                 to = std::distance(pos_difference.begin(), it_to);
             }
 
-            // we call update_pgn if valid move only -> rise flag
-            id(valid_move) = true;
+            // update global variables
             id(moved_piece) = id(fen_position_last)[from];
-
             id(current_move_from) = from;
             id(current_move_to) = to;
             id(current_move_type) = "ENPASSANT";
 
+            // prepare uci notation
             id(update_uci_notation).execute();
+            // check if move is legal
             id(check_chess_rules).execute();
 
             // still valid
@@ -2190,7 +2190,7 @@ script:
                     pgn_move += "=" + id(default_pawn_promotion_to);
                     // update fen by promoted piece (for black we have to lower it)
                     std::string promote_to = id(default_pawn_promotion_to);
-                    std::transform(promote_to.begin(), promote_to.end(), promote_to.begin(), [](unsigned char c){ return std::tolower(c); });
+                    std::transform(promote_to.begin(), promote_to.end(), promote_to.begin(), ::tolower);
                     id(fen_position_current)[id(current_move_to)] = promote_to;
                     // encrease number of queens
                     if (id(default_pawn_promotion_to) == "Q"){ 
