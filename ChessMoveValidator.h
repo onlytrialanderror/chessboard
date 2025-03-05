@@ -6,31 +6,15 @@
 #include <vector>
 #include <cmath>
 
-#define getValidatorInstance(id) (*((ChessMoveValidator*)id))
-
-class ChessMoveValidator : public PollingComponent, public Sensor {
+class ChessMoveValidator{
 public:
-    ChessMoveValidator() {
-        const std::array<std::string, 65> fen =
-        {
-        "r","n","b","q","k","b","n","r",
-        "p","p","p","p","p","p","p","p",
-        "0","0","0","0","0","0","0","0",
-        "0","0","0","0","0","0","0","0",
-        "0","0","0","0","0","0","0","0",
-        "0","0","0","0","0","0","0","0",
-        "P","P","P","P","P","P","P","P",
-        "R","N","B","Q","K","B","N","R", "w"
-       };
-       updateFEN(fen);
-    }    
 
     ChessMoveValidator(const std::array<std::string, 65>& fen) {
         updateFEN(fen);
     }
 
     bool is_legal_move(const std::string& uci_move) {
-        last_check_ = false;
+
         if (uci_move.length() < 4) 
         {
             return false;
@@ -51,7 +35,6 @@ public:
         if (!is_valid_destination(piece, from, to, target)) return false;
         if (would_cause_check(from, to)) return false;
 
-        last_check_ = true;
         return true;
     }
 
@@ -59,13 +42,6 @@ public:
         parseFEN(fen);
     }
 
-    bool getLastCheck() {
-        return last_check_;
-    }
-
-    void update() override {
-        publish_state(last_check_);
-    }
 
 private:
 
@@ -85,7 +61,6 @@ private:
     char board_[64];
     bool white_to_move_;
     bool castling_rights[4]; // KQkq castling rights
-    bool last_check_ = false;
 
     void parseFEN(const std::array<std::string, 65>& fen) {
         // update who to move

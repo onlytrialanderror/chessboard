@@ -1,6 +1,9 @@
 esphome:
   name: chessboard
   friendly_name: chessboard
+
+  includes:
+    - ChessMoveValidator.h
   
 
   # Do some initialition work
@@ -1819,22 +1822,25 @@ script:
     then:
       - lambda: |-
           // create uci move for lichess
-          std::string uci_move = id(chess_field_names)[id(current_move_from)] + id(chess_field_names)[id(current_move_to)];
+          std::string field_name_from = id(chess_field_names)[id(current_move_from)];
+          std::string field_name_to = id(chess_field_names)[id(current_move_to)];
+          std::string fen_name_from = id(fen_position_last)[id(current_move_from)];
+          std::string uci_move = field_name_from + field_name_to;
 
           // we have to add promotion to UCI
           bool move_or_take = (bool)(id(current_move_type) == "MOVE" ||  id(current_move_type) == "TAKE");
-          bool promotion_move = (bool)(id(fen_position_last)[id(current_move_from)] == "P" || id(fen_position_last)[id(current_move_from)] == "p" );
+          bool promotion_move = (bool)(fen_name_from  == "P" || fen_name_from  == "p" );
           if (move_or_take && promotion_move) {  
 
             // white
-            if (id(white_to_move) && (id(chess_field_names)[id(current_move_to)].find('8') != std::string::npos)) {
+            if (id(white_to_move) && (field_name_to.find('8') != std::string::npos)) {
               // add promotion piece to uci notation
               uci_move += id(default_pawn_promotion_to);
               std::transform(uci_move.begin(), uci_move.end(), uci_move.begin(), ::tolower);
             }
 
             // black
-            if (!id(white_to_move) && (id(chess_field_names)[id(current_move_to)].find('1') != std::string::npos)) {
+            if (!id(white_to_move) && (field_name_to.find('1') != std::string::npos)) {
               // add promotion piece to uci notation
               uci_move += id(default_pawn_promotion_to);
               std::transform(uci_move.begin(), uci_move.end(), uci_move.begin(), ::tolower);
@@ -1851,7 +1857,7 @@ script:
           // define flag          
           bool valid_check = false;
 
-          // check the color of moved piece is correct
+          // check if the color of the moved piece is correct
           if (id(white_to_move)) {
             if (std::find(id(fen_white).begin(), id(fen_white).end(), id(moved_piece)) != id(fen_white).end())
             {
@@ -1863,14 +1869,18 @@ script:
               valid_check = true;
             }           
           }
- 
-          //TODO: Implement chess-rule checker (uci_move & fen_position_current can be used)
+           
+          // TODO: Implement chess-rule checker (uci_move & fen_position_current can be used)
           // avaiable variables
-          // id(uci_move) -> current move in UCI notation 
-          // id(fen_position_last) -> last FEN position written as 65-elements array (castling rights are currently not implemented in FEN)
-          //id(current_move_from) -> index of the field "from"
-          //id(current_move_to) -> index of the field "to"
-          //id(current_move_type) -> type of the move: "MOVE", "TAKE", "CASTLING_SHORT", "CASTLING_LONG", "ENPASSANT";
+          // id(uci_move) -> current move in UCI notation: i.e. e2e4 or b1c3 
+          // id(fen_position_last) -> last FEN position written as 65-elements array (castling rights are currently missed in FEN)
+          // id(current_move_from) -> index of the field "from"
+          // id(current_move_to) -> index of the field "to"
+          // id(current_move_type) -> type of the move: "MOVE", "TAKE", "CASTLING_SHORT", "CASTLING_LONG", "ENPASSANT";
+          
+          // for example as an external class
+          ChessMoveValidator validator(id(fen_position_last));
+          valid_check = validator.is_legal_move(id(current_move_uci));
 
           // reset flag if not valid
           if (!valid_check) {
