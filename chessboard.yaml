@@ -1,0 +1,2977 @@
+esphome:
+  name: chessboard
+  friendly_name: chessboard
+  
+
+  # Do some initialition work
+  on_boot:
+    - priority: 400
+      then:
+      - script.execute: reset_all_values 
+    
+
+
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+
+# Enable logging
+logger:
+  level: WARN
+
+api:
+  reboot_timeout: 0s
+
+ota:
+  - platform: esphome
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  fast_connect: True
+
+  ap:
+    ssid: "chessboard"
+    password: "chessboard"
+
+# HTTP request component
+http_request:
+  timeout: 10s
+  verify_ssl: false 
+
+captive_portal:
+
+# Enable web server
+web_server:
+  port: 80
+  include_internal: False
+  version: 3
+  log: false
+  ota: false
+  local: true
+  sorting_groups:
+    - id: sorting_group_settings
+      name: "Game Settings"
+      sorting_weight: 10
+    - id: sorting_group_fen
+      name: "FEN"
+      sorting_weight: 20
+    - id: sorting_group_pgn
+      name: "PGN"
+      sorting_weight: 30
+    - id: sorting_group_sensors
+      name: "Sensors"
+      sorting_weight: 40
+    - id: sorting_group_simulation
+      name: "DEBUG"
+      sorting_weight: 50
+
+time:
+  - platform: sntp
+    id: sntp_time
+    timezone: "Europe/Berlin"  
+
+
+substitutions:
+  n_adc_samples: '25'
+  attenuation_value: 12db
+  hall_sensor_intervall_game: 250ms
+  hall_sensor_intervall_idle: 1s
+  delay_before_adc_reading: '5'
+
+globals:
+
+  # some constants
+  - id: chess_field_names
+    type: std::array<std::string, 64>
+    initial_value: |-
+      {
+        "a8", "b8", "c8", "d8", "e8", "f8", "g8", "h8",
+        "a7", "b7", "c7", "d7", "e7", "f7", "g7", "h7",
+        "a6", "b6", "c6", "d6", "e6", "f6", "g6", "h6",
+        "a5", "b5", "c5", "d5", "e5", "f5", "g5", "h5",
+        "a4", "b4", "c4", "d4", "e4", "f4", "g4", "h4",
+        "a3", "b3", "c3", "d3", "e3", "f3", "g3", "h3",
+        "a2", "b2", "c2", "d2", "e2", "f2", "g2", "h2",
+        "a1", "b1", "c1", "d1", "e1", "f1", "g1", "h1"
+      }
+
+  - id: chess_symbols
+    type: std::map<char, std::string>
+    initial_value: |- 
+      /*
+        Standard spaces (" ") can be too narrow. Instead, use:
+        Non-Breaking Space (\u00A0) → " "
+        Thin Space (\u2009) → " "
+        En Space (\u2002) → " "
+        Full-Width Space (\u3000) → "　"
+        ♔	U+2654	White Chess King
+        ♕	U+2655	White Chess Queen
+        ♖	U+2656	White Chess Rook
+        ♗	U+2657	White Chess Bishop
+        ♘	U+2658	White Chess Knight
+        ♙	U+2659	White Chess Pawn
+        ♚	U+265A	Black Chess King
+        ♛	U+265B	Black Chess Queen
+        ♜	U+265C	Black Chess Rook
+        ♝	U+265D	Black Chess Bishop
+        ♞	U+265E	Black Chess Knight
+        ♟	U+265F	Black Chess Pawn
+      */
+      {
+        {'K', "\u2002\u2654\u2002"},
+        {'Q', "\u2002\u2655\u2002"},
+        {'R', "\u2002\u2656\u2002"},
+        {'B', "\u2002\u2657\u2002"},
+        {'N', "\u2002\u2658\u2002"},
+        {'P', "\u2002\u2659\u2002"},
+        {'k', "\u2002\u265A\u2002"},
+        {'q', "\u2002\u265B\u2002"},
+        {'r', "\u2002\u265C\u2002"},
+        {'b', "\u2002\u265D\u2002"},
+        {'n', "\u2002\u265E\u2002"},
+        {'p', "\u2002\u265F\u2002"},
+        {'0', "\u2002\u3000\u2002"}
+      }
+
+  - id: chess_symbols_telegram
+    type: std::map<char, std::string>
+    initial_value: |- 
+      /*
+        Standard spaces (" ") can be too narrow. Instead, use:
+        Non-Breaking Space (\u00A0) → " "
+        Thin Space (\u2009) → " "
+        En Space (\u2002) → " "
+        Full-Width Space (\u3000) → "　"
+        ♔	U+2654	White Chess King
+        ♕	U+2655	White Chess Queen
+        ♖	U+2656	White Chess Rook
+        ♗	U+2657	White Chess Bishop
+        ♘	U+2658	White Chess Knight
+        ♙	U+2659	White Chess Pawn
+        ♚	U+265A	Black Chess King
+        ♛	U+265B	Black Chess Queen
+        ♜	U+265C	Black Chess Rook
+        ♝	U+265D	Black Chess Bishop
+        ♞	U+265E	Black Chess Knight
+        ♟	U+265F	Black Chess Pawn
+         	U+2002	En Space
+         	U+2003	Em Space
+         	U+2004	Three-Per-Em Space
+         	U+2005	Four-Per-Em Space
+         	U+2006	Six-Per-Em Space
+         	U+2007	Figure Space
+         	U+2008	Punctuation Space
+         	U+2009	Thin Space
+         	U+200A	Hair Space
+         	U+202F	Narrow No-Break Space (NNBSP)
+         	U+205F	Medium Mathematical Space (MMSP)
+      */
+      {
+        {'K', "\u2009\u200A\u200A\u200A\u200A\u2654\u200A\u200A\u200A\u200A\u200A\u200A\u200A"},
+        {'k', "\u2009\u200A\u200A\u200A\u200A\u265A\u200A\u200A\u200A\u200A\u200A\u200A\u200A"},
+
+        {'Q', "\u200A\u200A\u200A\u200A\u200A\u200A\u2655\u200A\u200A\u200A\u200A\u200A\u200A"},
+        {'q', "\u200A\u200A\u200A\u200A\u200A\u200A\u265B\u200A\u200A\u200A\u200A\u200A\u200A"},
+
+        {'R', "\u200A\u200A\u200A\u200A\u200A\u200A\u200A\u2656\u200A\u200A\u200A\u200A\u200A\u200A"},
+        {'r', "\u200A\u200A\u200A\u200A\u200A\u200A\u200A\u265C\u200A\u200A\u200A\u200A\u200A\u200A"},
+
+        {'B', "\u200A\u200A\u200A\u200A\u200A\u200A\u2657\u200A\u200A\u200A\u200A\u200A\u200A"},
+        {'b', "\u200A\u200A\u200A\u200A\u200A\u200A\u265D\u200A\u200A\u200A\u200A\u200A\u200A"},
+
+        {'N', "\u200A\u200A\u200A\u200A\u200A\u200A\u2658\u200A\u200A\u200A\u200A\u200A\u200A"},
+        {'n', "\u200A\u200A\u200A\u200A\u200A\u200A\u265E\u200A\u200A\u200A\u200A\u200A\u200A"},
+
+        {'P', "\u200A\u200A\u200A\u200A\u200A\u200A\u2659\u200A\u200A\u200A\u200A\u200A\u200A\u200A"},    
+        {'p', "\u200A\u200A\u200A\u200A\u265F\u200A\u200A\u200A\u200A"},
+
+        {'0', "\u200A\u200A\u200A\u200A\u200A\u200A\u200A\u200A\u200A\u200A\u200A\u200A\u200A\u200A\u200A\u200A\u200A\u200A\u200A\u200A\u200A"}
+      }
+  # order of hall sensors from A8 to H1
+  - id: hall_sensor_order
+    type: std::array<int, 64>
+    initial_value: |-
+      {
+        0, 1, 2, 3, 4, 5, 6, 7,
+        8, 9, 10, 11, 12, 13, 14, 15,
+        16, 17, 18, 19, 20, 21, 22, 23,
+        24, 25, 26, 27, 28, 29, 30, 31,
+        32, 33, 34, 35, 36, 37, 38, 39,
+        40, 41, 42, 43, 44, 45, 46, 47,
+        48, 49, 50, 51, 52, 53, 54, 55,
+        56, 57, 58, 59, 60, 61, 62, 63
+      }
+
+  # Variables for FEN
+  - id: fen_black
+    type: std::array<std::string, 6>
+    initial_value: |-
+      {
+        "p","n","b","q","r","k"
+      }
+
+  - id: fen_white
+    type: std::array<std::string, 6>
+    initial_value: |-
+      {
+        "P","N","B","Q","R","K"
+      }
+
+  # Variables for FEN
+  - id: fen_position_init
+    type: std::array<std::string, 65>
+    initial_value: |-
+      {
+        "r","n","b","q","k","b","n","r",
+        "p","p","p","p","p","p","p","p",
+        "0","0","0","0","0","0","0","0",
+        "0","0","0","0","0","0","0","0",
+        "0","0","0","0","0","0","0","0",
+        "0","0","0","0","0","0","0","0",
+        "P","P","P","P","P","P","P","P",
+        "R","N","B","Q","K","B","N","R",
+        "w"
+      }
+
+  - id: fen_position_last
+    type: std::array<std::string, 65>
+    initial_value: '{""}'
+
+  - id: fen_position_current
+    type: std::array<std::string, 65>
+    initial_value: '{""}'
+
+  - id: fen_position_chessboard
+    type: std::string
+    initial_value: '""'
+
+  - id: fen_position_take_back
+    type: std::array<std::string, 65>
+    initial_value: '{""}'
+  
+  # Variables for RAW-position
+  - id: raw_position_init
+    type: std::array<int, 64>
+    initial_value: |-
+      {
+        -1,-1,-1,-1,-1,-1,-1,-1,
+        -1,-1,-1,-1,-1,-1,-1,-1,
+        0,0,0,0,0,0,0,0,
+        0,0,0,0,0,0,0,0,
+        0,0,0,0,0,0,0,0,
+        0,0,0,0,0,0,0,0,
+        1,1,1,1,1,1,1,1,
+        1,1,1,1,1,1,1,1
+      }
+
+  - id: raw_position_take_back
+    type: std::array<int, 64>
+    initial_value: '{0}'
+
+  - id: raw_position_last
+    type: std::array<int, 64>
+    initial_value: '{0}'
+
+  - id: raw_position_current
+    type: std::array<int, 64>
+    initial_value: '{0}'
+
+  # Variables for voltage-field
+  - id: voltage_field_offset
+    type: std::array<float, 64>
+    initial_value: |-
+      {
+        2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0,
+        2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0,
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        -2.0, -2.0, -2.0, -2.0, -2.0, -2.0, -2.0, -2.0,
+        -2.0, -2.0, -2.0, -2.0, -2.0, -2.0, -2.0, -2.0
+      }
+
+  - id: voltage_field_detection_threshold
+    type: std::array<float, 64>
+    initial_value: |-
+      {
+        1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+        1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+        1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+        1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+        1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+        1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+        1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+        1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0
+      }
+
+
+
+  - id: voltage_field_current
+    type: std::array<float, 64>
+    initial_value: '{0.0}'
+
+  - id: pgn_history
+    type: std::string
+    initial_value: ''    
+
+  - id: pgn_history_take_back
+    type: std::string
+    initial_value: '' 
+
+  - id: pgn_full
+    type: std::string
+    initial_value: ''
+
+  - id: valid_move
+    type: bool
+    initial_value: 'false'
+
+  - id: white_to_move
+    type: bool
+    initial_value: 'true'
+
+  - id: game_running
+    type: bool
+    initial_value: 'false'
+
+  - id: moved_piece
+    type: std::string
+    initial_value: ''  
+
+  - id: halfmove_counter
+    type: int
+    initial_value: '0'
+
+  - id: last_move_pgn_take_back
+    type: std::string
+    initial_value: ''
+
+  - id: last_move_pgn
+    type: std::string
+    initial_value: ''
+
+  - id: current_move_from
+    type: int
+    initial_value: '0'
+
+  - id: current_move_to
+    type: int
+    initial_value: '0'
+
+  - id: current_move_type
+    type: std::string
+    initial_value: ''
+
+  - id: current_move_uci
+    type: std::string
+    initial_value: ''
+
+  - id: time_control_duration
+    type: int
+    initial_value: '900'
+
+  - id: time_control_increment
+    type: int
+    initial_value: '10'
+
+  - id: time_control_timer_black
+    type: int
+    initial_value: '900'
+
+  - id: time_control_timer_white
+    type: int
+    initial_value: '900'
+
+  - id: n_queens_white
+    type: int
+    initial_value: '1'
+
+  - id: n_queens_black
+    type: int
+    initial_value: '1'
+
+  - id: default_pawn_promotion_to
+    type: std::string
+    initial_value: '"Q"' 
+
+# we updating all the time the values of hall sensors
+interval:
+  - interval: $hall_sensor_intervall_game
+    then:
+      - lambda: |-
+          if (id(game_running)) {
+            id(update_all_hall_sensors).execute();
+            id(update_raw_position_current).execute();
+            id(compare_raw_position).execute();
+          }
+  - interval: $hall_sensor_intervall_idle
+    then:
+      - lambda: |-
+          if (!id(game_running)) {
+            id(update_all_hall_sensors).execute();
+            id(update_raw_position_current).execute();
+            id(compare_raw_position).execute();
+          }
+  - interval: 1000ms
+    then:
+      - script.execute: update_timer
+font:
+  - file: "gfonts://Roboto"
+    id: roboto_10
+    size: 10
+  - file: "gfonts://Roboto"
+    id: roboto_12
+    size: 12
+  - file: "gfonts://Roboto"
+    id: roboto_14
+    size: 14
+  - file: "gfonts://Roboto"
+    id: roboto_24
+    size: 24
+  - file: "gfonts://Roboto"
+    id: roboto_30
+    size: 30
+  - file: "gfonts://Roboto"
+    id: roboto_32
+    size: 32
+
+i2c:
+  sda: GPIO21
+  scl: GPIO22
+  id: i2c0
+  scan: true
+  
+
+tca9548a:
+  - address: 0x70
+    id: i2c_mux_w
+    i2c_id: i2c0
+    channels:
+      - bus_id: i2c_mux_w_0
+        channel: 0
+      - bus_id: i2c_mux_b_0
+        channel: 1
+      - bus_id: i2c_mux_w_1
+        channel: 2
+
+  #- address: 0x77 # (high, high, high)
+  #  id: i2c_mux_b
+  #  i2c_id: i2c0
+  #  channels:
+  #    - bus_id: i2c_mux_b_0_
+  #      channel: 0
+  #    - bus_id: i2c_mux_b_1_
+  #      channel: 1
+
+pcf8574:
+  - id: 'pcf8574_w'
+    address: 0x20
+    i2c_id: i2c0
+    pcf8575: false
+
+display:
+  - platform: ssd1306_i2c
+    id: oled_white
+    model: "SSD1306 128x32"
+    address: 0x3C
+    i2c_id: i2c0
+    lambda: |-
+      const auto display_width = it.get_width();
+      const auto display_height = it.get_height();
+
+      if (id(my_menu).is_active()) {
+        it.menu(0, 0, id(my_menu), display_width, display_height);
+      } else {
+        std::string time_to_show_w = id(timer_white).state + "|";
+        it.printf(0, 0, id(roboto_30), time_to_show_w.c_str());
+
+        std::string time_to_show_b = id(timer_black).state;
+        it.printf(85, 0, id(roboto_12), time_to_show_b.c_str());
+
+        std::string move_to_show = "M: " + std::to_string((int)(id(halfmove_counter) / 2.) + 1);
+        it.printf(85, 18, id(roboto_12), move_to_show.c_str());
+      }
+
+#  - platform: ssd1306_i2c
+#    id: oled_black
+#    model: "SSD1306 128x32"
+#    address: 0x70
+#    i2c_id: i2c0
+#    lambda: |-
+#      const auto display_width = it.get_width();
+#      const auto display_height = it.get_height();
+#
+#      if (id(my_menu).is_active()) {
+#       it.menu(0, 0, id(my_menu), display_width, display_height);
+#      } else {
+#        std::string time_to_show_b = id(timer_black).state + "|";
+#        it.printf(0, 0, id(roboto_30), time_to_show_b.c_str());
+#
+#        std::string time_to_show_w = id(timer_white).state;
+#        it.printf(85, 0, id(roboto_12), time_to_show_w.c_str());
+#
+#        std::string move_to_show = "M: " + std::to_string((int)(id(halfmove_counter) / 2.) + 1);
+#        it.printf(85, 18, id(roboto_12), move_to_show.c_str());
+#      }
+
+# Declare a LCD menu
+graphical_display_menu:
+  id: my_menu
+  # display: oled_test
+  font: roboto_10
+  active: false
+  mode: rotary
+  on_enter:
+    then:
+      lambda: |-
+        if (id(halfmove_counter) > 0) {
+          // stop the clock during a game
+          id(game_running) = false;
+          // the game can be also started by the pause button
+          id(led_update).execute();
+        } 
+  on_leave:
+    then:
+      lambda: |-
+        if (id(halfmove_counter) > 0) {
+          // start the clock during a game
+          id(game_running) = true;
+          // the game can be also started by the pause button
+          id(led_update).execute();
+        } 
+  on_redraw:
+    then:
+      - component.update: oled_white
+      #- component.update: oled_black
+  items:
+    - type: command
+      text: 'PGN SEND'
+      on_value:
+        then:
+          - lambda: |-
+              id(send_telegram_message).execute();
+    - type: select
+      immediate_edit: false
+      text: 'TIMER'
+      select: chess_time_control
+    - type: select
+      immediate_edit: false
+      text: 'PROMOTION'
+      select: pawn_promotion
+    - type: command
+      text: 'RESET GAME'
+      on_value:
+        then:
+          - lambda: |-
+              id(simulate_reset_position).press();
+    - type: command
+      text: 'TAKE BACK'
+      on_value:
+        then:
+          - lambda: |-
+              id(take_back).execute();
+    - type: menu
+      text: 'LICHESS'
+      items:
+        - type: select
+          immediate_edit: false
+          text: 'User (todo)'
+          select: lichess_account
+        - type: command
+          text: 'New game (todo)'
+          on_value:
+            then:
+              - lambda: |-
+                  // todo
+        - type: command
+          text: 'Challenge (todo)'
+          on_value:
+            then:
+              - lambda: |-
+                  // todo
+        - type: back
+          text: 'Back'
+
+# Define internal outputs
+output:
+  # outputs for analog multiplexer
+  - platform: gpio
+    pin: GPIO33
+    id: output_s1
+  - platform: gpio
+    pin: GPIO25
+    id: output_s2
+  - platform: gpio
+    pin: GPIO26
+    id: output_s3
+  - platform: gpio
+    pin: GPIO27
+    id: output_s4
+
+switch:
+# LED color to move
+  - platform: gpio
+    id: led_white_to_move
+    icon: mdi:led-on
+    name: White to move
+    pin:
+      pcf8574: pcf8574_w
+      number: 1
+      mode:
+        output: true
+      inverted: true
+    web_server:
+      sorting_group_id: sorting_group_simulation
+      sorting_weight: 1
+
+  - platform: gpio
+    id: led_black_to_move
+    icon: mdi:led-on
+    inverted: false
+    name: Black to move
+    pin: GPIO15
+    web_server:
+      sorting_group_id: sorting_group_simulation
+      sorting_weight: 3
+
+  - platform: gpio
+    id: led_white_nonvalid_move
+    icon: mdi:led-on
+    name: White (non valid move)
+    pin:
+      pcf8574: pcf8574_w
+      number: 2
+      mode:
+        output: true
+      inverted: true
+    web_server:
+      sorting_group_id: sorting_group_simulation
+      sorting_weight: 5
+
+  - platform: gpio
+    id: led_white_valid_move
+    icon: mdi:led-on
+    name: White (valid move)
+    pin:
+      pcf8574: pcf8574_w
+      number: 0
+      mode:
+        output: true
+      inverted: true
+    web_server:
+      sorting_group_id: sorting_group_simulation
+      sorting_weight: 2
+
+  - platform: template
+    id: led_black_nonvalid_move
+    icon: mdi:led-on
+    name: Black (non valid move)
+    optimistic: true
+    web_server:
+      sorting_group_id: sorting_group_simulation
+      sorting_weight: 6
+
+  - platform: template
+    id: led_black_valid_move
+    icon: mdi:led-on
+    name: Black (valid move)
+    optimistic: true
+    web_server:
+      sorting_group_id: sorting_group_simulation
+      sorting_weight: 4
+
+button:
+  - platform: factory_reset
+    name: Restart with Factory Default Settings
+    id: device_factory_reset
+    entity_category: "diagnostic"
+    web_server:
+      sorting_group_id: sorting_group_simulation
+      sorting_weight: 100
+  - platform: template
+    name: "simulate next move (scandinavian)"
+    id: simulate_next_move
+    on_press:      
+      - script.execute: simulate_next_move_script
+    web_server:
+      sorting_group_id: sorting_group_simulation
+      sorting_weight: 8
+  - platform: template
+    name: "simulate finished move"
+    id: simulate_end_move
+    on_press:
+      then:
+        - lambda: |-
+            id(store_move).execute();
+    web_server:
+      sorting_group_id: sorting_group_simulation
+      sorting_weight: 9
+  - platform: template
+    name: "PGN to telegram"
+    id: pgn_to_telegram
+    on_press: 
+      then:
+        lambda: |-
+          id(send_telegram_message).execute();
+    web_server:
+      sorting_group_id: sorting_group_pgn
+      sorting_weight: -1
+  - platform: template
+    name: simulate button pause
+    id: simulate_button_pause
+    on_press:
+      then:
+        - lambda: |-
+            id(game_running) = !id(game_running);
+            id(led_update).execute();
+    web_server:
+      sorting_group_id: sorting_group_simulation
+      sorting_weight: 10
+  - platform: template
+    name: simulate reset position
+    id: simulate_reset_position
+    on_press:
+      then:
+        - lambda: |-
+            std::array<float, 64> simulated_move = 
+              {
+                2., 2., 2., 2., 2., 2., 2., 2.,
+                2., 2., 2., 2., 2., 2., 2., 2.,
+                0., 0., 0., 0., 0., 0., 0., 0.,
+                0., 0., 0., 0., 0., 0., 0., 0.,
+                0., 0., 0., 0., 0., 0., 0., 0.,
+                0., 0., 0., 0., 0., 0., 0., 0.,
+                -2., -2., -2., -2., -2., -2., -2., -2.,
+                -2., -2., -2., -2., -2., -2., -2., -2.
+              };
+            // overwrite offset
+            for (int i = 0; i < 64; i++) {
+              id(voltage_field_offset)[i] = simulated_move[i];   
+            };
+    web_server:
+      sorting_group_id: sorting_group_simulation
+      sorting_weight: 11
+  - platform: template
+    name: simulate_up
+    id: simulate_up
+    on_press:
+      then:
+        - display_menu.up: my_menu
+    web_server:
+      sorting_group_id: sorting_group_simulation
+      sorting_weight: 12
+  - platform: template
+    name: simulate_down
+    id: simulate_down
+    on_press:
+      then:
+        - display_menu.down: my_menu
+    web_server:
+      sorting_group_id: sorting_group_simulation
+      sorting_weight: 13
+  - platform: template
+    name: simulate_set
+    id: simulate_set
+    on_press:
+      then:
+        - if:
+              condition:
+                display_menu.is_active: my_menu
+              then:
+                - display_menu.enter: my_menu
+              else:
+                - display_menu.show:  my_menu
+    web_server:
+      sorting_group_id: sorting_group_simulation
+      sorting_weight: 14
+  - platform: template
+    name: simulate_cancel
+    id: simulate_cancel
+    on_press:
+      then:
+        - display_menu.show_main:   my_menu
+        - display_menu.hide:  my_menu                
+    web_server:
+      sorting_group_id: sorting_group_simulation
+      sorting_weight: 15
+  - platform: template
+    name: simulate_take_back
+    id: simulate_take_back
+    on_press:
+      then:
+        - lambda: |-
+            id(take_back).execute();              
+    web_server:
+      sorting_group_id: sorting_group_simulation
+      sorting_weight: 16
+
+
+binary_sensor:
+  - platform: gpio
+    name: "White finished"
+    id: button_white_finished
+    pin:
+      pcf8574: pcf8574_w
+      number: 3
+      mode:
+        input: true
+      inverted: true
+    on_press:
+      then:
+        - lambda: |-
+            // only during the gave
+            if (id(game_running) && id(white_to_move) ) {
+              // if our turn, we store the move and let opponent play
+                id(store_move).execute();                
+            }
+    web_server:
+      sorting_group_id: sorting_group_sensors
+      sorting_weight: 1
+  - platform: gpio
+    pin:
+      number: GPIO18
+      mode: INPUT_PULLUP
+      inverted: true
+    name: "Black finished"
+    id: button_black_finished
+    on_press:
+      then:
+        - lambda: |-
+            // only during the gave
+            if (id(game_running)) {
+              // if our turn, we store the move and let opponent play
+              if (id(!white_to_move))
+              {
+                id(store_move).execute();
+              }
+            } else if (id(halfmove_counter) == 0) {
+              // at the begin of the game black can start the clock by button
+              id(game_running) = true;
+              // the game can be also started by the pause button
+              id(led_update).execute();
+            }  
+
+    web_server:
+      sorting_group_id: sorting_group_sensors
+      sorting_weight: 2
+  - platform: gpio
+    pin:
+      number: GPIO5
+      mode: INPUT_PULLUP
+      inverted: true
+    name: "Pause"
+    id: button_pause
+    on_press:
+      then:
+        - lambda: |-
+            id(game_running) = !id(game_running);
+            id(led_update).execute();
+    web_server:
+      sorting_group_id: sorting_group_sensors
+      sorting_weight: 3
+  - platform: gpio
+    pin:
+      number: GPIO17
+      mode: INPUT_PULLUP
+      inverted: true
+    name: "Back"
+    id: button_back
+    web_server:
+      sorting_group_id: sorting_group_sensors
+      sorting_weight: 4
+  - platform: gpio
+    pin:
+      number: GPIO16
+      mode: INPUT_PULLUP
+      inverted: true
+    name: "Up"
+    id: button_up
+    web_server:
+      sorting_group_id: sorting_group_sensors
+      sorting_weight: 5
+  - platform: gpio
+    pin:
+      number: GPIO4
+      mode: INPUT_PULLUP
+      inverted: true
+    name: "Down"
+    id: button_down
+    web_server:
+      sorting_group_id: sorting_group_sensors
+      sorting_weight: 6
+  - platform: gpio
+    pin:
+      number: GPIO0
+      mode: INPUT_PULLUP
+      inverted: true
+    name: "Set"
+    id: button_set
+    web_server:
+      sorting_group_id: sorting_group_sensors
+      sorting_weight: 7
+  - platform: template
+    name: initial_position_set
+    internal: true
+    lambda: |-
+      bool init_position = true;
+      for (int i = 0; i < 64; i++) {
+        if (id(raw_position_current)[i]  != id(raw_position_init)[i])
+        {
+          init_position = false;
+          break;
+        }
+      }
+      return init_position;
+    on_press:
+      then:
+        - lambda: |-
+            id(send_telegram_message).execute();
+            id(reset_all_values).execute();
+            // notfiy -> ready for new game
+
+select:
+  - platform: template
+    name: "Time Control"
+    id: chess_time_control
+    optimistic: true
+    options:
+      - "Bullet (2+1)"
+      - "Blitz (3+0)"
+      - "Blitz (3+2)"
+      - "Blitz (5+0)"
+      - "Blitz (5+3)"
+      - "Rapid (10+0)"
+      - "Rapid (10+5)"
+      - "Rapid (15+10)"
+      - "Classical (30+0)"
+      - "Classical (60+0)"
+      - "Classical (90+30)"
+    initial_option: "Rapid (15+10)"
+    on_value: 
+      then:
+        - lambda: |-
+            // not during the game
+            if (id(halfmove_counter) == 0) {
+              if (x == "Bullet (2+1)") {
+                // Set time control to Bullet (2+1)
+                id(time_control_duration) = 120;
+                id(time_control_increment) = 1;
+              } else if (x == "Blitz (3+0)") {
+                // Set time control to Blitz (3+0)
+                id(time_control_duration) = 180;
+                id(time_control_increment) = 0;
+              } else if (x == "Blitz (3+2)") {
+                // Set time control to Blitz (3+2)
+                id(time_control_duration) = 180;
+                id(time_control_increment) = 2;
+              } else if (x == "Blitz (5+0)") {
+                // Set time control to Blitz (5+0)
+                id(time_control_duration) = 300;
+                id(time_control_increment) = 0;
+              } else if (x == "Blitz (5+3)") {
+                // Set time control to Blitz (5+3)
+                id(time_control_duration) = 300;
+                id(time_control_increment) = 3;
+              } else if (x == "Rapid (10+0)") {
+                // Set time control to Rapid (10+0)
+                id(time_control_duration) = 600;
+                id(time_control_increment) = 0;
+              } else if (x == "Rapid (10+5)") {
+                // Set time control to Rapid (10+5)
+                id(time_control_duration) = 600;
+                id(time_control_increment) = 5;
+              } else if (x == "Rapid (15+10)") {
+                // Set time control to Rapid (15+10)
+                id(time_control_duration) = 900;
+                id(time_control_increment) = 10;
+              } else if (x == "Classical (30+0)") {
+                // Set time control to Classical (30+0)
+                id(time_control_duration) = 1800;
+                id(time_control_increment) = 0;
+              } else if (x == "Classical (60+0)") {
+                // Set time control to Classical (60+0)
+                id(time_control_duration) = 3600;
+                id(time_control_increment) = 0;
+              } else if (x == "Classical (90+30)") {
+                // Set time control to Classical (90+30)
+                id(time_control_duration) = 5400;
+                id(time_control_increment) = 30;
+              }
+
+              id(time_control_timer_black) = id(time_control_duration);
+              id(time_control_timer_white) = id(time_control_duration);
+
+              id(timer_black).update();
+              id(timer_white).update();
+
+            } else {
+              // select previos selected option
+            }
+    web_server:
+      sorting_group_id: sorting_group_settings
+      sorting_weight: 1
+  - platform: template
+    name: "Promotion to"
+    id: pawn_promotion
+    optimistic: true
+    options:
+      - "Queen"
+      - "Rook"
+      - "Bishop"
+      - "Knight"
+    initial_option: "Queen"
+    on_value: 
+      then:
+        lambda: |-
+          if (x == "Queen") {
+            // Set promotion to Queen
+            id(default_pawn_promotion_to) = "Q";
+          } else if (x == "Rook") {
+            // Set promotion to Rook
+            id(default_pawn_promotion_to) = "R";
+          } else if (x == "Bishop") {
+            // Set promotion to Bishop
+            id(default_pawn_promotion_to) = "B";
+          } else if (x == "Knight") {
+            // Set promotion to Knight
+            id(default_pawn_promotion_to) = "N";
+          }
+    web_server:
+      sorting_group_id: sorting_group_settings
+      sorting_weight: 2
+  - platform: template
+    name: "Account"
+    id: lichess_account
+    internal: true
+    optimistic: true
+    options:
+      - !secret chessboard_player_b
+      - !secret chessboard_player_a
+      - "Test"
+    initial_option: !secret chessboard_player_b
+    web_server:
+      sorting_group_id: sorting_group_settings
+      sorting_weight: 3
+sensor:
+  - platform: adc
+    pin: GPIO36
+    name: current_hall_sensor_1
+    id: current_hall_sensor_1
+    internal: true
+    attenuation: $attenuation_value
+    samples: $n_adc_samples
+    update_interval: never
+  - platform: adc
+    pin: GPIO39
+    name: current_hall_sensor_2
+    id: current_hall_sensor_2
+    internal: true
+    attenuation: $attenuation_value
+    samples: $n_adc_samples
+    update_interval: never
+  - platform: adc
+    pin: GPIO34
+    name: current_hall_sensor_3
+    id: current_hall_sensor_3
+    internal: true
+    attenuation: $attenuation_value
+    samples: $n_adc_samples
+    update_interval: never
+  - platform: adc
+    pin: GPIO35
+    name: current_hall_sensor_4
+    id: current_hall_sensor_4
+    internal: true
+    attenuation: $attenuation_value
+    samples: $n_adc_samples
+    update_interval: never
+  - platform: template
+    id: field_a8
+    name: "field_a8"
+    internal: false
+    accuracy_decimals: 2
+    lambda: |-
+      return id(voltage_field_current)[0];
+    update_interval: 10s
+    web_server:
+      sorting_group_id: sorting_group_sensors
+  - platform: template
+    id: field_h1
+    name: "field_h1"
+    internal: false
+    accuracy_decimals: 2
+    lambda: |-
+      return id(voltage_field_current)[63];
+    update_interval: 10s
+    web_server:
+      sorting_group_id: sorting_group_sensors
+  - platform: template
+    id: halfmove_counter_sensor
+    name: "halfmove_counter"
+    internal: true
+    accuracy_decimals: 0
+    lambda: |-
+      return id(halfmove_counter);
+    update_interval: 1s
+    web_server:
+      sorting_group_id: sorting_group_sensors
+
+text_sensor:
+  - platform: template
+    name: "Timer (white)"
+    id: timer_white
+    lambda: |-
+      if (id(time_control_timer_white) > 0 ) {
+        int minutes = id(time_control_timer_white) / 60;
+        int seconds = id(time_control_timer_white) % 60;
+        char buffer[6];
+        sprintf(buffer, "%02d:%02d", minutes, seconds);
+        return {buffer};
+      } else {
+        std::string e = "--:--";
+        return e;
+      }
+    web_server:
+      sorting_group_id: sorting_group_settings
+      sorting_weight: 3
+  - platform: template
+    name: "Timer (black)"
+    id: timer_black
+    lambda: |-
+      if (id(time_control_timer_black) > 0 ) {
+        int minutes = id(time_control_timer_black) / 60;
+        int seconds = id(time_control_timer_black) % 60;
+        char buffer[6];
+        sprintf(buffer, "%02d:%02d", minutes, seconds);
+        return {buffer};
+      } else {
+        std::string e = "--:--";
+        return e;
+      }
+    web_server:
+      sorting_group_id: sorting_group_settings
+      sorting_weight: 4
+
+
+  - platform: template
+    id: last_move_pgn_sensor
+    name: "PGN Move"
+    lambda: |-
+      std::string pgn_move = id(last_move_pgn);
+      if (pgn_move.length() > 0 ) {
+        int fullmove = (int)(id(halfmove_counter) / 2.) + 1;
+        if (id(halfmove_counter) % 2 == 0) {
+            pgn_move += " ...";
+        } else {
+          pgn_move = "... " + pgn_move; 
+        }
+        pgn_move = std::to_string(fullmove) + ". " + pgn_move;
+      }
+      return pgn_move;
+    update_interval: never
+    web_server:
+      sorting_group_id: sorting_group_pgn
+      sorting_weight: 0
+  - platform: template
+    id: pgn_history_1
+    name: "PGN_1"
+    lambda: |-
+      std::string cutted_history = id(pgn_history);
+      return cutted_history.substr(0, 255);
+    update_interval: never
+    web_server:
+      sorting_group_id: sorting_group_pgn
+      sorting_weight: 1
+  - platform: template
+    id: pgn_history_2
+    name: "PGN_2"
+    lambda: |-
+      std::string cutted_history = id(pgn_history);      
+      if (cutted_history.length() > 255) {
+        return cutted_history.substr(255, 255);  // Safe substring
+      } else {
+        std::string empty_string = "";
+        return empty_string;  // Return an empty string if too short
+      }
+    update_interval: never
+    web_server:
+      sorting_group_id: sorting_group_pgn
+      sorting_weight: 2
+  - platform: template
+    id: pgn_history_3
+    name: "PGN_3"
+    lambda: |-
+      std::string cutted_history = id(pgn_history);
+      int shift = 255*2;
+      if (cutted_history.length() > shift) {
+        return cutted_history.substr(shift, 255);  // Safe substring
+      } else {
+        std::string empty_string = "";
+        return empty_string;  // Return an empty string if too short
+      }
+    update_interval: never
+    web_server:
+      sorting_group_id: sorting_group_pgn
+      sorting_weight: 3
+  - platform: template
+    id: pgn_history_4
+    name: "PGN_4"
+    lambda: |-
+      std::string cutted_history = id(pgn_history);
+      int shift = 255*3;
+      if (cutted_history.length() > shift) {
+        return cutted_history.substr(shift, 255);  // Safe substring
+      } else {
+        std::string empty_string = "";
+        return empty_string;  // Return an empty string if too short
+      }
+    update_interval: never
+    web_server:
+      sorting_group_id: sorting_group_pgn
+      sorting_weight: 4
+  - platform: template
+    id: pgn_history_5
+    name: "PGN_5"
+    lambda: |-
+      std::string cutted_history = id(pgn_history);
+      int shift = 255*4;
+      if (cutted_history.length() > shift) {
+        return cutted_history.substr(shift, 255);  // Safe substring
+      } else {
+        std::string empty_string = "";
+        return empty_string;  // Return an empty string if too short
+      }
+    update_interval: never
+    web_server:
+      sorting_group_id: sorting_group_pgn
+      sorting_weight: 5
+  - platform: template
+    id: pgn_history_6
+    name: "PGN_6"
+    lambda: |-
+      std::string cutted_history = id(pgn_history);
+      int shift = 255*5;
+      if (cutted_history.length() > shift) {
+        return cutted_history.substr(shift, 255);  // Safe substring
+      } else {
+        std::string empty_string = "";
+        return empty_string;  // Return an empty string if too short
+      }
+    update_interval: never
+    web_server:
+      sorting_group_id: sorting_group_pgn
+      sorting_weight: 6
+  - platform: template
+    id: pgn_history_7
+    name: "PGN_7"
+    lambda: |-
+      std::string cutted_history = id(pgn_history);
+      int shift = 255*6;
+      if (cutted_history.length() > shift) {
+        return cutted_history.substr(shift, 255);  // Safe substring
+      } else {
+        std::string empty_string = "";
+        return empty_string;  // Return an empty string if too short
+      }
+    update_interval: never
+    web_server:
+      sorting_group_id: sorting_group_pgn
+      sorting_weight: 7
+  - platform: template
+    id: pgn_history_8
+    name: "PGN_8"
+    lambda: |-
+      std::string cutted_history = id(pgn_history);
+      int shift = 255*7;
+      if (cutted_history.length() > shift) {
+        return cutted_history.substr(shift, 255);  // Safe substring
+      } else {
+        std::string empty_string = "";
+        return empty_string;  // Return an empty string if too short
+      }
+    update_interval: never
+    web_server:
+      sorting_group_id: sorting_group_pgn
+      sorting_weight: 8
+  - platform: template
+    id: pgn_history_9
+    name: "PGN_9"
+    lambda: |-
+      std::string cutted_history = id(pgn_history);
+      int shift = 255*8;
+      if (cutted_history.length() > shift) {
+        return cutted_history.substr(shift, 255);  // Safe substring
+      } else {
+        std::string empty_string = "";
+        return empty_string;  // Return an empty string if too short
+      }
+    update_interval: never
+    web_server:
+      sorting_group_id: sorting_group_pgn
+      sorting_weight: 9
+
+  - platform: template
+    name: "8"
+    id: line_8
+    update_interval: never
+    web_server:
+      sorting_group_id: sorting_group_fen
+      sorting_weight: 1
+
+  - platform: template
+    name: "7"
+    id: line_7
+    update_interval: never
+    web_server:
+      sorting_group_id: sorting_group_fen
+      sorting_weight: 2
+
+  - platform: template
+    name: "6"
+    id: line_6
+    update_interval: never
+    web_server:
+      sorting_group_id: sorting_group_fen
+      sorting_weight: 3
+
+  - platform: template
+    name: "5"
+    id: line_5
+    update_interval: never
+    web_server:
+      sorting_group_id: sorting_group_fen
+      sorting_weight: 4
+
+  - platform: template
+    name: "4"
+    id: line_4
+    update_interval: never
+    web_server:
+      sorting_group_id: sorting_group_fen
+      sorting_weight: 5
+
+  - platform: template
+    name: "3"
+    id: line_3
+    update_interval: never
+    web_server:
+      sorting_group_id: sorting_group_fen
+      sorting_weight: 6
+
+  - platform: template
+    name: "2"
+    id: line_2
+    update_interval: never
+    web_server:
+      sorting_group_id: sorting_group_fen
+      sorting_weight: 7
+
+  - platform: template
+    name: "1"
+    id: line_1
+    update_interval: never
+    web_server:
+      sorting_group_id: sorting_group_fen
+      sorting_weight: 8
+
+  - platform: template 
+    name: "UCI current"
+    id: uci_current
+    internal: true
+    update_interval: never
+    web_server:
+      sorting_group_id: sorting_group_fen
+
+
+# Define a script to read and update the ADC values into the global array
+script:
+  - id: take_back
+    then:
+      - lambda: |-
+            // one take back only
+            if (id(pgn_history) != id(pgn_history_take_back)) {
+
+              // if promotion to queen, we have to reduce the number of queens
+              if (id(last_move_pgn).find("=Q") != std::string::npos) {
+                if (id(white_to_move) && id(n_queens_white) > 1 ) {
+                  id(n_queens_white) -= 1;
+                } else  if (!id(white_to_move) && id(n_queens_black) > 1) {
+                    id(n_queens_black) -= 1;
+                }
+              }
+
+              // toggle who to move
+              id(white_to_move) = !id(white_to_move);
+
+              // replace last fen by take back
+              for (int i = 0; i < 65; i++) {
+                id(fen_position_current)[i] = id(fen_position_last)[i];
+                id(fen_position_last)[i] = id(fen_position_take_back)[i];
+              };
+
+              // replace last position by take back
+              for (int i = 0; i < 64; i++) {              
+                id(raw_position_current)[i] = id(raw_position_last)[i];  
+                id(raw_position_last)[i] = id(raw_position_take_back)[i]; 
+              };
+
+              // counter back
+              id(halfmove_counter) -= 1;
+
+              // pgn history
+              int previous_length = id(pgn_history).length();
+              id(pgn_history) = id(pgn_history_take_back);
+              id(last_move_pgn) = id(last_move_pgn_take_back);
+
+              // update led
+              id(led_update).execute();
+
+              // update pgn sensors
+              id(pgn_history_1).update();
+              // update furhter sensors (take previous length)
+              if ( previous_length > 255) {
+                id(pgn_history_2).update();  
+              }
+              if ( previous_length > 510) {
+                id(pgn_history_3).update();  
+              }
+              if ( previous_length > 765) {
+                id(pgn_history_4).update();  
+              }
+              if ( previous_length > 1020) {
+                id(pgn_history_5).update();  
+              }
+              if ( previous_length > 1275) {
+                id(pgn_history_6).update();  
+              }
+              if ( previous_length > 1530) {
+                id(pgn_history_7).update();  
+              }
+              if ( previous_length > 1785) {
+                id(pgn_history_8).update();  
+              }
+              if ( previous_length > 2040) {
+                id(pgn_history_9).update();  
+              }
+                  
+              // update further sensors
+              id(update_chess_board).execute();
+              id(last_move_pgn_sensor).update();
+            }
+            
+
+
+  - id: update_chess_board
+    then:
+      - lambda: |-
+            //  init some variables
+            const std::string border_line = "---------------------------------------------------------------";
+            int line_counter = 0;
+            std::string line_representation = "|";
+            id(fen_position_chessboard) = border_line + "\n|";
+
+            // iterate over current fen raw position  
+            for (int i=0; i<64; i++) {
+              // extend current line
+              // Select first char from fen string
+              line_representation += id(chess_symbols)[id(fen_position_current)[i].at(0)] + "|";
+              id(fen_position_chessboard) += id(chess_symbols_telegram)[id(fen_position_current)[i].at(0)] + "|";
+
+              if ((i + 1) % 8 == 0) { // store line
+                
+                int line_counter = (int)(i / 8);
+
+                // update line
+                if (line_counter == 0)
+                {
+                  id(line_8).publish_state(line_representation);
+                } else if (line_counter == 1)
+                {
+                  id(line_7).publish_state(line_representation);
+                } else if (line_counter == 2)
+                {
+                  id(line_6).publish_state(line_representation);
+                } else if (line_counter == 3)
+                {
+                  id(line_5).publish_state(line_representation);
+                } else if (line_counter == 4)
+                {
+                  id(line_4).publish_state(line_representation);
+                } else if (line_counter == 5)
+                {
+                  id(line_3).publish_state(line_representation);
+                } else if (line_counter == 6)
+                {
+                  id(line_2).publish_state(line_representation);
+                } else if (line_counter == 7)
+                {
+                  id(line_1).publish_state(line_representation);
+                }
+
+                if  (line_counter != 7) {
+                  id(fen_position_chessboard) += "\n" + border_line + "\n|";
+                } else {
+                  id(fen_position_chessboard) += "\n" + border_line;
+                }               
+                line_representation = "|";
+
+              } 
+            }
+
+  - id: update_timer
+    then:
+      - lambda: |-
+          if ( id(game_running) ) // we are in the game or no pause pressed
+          {
+            if (id(white_to_move)) {
+              if (id(time_control_timer_white) > 0 )
+              {
+                id(time_control_timer_white) -= 1;
+                id(timer_white).update();
+              }
+            } else {
+              if (id(time_control_timer_black) > 0 ) {
+                id(time_control_timer_black) -= 1;
+                id(timer_black).update();
+              }
+            }
+          }
+  - id: send_telegram_message
+    then:
+      - script.execute: create_full_pgn
+      - http_request.post:
+          url: !secret telegram_cheesboard_url
+          headers:
+            Content-Type: application/json
+          json:
+            chat_id: !secret telegram_cheesboard_chat_id_1
+            text: !lambda |-
+                return id(pgn_full);
+              
+      - http_request.post:
+          url: !secret telegram_cheesboard_url
+          headers:
+            Content-Type: application/json
+          json:
+            chat_id: !secret telegram_cheesboard_chat_id_2
+            text: !lambda |-
+                return id(pgn_full);
+
+  - id: create_full_pgn
+    then:
+      - lambda: |-
+          auto time = id(sntp_time).now();
+
+          std::string year = std::to_string(time.year);
+          std::string month = std::to_string(time.month);
+          std::string month_prefix = (time.month < 10 ? "0" : "");
+          std::string day_prefix = (time.day_of_month < 10 ? "0" : "");
+          std::string day = std::to_string(time.day_of_month);
+          std::string hour_prefix = (time.hour < 10 ? "0" : "");
+          std::string hour = std::to_string(time.hour);
+          std::string minute_prefix = (time.minute < 10 ? "0" : "");
+          std::string minute = std::to_string(time.minute);
+          std::string second_prefix = (time.second < 10 ? "0" : "");
+          std::string second = std::to_string(time.second);
+
+          std::string pgn_header = "[Event \"Chessboard Game\"]\n";
+          pgn_header += "[Date \"" + year + "." + month_prefix  + month + "." + day_prefix  + day  + "\"]\n";
+          pgn_header += "[White \"Player A\"]\n";
+          pgn_header += "[Black \"Player B\"]\n";
+          pgn_header += "[UTCDate \"" + year + "." + month_prefix  + month + "." +  day_prefix  + day + "\"]\n";
+          pgn_header += "[UTCTime \"" + hour_prefix + hour + ":" + minute_prefix + minute + ":" + second_prefix + second + "\"]\n";
+          pgn_header += "[Variant \"Standard\"]\n";
+          pgn_header += "[TimeControl \"" + std::to_string(id(time_control_duration)) + "+" + std::to_string(id(time_control_increment))+ "\"]";
+
+          pgn_header += "\n\n" + id(pgn_history) + "\n{\n";
+          pgn_header += id(fen_position_chessboard) + "\n}";
+
+          id(pgn_full) = pgn_header;
+
+  - id: reset_all_values 
+    then:
+      - lambda: |-
+          id(reset_fen_position).execute();
+          id(reset_raw_position).execute();
+          id(reset_voltage_field).execute();
+          id(reset_pgn_values).execute();
+          id(white_to_move) = true;
+          id(led_update).execute();
+          id(game_running) = false;
+          id(halfmove_counter) = 0;
+          id(current_move_from) = 0;
+          id(current_move_to) = 0;
+          id(current_move_type) = "";
+          id(current_move_uci) = "";
+          id(valid_move) = false;
+          id(moved_piece) = "";
+
+          id(sync_time_control).execute();
+          id(time_control_timer_black) = id(time_control_duration);
+          id(time_control_timer_white) = id(time_control_duration);
+          
+          id(n_queens_white) = 1;
+          id(n_queens_black) = 1;
+
+          id(timer_black).update();
+          id(timer_white).update();
+
+  - id: update_pgn_history
+    then:
+      - lambda: |-
+          // allways update first pgn          
+          id(pgn_history_1).update();
+          // update furhter sensors (pgn can not be shorten in game)
+          int curr_pgn_length = id(pgn_history).length();
+          if ( curr_pgn_length > 255) {
+            id(pgn_history_2).update();  
+          }
+          if ( curr_pgn_length > 510) {
+            id(pgn_history_3).update();  
+          }
+          if ( curr_pgn_length > 765) {
+            id(pgn_history_4).update();  
+          }
+          if ( curr_pgn_length > 1020) {
+            id(pgn_history_5).update();  
+          }
+          if ( curr_pgn_length > 1275) {
+            id(pgn_history_6).update();  
+          }
+          if ( curr_pgn_length > 1530) {
+            id(pgn_history_7).update();  
+          }
+          if ( curr_pgn_length > 1785) {
+            id(pgn_history_8).update();  
+          }
+          if ( curr_pgn_length > 2040) {
+            id(pgn_history_9).update();  
+          }
+
+  - id: reset_pgn_values
+    then:
+      - lambda: |-
+          id(last_move_pgn) = "";
+          id(last_move_pgn_take_back) = "";
+          id(pgn_history) = "";
+          id(pgn_history_take_back) = "";
+          id(pgn_full) = "";
+          id(pgn_history_1).update();
+          id(pgn_history_2).update();
+          id(pgn_history_3).update();
+          id(pgn_history_4).update();
+          id(pgn_history_5).update();
+          id(pgn_history_6).update();
+          id(pgn_history_7).update();
+          id(pgn_history_8).update();
+          id(pgn_history_9).update();
+
+          id(last_move_pgn_sensor).update();
+
+  - id: reset_fen_position
+    then:
+      - lambda: |-
+          for (int i = 0; i < 65; i++) {
+            std::string curr_value = id(fen_position_init)[i];
+            id(fen_position_take_back)[i] = curr_value;
+            id(fen_position_last)[i] = curr_value;   
+            id(fen_position_current)[i] = curr_value;          
+          };
+          id(update_chess_board).execute();
+          id(fen_position_chessboard) = "";
+
+  - id: reset_raw_position
+    then:
+      - lambda: |-
+          for (int i = 0; i < 64; i++) {
+            int curr_value = id(raw_position_init)[i];
+            id(raw_position_take_back)[i] = curr_value; 
+            id(raw_position_last)[i] = curr_value;   
+            id(raw_position_current)[i] = curr_value;          
+          };
+
+  - id: reset_voltage_field
+    then:
+      - lambda: |-
+          for (int i = 0; i < 64; i++) {
+            float curr_value = id(voltage_field_offset)[i];
+            id(voltage_field_current)[i] = curr_value;   
+          };
+  - id: led_update
+    then:
+      - lambda: |-
+            if (id(white_to_move)) { 
+              if (!id(led_white_to_move).state && id(game_running)) {
+                id(led_white_to_move).turn_on();
+              }
+              if (id(led_black_to_move).state || !id(game_running)) {
+                id(led_black_to_move).turn_off();
+              }
+            } else { // black
+              if (!id(led_black_to_move).state && id(game_running)) {
+                id(led_black_to_move).turn_on();
+              }
+              if (id(led_white_to_move).state || !id(game_running)) {
+                id(led_white_to_move).turn_off();
+              }
+            }
+            if (id(led_black_nonvalid_move).state) {
+              id(led_black_nonvalid_move).turn_off();
+            }
+            if (id(led_black_valid_move).state) {
+              id(led_black_valid_move).turn_off();
+            }
+            if (id(led_white_nonvalid_move).state) {
+              id(led_white_nonvalid_move).turn_off();
+            }
+            if (id(led_white_valid_move).state) {
+              id(led_white_valid_move).turn_off();
+            }
+
+  - id: sync_time_control
+    then:
+      - lambda: |-
+          auto call = id(chess_time_control).make_call();
+          if (id(time_control_duration) == 120 && id(time_control_increment) == 1) {
+            call.set_option("Bullet (2+1)");
+          } else if (id(time_control_duration) == 180 && id(time_control_increment) == 0) {
+            call.set_option("Blitz (3+0)");
+          } else if (id(time_control_duration) == 180 && id(time_control_increment) == 2) {
+            call.set_option("Blitz (3+2)");
+          } else if (id(time_control_duration) == 300 && id(time_control_increment) == 0) {
+            call.set_option("Blitz (5+0)");
+          } else if (id(time_control_duration) == 300 && id(time_control_increment) == 3) {
+            call.set_option("Blitz (5+3)");
+          } else if (id(time_control_duration) == 600 && id(time_control_increment) == 0) {
+            call.set_option("Rapid (10+0)");
+          } else if (id(time_control_duration) == 600 && id(time_control_increment) == 5) {
+            call.set_option("Rapid (10+5)");
+          } else if (id(time_control_duration) == 900 && id(time_control_increment) == 10) {
+            call.set_option("Rapid (15+10)");
+          } else if (id(time_control_duration) == 1800 && id(time_control_increment) == 0) {
+            call.set_option("Classical (30+0)");
+          } else if (id(time_control_duration) == 3600 && id(time_control_increment) == 0) {
+            call.set_option("Classical (60+0)");
+          } else if (id(time_control_duration) == 5400 && id(time_control_increment) == 30) {
+            call.set_option("Classical (90+30)");
+          } else {
+            call.set_option("Rapid (15+10)");  // Default option
+          }
+          call.perform();
+  - id: store_move
+    then:
+      - lambda: |-
+          // get current png move
+          id(move_analyser).execute();
+          // store move if valid only
+          if (id(valid_move)) {
+            // store previous pgn history
+            id(pgn_history_take_back) = id(pgn_history);
+
+            // add current pgn to history
+            if (id(white_to_move)) { // white
+              std::string fullmove = std::to_string((int)(id(halfmove_counter) / 2.) + 1);
+              id(pgn_history) = id(pgn_history) + fullmove + ". " + id(last_move_pgn);
+            } else { // black
+              id(pgn_history) = id(pgn_history) + " " + id(last_move_pgn) + "\n";
+            }
+
+            //update pgn sensors
+            id(update_pgn_history).execute();
+
+            // replace last fen by current fen
+            for (int i = 0; i < 65; i++) {
+              id(fen_position_take_back)[i] = id(fen_position_last)[i];
+              id(fen_position_last)[i] = id(fen_position_current)[i];          
+            };
+
+            // replace last position by current position
+            for (int i = 0; i < 64; i++) {
+              id(raw_position_take_back)[i] = id(raw_position_last)[i];
+              id(raw_position_last)[i] = id(raw_position_current)[i];   
+            };
+
+            // update timer
+            if (id(white_to_move)){
+              id(time_control_timer_white) += id(time_control_increment);
+            } else {
+              id(time_control_timer_black) += id(time_control_increment);
+            }
+
+            // toggle white_to_move
+            id(white_to_move) = !id(white_to_move);
+            // increase coutner of halfmoves
+            id(halfmove_counter) += 1;
+            // there is no moved piece
+            id(moved_piece) = "";
+            // reset valid move
+            id(valid_move) = false;
+            // reset move type
+            id(current_move_type) = "";
+            // reset led for next move
+            id(led_update).execute();            
+          }
+
+  - id: check_color
+    then:
+      - lambda: |-
+          // define flag          
+          bool valid_check = false;
+          if (id(white_to_move)) {
+            if (std::find(id(fen_white).begin(), id(fen_white).end(), id(moved_piece)) != id(fen_white).end())
+            {
+              valid_check = true;
+            }
+          } else {
+            if (std::find(id(fen_black).begin(), id(fen_black).end(), id(moved_piece)) != id(fen_black).end())
+            {
+              valid_check = true;
+            }           
+          }
+
+          // reset flag
+          if (!valid_check) {
+            id(valid_move) = false;
+          }
+
+  - id: move_analyser
+    then:
+      - lambda: |-
+          // reset flag
+          id(valid_move) = false;
+
+          // Define a array of size 64 to hold differences
+          std::array<int, 64> pos_difference;
+
+          // loop over all 64 current and last positions
+          int s = (id(white_to_move))? 1 : -1;
+          for (int value = 0; value < 64; value++) {
+            pos_difference[value] = (id(raw_position_current)[value] - id(raw_position_last)[value])*s;
+          }
+
+          int sum = 0; // holds the sum of all differences
+          int sum_abs = 0; // holds the sum of all abs differences
+          int counter_changes = 0; // holds the number of changed fields
+
+          for (int value = 0; value < 64; value++) {
+            sum += pos_difference[value];
+            int cur_pos_abs = abs(pos_difference[value]);
+            sum_abs += cur_pos_abs;
+            int change = (cur_pos_abs > 0) ? 1 : 0;
+            counter_changes += change;
+          }
+
+          // MOVE
+          if (sum_abs == 2 && sum == 0 && counter_changes == 2 ) {
+
+            int from = 0;
+            int to = 0;
+            // find from index
+            auto it_from = std::find(pos_difference.begin(), pos_difference.end(), -1);
+            if (it_from != pos_difference.end()) {
+                from = std::distance(pos_difference.begin(), it_from);
+            }
+
+            // find to index
+            auto it_to = std::find(pos_difference.begin(), pos_difference.end(), 1);
+            if (it_to != pos_difference.end()) {
+                to = std::distance(pos_difference.begin(), it_to);
+            }
+
+            // we call update_pgn if valid move only -> rise flag
+            id(valid_move) = true;
+            id(moved_piece) = id(fen_position_last)[from];
+            id(check_color).execute();
+
+            // still valid
+            if (id(valid_move)) {
+
+              // update global variables
+              id(current_move_from) = from;
+              id(current_move_to) = to;
+              id(current_move_type) = "MOVE";
+
+              // update fen
+              id(fen_position_current)[to] = id(fen_position_last)[from];
+              id(fen_position_current)[from] = "0";
+
+              id(update_chess_board).execute();  
+
+              // run pgn move extractor 
+              id(update_pgn).execute(); 
+            }
+          }
+
+          // TAKE
+          if (sum_abs == 3 && sum == 1 && counter_changes == 2 ) {
+
+            int from = 0;
+            int to = 0;
+            // find from index
+            auto it_from = std::find(pos_difference.begin(), pos_difference.end(), -1);
+            if (it_from != pos_difference.end()) {
+                from = std::distance(pos_difference.begin(), it_from);
+            }
+
+            // find to index
+            auto it_to = std::find(pos_difference.begin(), pos_difference.end(), 2);
+            if (it_to != pos_difference.end()) {
+                to = std::distance(pos_difference.begin(), it_to);
+            }
+
+            // we call update_pgn if valid move only -> rise flag
+            id(valid_move) = true;
+            id(moved_piece) = id(fen_position_last)[from];
+            id(check_color).execute();
+
+            // still valid
+            if (id(valid_move)) {
+
+              id(current_move_from) = from;
+              id(current_move_to) = to;
+              id(current_move_type) = "TAKE";
+
+            // update fen
+              id(fen_position_current)[to] = id(fen_position_last)[from];
+              id(fen_position_current)[from] = "0";
+
+              id(update_chess_board).execute();   
+
+              // run pgn move extractor 
+              id(update_pgn).execute();
+            }
+          }
+
+          // CASTLING
+          if (sum_abs == 4 && sum == 0 && counter_changes == 4 && (pos_difference[60] == -1 || pos_difference[4] == -1) ) {
+            int from_k = 0;
+            int to_k = 0;
+            int from_r = 0;
+            int to_r = 0;
+
+            // white
+            if (pos_difference[60] == -1) {
+              from_k = 60;
+              if (pos_difference[63] == -1) { // short
+                from_r = 63;
+                to_r = 61;
+                to_k = 62;
+                id(current_move_type) = "CASTLING_SHORT";
+              }
+              if (pos_difference[56] == -1) { // long
+                from_r = 56;
+                to_r = 59;
+                to_k = 58;
+                id(current_move_type) = "CASTLING_LONG";
+              }
+            }
+            // black 
+            if (pos_difference[4] == -1) {
+              from_k = 4;
+              if (pos_difference[7] == -1) { // short
+                from_r = 7;
+                to_r = 5;
+                to_k = 6;
+                id(current_move_type) = "CASTLING_SHORT";
+              }
+              if (pos_difference[0] == -1) { // long
+                from_r = 0;
+                to_r = 3;
+                to_k = 2;
+                id(current_move_type) = "CASTLING_LONG";
+              }
+            }
+
+            // we call update_pgn if valid move only -> rise flag
+            id(valid_move) = true;
+            id(moved_piece) = id(fen_position_last)[from_k];
+            id(check_color).execute();
+
+            // still valid
+            if (id(valid_move)) {
+
+              // update fen
+              id(fen_position_current)[to_k] = id(fen_position_last)[from_k];
+              id(fen_position_current)[from_k] = "0";            
+              
+              id(fen_position_current)[to_r] = id(fen_position_last)[from_r];   
+              id(fen_position_current)[from_r] = "0"; 
+
+              id(update_chess_board).execute();
+
+              id(current_move_from) = from_k;
+              id(current_move_to) = to_k;            
+              
+              // run pgn move extractor 
+              id(update_pgn).execute(); 
+            }
+          }
+
+          // EN PASSANT
+          if (sum_abs == 3 && sum == 1 && counter_changes == 3 ) {
+            int from = 0;
+            int from_opponent = 0;
+            int to = 0;
+            // find from index
+            auto it_from = std::find(pos_difference.begin(), pos_difference.end(), -1);
+            if (it_from != pos_difference.end()) {
+                from = std::distance(pos_difference.begin(), it_from);
+                if (pos_difference[from - 1] == 1) {
+                  from_opponent = from - 1;  
+                }
+                if (pos_difference[from + 1] == 1) {
+                  from_opponent = from + 1;  
+                }
+                // we deactivate the neighbour idx to find the goal
+                pos_difference[from_opponent]  = 0;
+            }
+
+            // find to index
+            auto it_to = std::find(pos_difference.begin(), pos_difference.end(), 1);
+            if (it_to != pos_difference.end()) {
+                to = std::distance(pos_difference.begin(), it_to);
+            }
+
+            // we call update_pgn if valid move only -> rise flag
+            id(valid_move) = true;
+            id(moved_piece) = id(fen_position_last)[from];
+            id(check_color).execute();
+
+            // still valid
+            if (id(valid_move)) {
+
+              id(current_move_from) = from;
+              id(current_move_to) = to;
+              id(current_move_type) = "ENPASSANT";
+
+              // update fen
+              id(fen_position_current)[to] = id(fen_position_last)[from];
+              id(fen_position_current)[from] = "0";
+              id(fen_position_current)[from_opponent] = "0";
+
+              id(update_chess_board).execute();
+              
+              // run pgn move extractor
+              id(update_pgn).execute(); 
+            } 
+          }
+
+          // if no valid move found, rise flag
+          if (id(valid_move)) {
+            // update who to move
+            id(fen_position_current)[64] = (id(white_to_move) ? "b" : "w");
+
+            // update leds
+            if (id(white_to_move)) {
+              id(led_white_nonvalid_move).turn_off();
+              id(led_white_valid_move).turn_on();
+              id(led_white_to_move).turn_off();
+            } else {
+              id(led_black_nonvalid_move).turn_off();
+              id(led_black_valid_move).turn_on();  
+              id(led_black_to_move).turn_off();            
+            }
+          } else {
+            if (id(white_to_move)) {
+              id(led_white_nonvalid_move).turn_on();
+              id(led_white_valid_move).turn_off();
+              id(led_white_to_move).turn_off();
+            } else {
+              id(led_black_nonvalid_move).turn_on();
+              id(led_black_valid_move).turn_off();
+              id(led_black_to_move).turn_off();                
+            }
+          }
+
+  - id: update_pgn
+    then:
+      - lambda: |-
+            // create uci move for lichess
+            std::string uci_move = id(chess_field_names)[id(current_move_from)] + id(chess_field_names)[id(current_move_to)] ;            
+
+            // create pgn notation (internal)
+            std::string pgn_move = "";
+            
+            if (id(current_move_type) == "MOVE" ||  id(current_move_type) == "TAKE" ||  id(current_move_type) == "ENPASSANT") {            
+              
+              // from FEN-position to upper case
+              std::string fen_from = id(fen_position_last)[id(current_move_from)];
+              std::transform(fen_from.begin(), fen_from.end(), fen_from.begin(), ::toupper);
+
+              // get type of piece has been moved
+              bool p_move = (bool)(fen_from == "P");
+              bool q_move = (bool)(fen_from == "Q");
+              bool q_1_move = (bool)(q_move && (id(n_queens_white) == 1 || id(n_queens_black) == 1));
+              bool pkb_move = (bool)(p_move || fen_from == "K" || fen_from == "B");
+              bool kb_move = (bool)(fen_from == "K" || fen_from == "B");
+
+              // we dont need P in notation
+              pgn_move = (p_move) ? "" : fen_from;
+
+              //for pawns, king and bishops we dont need to use "from" field (and queens, as long 1 on the board) 
+              if (id(current_move_type) == "MOVE" ) {
+                if (pkb_move || q_1_move) {
+                  // pgn without from field
+                  pgn_move += id(chess_field_names)[id(current_move_to)];
+                  // PAWN PROMOTION
+                  // white
+                  if (p_move && id(white_to_move) && (id(chess_field_names)[id(current_move_to)].find('8') != std::string::npos)) {
+                    // add promotion piece to uci notation
+                    uci_move += id(default_pawn_promotion_to);
+                    std::transform(uci_move.begin(), uci_move.end(), uci_move.begin(), ::tolower);
+                    // add promotion piece
+                    pgn_move += "=" + id(default_pawn_promotion_to);  
+                    // update fen by promoted piece 
+                    id(fen_position_current)[id(current_move_to)] = id(default_pawn_promotion_to); 
+                    // encrease number of queens
+                    if (id(default_pawn_promotion_to) == "Q"){ 
+                      id(n_queens_white) += 1;
+                    }
+                  }
+                  // black
+                  if (p_move && !id(white_to_move) && (id(chess_field_names)[id(current_move_to)].find('1') != std::string::npos)) {
+                    // add promotion piece to uci notation
+                    uci_move += id(default_pawn_promotion_to);
+                    std::transform(uci_move.begin(), uci_move.end(), uci_move.begin(), ::tolower);
+                    // add promotion piece 
+                    pgn_move += "=" + id(default_pawn_promotion_to);
+                    // update fen by promoted piece (for black we have to lower it)
+                    std::string promote_to = id(default_pawn_promotion_to);
+                    std::transform(promote_to.begin(), promote_to.end(), promote_to.begin(), [](unsigned char c){ return std::tolower(c); });
+                    id(fen_position_current)[id(current_move_to)] = promote_to;
+                    // encrease number of queens
+                    if (id(default_pawn_promotion_to) == "Q"){ 
+                      id(n_queens_black) += 1;
+                    }   
+                  }
+                } else {
+                  // pgn with from field
+                  pgn_move += id(chess_field_names)[id(current_move_from)] + id(chess_field_names)[id(current_move_to)];
+                }
+              }
+
+              // if we take, add "x" to pgn
+              if (id(current_move_type) == "TAKE" ||  id(current_move_type) == "ENPASSANT") {
+                if (kb_move || (q_move && (id(n_queens_white) == 1 || id(n_queens_black) == 1))) {
+                  pgn_move += "x" + id(chess_field_names)[id(current_move_to)];
+                } else {  
+                  pgn_move += id(chess_field_names)[id(current_move_from)] + "x" + id(chess_field_names)[id(current_move_to)];
+                }  
+              }
+            }
+
+            // CASTLING
+            if (id(current_move_type) == "CASTLING_SHORT" ) {
+                pgn_move += "O-O";
+            } 
+            if (id(current_move_type) == "CASTLING_LONG" ) {
+                pgn_move += "O-O-O";
+            }  
+            
+            id(current_move_uci) = uci_move;
+            id(uci_current).update();
+            id(last_move_pgn_take_back) = id(last_move_pgn);
+            id(last_move_pgn) = pgn_move;
+            id(last_move_pgn_sensor).update();  
+
+            
+
+  - id: compare_raw_position
+    then:
+      - lambda: |-
+          bool changed_position = false;
+          for (int i = 0; i < 64; i++) {
+            if (id(raw_position_current)[i]  != id(raw_position_last)[i])
+            {
+              changed_position = true;
+              break;
+            }
+          }
+          if (changed_position) {
+            id(move_analyser).execute();
+          } else {
+            // same position, we check if we have to reset the led
+            id(led_update).execute();
+          }
+
+  - id: update_raw_position_current
+    then:
+      - lambda: |-
+          // Define a array of size 64 to hold positions
+          std::array<int, 64> pos_values;
+
+          // Read all 64 hall sensor values
+          for (int value = 0; value < 64; value++) {
+
+            // extract values from arrays
+            float curr_field = id(voltage_field_current)[value];
+
+            // Simplified sign and position detection
+            int sign = (curr_field > 0) ? 1 : (curr_field < 0) ? -1 : 0;
+            int curr_position = (fabsf(curr_field) > id(voltage_field_detection_threshold)[value]) ? 1 : 0;
+
+            // set position -1, 0 or 1
+            pos_values[value] = curr_position * sign;
+          }
+
+          // Once all 64 values are read, update the global array
+          for (int value = 0; value < 64; value++) {
+            id(raw_position_current)[value] = pos_values[value];
+          }
+
+  - id: update_all_hall_sensors
+    then:
+      - lambda: |-
+          // Define a array of size 64 to hold the ADC values
+          std::array<float, 64> adc_values;
+
+          // Read all 16 ADC-Channels and store them in the array
+          for (int value = 0; value < 16; value++) {
+
+            if (value & 0b000001) {
+              id(output_s1).turn_on();
+            } else {
+              id(output_s1).turn_off();
+            }
+
+            if (value & 0b000010) {
+              id(output_s2).turn_on();
+            } else {
+              id(output_s2).turn_off();
+            }
+
+            if (value & 0b000100) {
+              id(output_s3).turn_on();
+            } else {
+              id(output_s3).turn_off();
+            }
+
+            if (value & 0b001000) {
+              id(output_s4).turn_on();
+            } else {
+              id(output_s4).turn_off();
+            }
+
+            // all outputs are set
+
+            delay($delay_before_adc_reading);  // let the multiplexer select the sensor to be read
+            // (update in the same order as switched channels)
+            id(current_hall_sensor_1).update(); // update adc value
+            id(current_hall_sensor_2).update(); // update adc value
+            id(current_hall_sensor_3).update(); // update adc value
+            id(current_hall_sensor_4).update(); // update adc value
+
+            int value_4_0 = value*4;
+            int value_4_1 = value_4_0 + 1;
+            int value_4_2 = value_4_0 + 2;
+            int value_4_3 = value_4_0 + 3;
+
+            // read and write values into array
+            adc_values[value_4_0] = id(current_hall_sensor_1).state - id(voltage_field_offset)[value_4_0];
+            adc_values[value_4_1] = id(current_hall_sensor_2).state - id(voltage_field_offset)[value_4_1];
+            adc_values[value_4_2] = id(current_hall_sensor_3).state - id(voltage_field_offset)[value_4_2];
+            adc_values[value_4_3] = id(current_hall_sensor_4).state - id(voltage_field_offset)[value_4_3];
+          }
+
+          // Once all 64 values are read, update the global array
+          for (int i = 0; i < 64; i++) {
+            id(voltage_field_current)[i] = adc_values[id(hall_sensor_order)[i]];
+          }
+
+
+          
+  - id: simulate_next_move_script
+    then:
+      - lambda: |-
+          std::array<float, 64> simulated_move = {};
+
+          if (id(halfmove_counter) == 0) {
+            std::array<float, 64> move_sub=
+            {
+              2., 2., 2., 2., 2., 2., 2., 2.,
+              2., 2., 2., 2., 2., 2., 2., 2.,
+              0., 0., 0., 0., 0., 0., 0., 0.,
+              0., 0., 0., 0., 0., 0., 0., 0.,
+              0., 0., 0., 0., -2., 0., 0., 0.,
+              0., 0., 0., 0., 0., 0., 0., 0.,
+              -2., -2., -2., -2., 0, -2., -2., -2.,
+              -2., -2., -2., -2., -2., -2., -2., -2.
+            };
+            simulated_move = move_sub;
+          }
+
+          if (id(halfmove_counter) == 1) {
+            std::array<float, 64> move_sub=
+            {
+              2., 2., 2., 2., 2., 2., 2., 2.,
+              2., 2., 2., 0., 2., 2., 2., 2.,
+              0., 0., 0., 0., 0., 0., 0., 0.,
+              0., 0., 0., 2., 0., 0., 0., 0.,
+              0., 0., 0., 0., -2., 0., 0., 0.,
+              0., 0., 0., 0., 0., 0., 0., 0.,
+              -2., -2., -2., -2., 0., -2., -2., -2.,
+              -2., -2., -2., -2., -2., -2., -2., -2.
+            };
+            simulated_move = move_sub;
+          }
+
+          if (id(halfmove_counter) == 2) {
+            std::array<float, 64> move_sub=
+            {
+              2., 2., 2., 2., 2., 2., 2., 2.,
+              2., 2., 2., 0., 2., 2., 2., 2.,
+              0., 0., 0., 0., 0., 0., 0., 0.,
+              0., 0., 0., -2., 0., 0., 0., 0.,
+              0., 0., 0., 0., 0., 0., 0., 0.,
+              0., 0., 0., 0., 0., 0., 0., 0.,
+              -2., -2., -2., -2., 0., -2., -2., -2.,
+              -2., -2., -2., -2., -2., -2., -2., -2.
+            };
+            simulated_move = move_sub;
+          }
+
+          if (id(halfmove_counter) == 3) {
+            std::array<float, 64> move_sub=
+            {
+              2., 2., 2., 0., 2., 2., 2., 2.,
+              2., 2., 2., 0., 2., 2., 2., 2.,
+              0., 0., 0., 0., 0., 0., 0., 0.,
+              0., 0., 0., 2., 0., 0., 0., 0.,
+              0., 0., 0., 0., 0., 0., 0., 0.,
+              0., 0., 0., 0., 0., 0., 0., 0.,
+              -2., -2., -2., -2., 0., -2., -2., -2.,
+              -2., -2., -2., -2., -2., -2., -2., -2.
+            };
+            simulated_move = move_sub;
+          }
+
+          if (id(halfmove_counter) == 4) {
+            std::array<float, 64> move_sub=
+            {
+              2., 2., 2., 0., 2., 2., 2., 2.,
+              2., 2., 2., 0., 2., 2., 2., 2.,
+              0., 0., 0., 0., 0., 0., 0., 0.,
+              0., 0., 0., 2., 0., 0., 0., 0.,
+              0., 0., 0., 0., 0., 0., 0., 0.,
+              0., 0., -2., 0., 0., 0., 0., 0.,
+              -2., -2., -2., -2., 0., -2., -2., -2.,
+              -2.,  0., -2., -2., -2., -2., -2., -2.
+            };
+            simulated_move = move_sub;
+          }
+
+          if (id(halfmove_counter) == 5) {
+            std::array<float, 64> move_sub=
+            {
+              2., 2., 2., 0., 2., 2., 2., 2.,
+              2., 2., 2., 0., 2., 2., 2., 2.,
+              0., 0., 0., 0., 0., 0., 0., 0.,
+              2., 0., 0., 0., 0., 0., 0., 0.,
+              0., 0., 0., 0., 0., 0., 0., 0.,
+              0., 0., -2., 0., 0., 0., 0., 0.,
+              -2., -2., -2., -2., 0., -2., -2., -2.,
+              -2.,  0., -2., -2., -2., -2., -2., -2.
+            };
+            simulated_move = move_sub;
+          }
+
+          if (id(halfmove_counter) == 6) {
+              std::array<float, 64> move_sub = {
+                  2., 2., 2., 0., 2., 2., 2., 2.,
+                  2., 2., 2., 0., 2., 2., 2., 2.,
+                  0., 0., 0., 0., 0., 0., 0., 0.,
+                  2., 0., 0., 0., 0., 0., 0., 0.,
+                  0., 0., 0., -2., 0., 0., 0., 0.,
+                  0., 0., -2., 0., 0., 0., 0., 0.,
+                  -2., -2., -2., 0., 0., -2., -2., -2.,
+                  -2., 0., -2., -2., -2., -2., -2., -2.
+              };
+              simulated_move = move_sub;
+          }
+
+          if (id(halfmove_counter) == 7) {
+              std::array<float, 64> move_sub = {
+                  2., 2., 2., 0., 2., 2., 0., 2.,
+                  2., 2., 2., 0., 2., 2., 2., 2.,
+                  0., 0., 0., 0., 0., 2., 0., 0.,
+                  2., 0., 0., 0., 0., 0., 0., 0.,
+                  0., 0., 0., -2., 0., 0., 0., 0.,
+                  0., 0., -2., 0., 0., 0., 0., 0.,
+                  -2., -2., -2., 0., 0., -2., -2., -2.,
+                  -2., 0., -2., -2., -2., -2., -2., -2.
+              };
+              simulated_move = move_sub;
+          }
+
+          if (id(halfmove_counter) == 8) {
+              std::array<float, 64> move_sub = {
+                  2., 2., 2., 0., 2., 2., 0., 2.,
+                  2., 2., 2., 0., 2., 2., 2., 2.,
+                  0., 0., 0., 0., 0., 2., 0., 0.,
+                  2., 0., 0., 0., 0., 0., 0., 0.,
+                  0., 0., 0., -2., 0., 0., 0., 0.,
+                  0., 0., -2., 0., 0., -2., 0., 0.,
+                  -2., -2., -2., 0., 0., -2., -2., -2.,
+                  -2., 0., -2., -2., -2., -2., 0., -2.
+              };
+              simulated_move = move_sub;
+          }
+
+          if (id(halfmove_counter) == 9) {
+              std::array<float, 64> move_sub = {
+                  2., 2., 2., 0., 2., 2., 0., 2.,
+                  2., 2., 0., 0., 2., 2., 2., 2.,
+                  0., 0., 2., 0., 0., 2., 0., 0.,
+                  2., 0., 0., 0., 0., 0., 0., 0.,
+                  0., 0., 0., -2., 0., 0., 0., 0.,
+                  0., 0., -2., 0., 0., -2., 0., 0.,
+                  -2., -2., -2., 0., 0., -2., -2., -2.,
+                  -2., 0., -2., -2., -2., -2., 0., -2.
+              };
+              simulated_move = move_sub;
+          }
+
+          if (id(halfmove_counter) == 10) {
+              std::array<float, 64> move_sub = {
+                  2., 2., 2., 0., 2., 2., 0., 2.,
+                  2., 2., 0., 0., 2., 2., 2., 2.,
+                  0., 0., 2., 0., 0., 2., 0., 0.,
+                  2., 0., 0., 0., 0., 0., 0., 0.,
+                  0., 0., -2., -2., 0., 0., 0., 0.,
+                  0., 0., -2., 0., 0., -2., 0., 0.,
+                  -2., -2., -2., 0., 0., -2., -2., -2.,
+                  -2., 0., -2., -2., -2., 0., 0., -2.
+              };
+              simulated_move = move_sub;
+          }
+
+          if (id(halfmove_counter) == 11) {
+              std::array<float, 64> move_sub = {
+                  2., 2., 0., 0., 2., 2., 0., 2.,
+                  2., 2., 0., 0., 2., 2., 2., 2.,
+                  0., 0., 2., 0., 0., 2., 0., 0.,
+                  2., 0., 0., 0., 0., 0., 0., 0.,
+                  0., 0., -2., -2., 0., 0., 2., 0.,
+                  0., 0., -2., 0., 0., -2., 0., 0.,
+                  -2., -2., -2., 0., 0., -2., -2., -2.,
+                  -2., 0., -2., -2., -2., 0., 0., -2.
+              };
+              simulated_move = move_sub;
+          }
+
+          if (id(halfmove_counter) == 12) {
+              std::array<float, 64> move_sub = {
+                  2., 2., 0., 0., 2., 2., 0., 2.,
+                  2., 2., 0., 0., 2., 2., 2., 2.,
+                  0., 0., 2., 0., 0., 2., 0., 0.,
+                  2., 0., 0., 0., 0., 0., 0., 0.,
+                  0., 0., -2., -2., 0., 0., 2., 0.,
+                  0., 0., -2., 0., 0., -2., 0., -2.,
+                  -2., -2., -2., 0., 0., -2., -2., 0.,
+                  -2., 0., -2., -2., -2., 0., 0., -2.
+              };
+              simulated_move = move_sub;
+          }
+
+          if (id(halfmove_counter) == 13) {
+              std::array<float, 64> move_sub = {
+                  2., 2., 0., 0., 2., 2., 0., 2.,
+                  2., 2., 0., 0., 2., 2., 2., 2.,
+                  0., 0., 2., 0., 0., 2., 0., 0.,
+                  2., 0., 0., 0., 0., 0., 0., 2.,
+                  0., 0., -2., -2., 0., 0., 0., 0.,
+                  0., 0., -2., 0., 0., -2., 0., -2.,
+                  -2., -2., -2., 0., 0., -2., -2., 0.,
+                  -2., 0., -2., -2., -2., 0., 0., -2.
+              };
+              simulated_move = move_sub;
+          }
+
+          if (id(halfmove_counter) == 14) {
+              std::array<float, 64> move_sub = {
+                  2., 2., 0., 0., 2., 2., 0., 2.,
+                  2., 2., 0., 0., 2., 2., 2., 2.,
+                  0., 0., 2., 0., 0., 2., 0., 0.,
+                  2., 0., 0., 0., 0., 0., 0., 2.,
+                  0., 0., -2., -2., 0., 0., 0., 0.,
+                  0., 0., -2., 0., 0., -2., 0., -2.,
+                  -2., -2., -2., 0., -2., -2., -2., 0.,
+                  -2., 0., -2., 0., -2., 0., 0., -2.
+              };
+              simulated_move = move_sub;
+          }
+
+          if (id(halfmove_counter) == 15) {
+              std::array<float, 64> move_sub = {
+                  2., 0., 0., 0., 2., 2., 0., 2.,
+                  2., 2., 0., 2., 2., 2., 2., 2.,
+                  0., 0., 2., 0., 0., 2., 0., 0.,
+                  2., 0., 0., 0., 0., 0., 0., 2.,
+                  0., 0., -2., -2., 0., 0., 0., 0.,
+                  0., 0., -2., 0., 0., -2., 0., -2.,
+                  -2., -2., -2., 0., -2., -2., -2., 0.,
+                  -2., 0., -2., 0., -2., 0., 0., -2.
+              };
+              simulated_move = move_sub;
+          }
+
+          if (id(halfmove_counter) == 16) {
+              std::array<float, 64> move_sub = {
+                  +2., +0., +0., +0., +2., +2., +0., +2.,
+                  +2., +2., +0., +2., +2., +2., +2., +2.,
+                  +0., +0., +2., +0., +0., +2., +0., +0.,
+                  +2., +0., +0., +0., +0., +0., +0., +2.,
+                  +0., +0., -2., -2., +0., +0., -2., +0.,
+                  +0., +0., -2., +0., +0., -2., +0., -2.,
+                  -2., -2., -2., +0., -2., -2., +0., +0.,
+                  -2., +0., -2., +0., -2., +0., +0., -2.
+              };
+              simulated_move = move_sub;
+          }
+
+          if (id(halfmove_counter) == 17) {
+              std::array<float, 64> move_sub = {
+                  +2., +0., +0., +0., +2., +2., +0., +2.,
+                  +2., +2., +0., +2., +2., +2., +2., +2.,
+                  +0., +0., +2., +0., +0., +2., +2., +0.,
+                  +2., +0., +0., +0., +0., +0., +0., +0.,
+                  +0., +0., -2., -2., +0., +0., -2., +0.,
+                  +0., +0., -2., +0., +0., -2., +0., -2.,
+                  -2., -2., -2., +0., -2., -2., +0., +0.,
+                  -2., +0., -2., +0., -2., +0., +0., -2.
+              };
+              simulated_move = move_sub;
+          }
+
+          if (id(halfmove_counter) == 18) {
+              std::array<float, 64> move_sub = {
+                  +2., +0., +0., +0., +2., +2., +0., +2.,
+                  +2., +2., +0., +2., +2., +2., +2., +2.,
+                  +0., +0., +2., +0., +0., +2., +2., +0.,
+                  +2., +0., +0., +0., +0., +0., +0., +0.,
+                  +0., +0., -2., -2., +0., +0., -2., +0.,
+                  +0., +0., -2., +0., +0., -2., +0., -2.,
+                  -2., -2., -2., -2., -2., -2., +0., +0.,
+                  -2., +0., +0., +0., -2., +0., +0., -2.
+              };
+              simulated_move = move_sub;
+          }          
+
+          if (id(halfmove_counter) == 19) {
+              std::array<float, 64> move_sub = {
+                  +2., +0., +0., +0., +2., +2., +0., +2.,
+                  +2., +2., +0., +2., +0., +2., +2., +2.,
+                  +0., +0., +2., +0., +2., +2., +2., +0.,
+                  +2., +0., +0., +0., +0., +0., +0., +0.,
+                  +0., +0., -2., -2., +0., +0., -2., +0.,
+                  +0., +0., -2., +0., +0., -2., +0., -2.,
+                  -2., -2., -2., -2., -2., -2., +0., +0.,
+                  -2., +0., +0., +0., -2., +0., +0., -2.
+              };
+              simulated_move = move_sub;
+          } 
+
+          if (id(halfmove_counter) == 20) {
+              std::array<float, 64> move_sub = {
+                  +2., +0., +0., +0., +2., +2., +0., +2.,
+                  +2., +2., +0., +2., +0., +2., +2., +2.,
+                  +0., +0., +2., +0., +2., +2., +2., +0.,
+                  +2., +0., +0., +0., +0., +0., +0., +0.,
+                  +0., +0., -2., -2., +0., +0., -2., +0.,
+                  +0., +0., -2., +0., +0., -2., +0., -2.,
+                  -2., -2., -2., -2., -2., -2., +0., +0.,
+                  +0., +0., -2., -2., +0., +0., +0., -2.
+              };
+              simulated_move = move_sub;
+          } 
+
+          if (id(halfmove_counter) == 21) {
+              std::array<float, 64> move_sub = {
+                  +2., +0., +0., +0., +2., +0., +0., +2.,
+                  +2., +2., +0., +2., +0., +2., +2., +2.,
+                  +0., +0., +2., +0., +2., +2., +2., +0.,
+                  +2., +0., +0., +0., +0., +0., +0., +0.,
+                  +0., +2., -2., -2., +0., +0., -2., +0.,
+                  +0., +0., -2., +0., +0., -2., +0., -2.,
+                  -2., -2., -2., -2., -2., -2., +0., +0.,
+                  +0., +0., -2., -2., +0., +0., +0., -2.
+              };
+              simulated_move = move_sub;
+          } 
+
+          if (id(halfmove_counter) == 22) {
+              std::array<float, 64> move_sub = {
+                  +2., +0., +0., +0., +2., +0., +0., +2.,
+                  +2., +2., +0., +2., +0., +2., +2., +2.,
+                  +0., +0., +2., +0., +2., +2., +2., +0.,
+                  +2., +0., +0., +0., +0., +0., +0., +0.,
+                  +0., +2., -2., -2., +0., +0., -2., +0.,
+                  -2., +0., -2., +0., +0., -2., +0., -2.,
+                  +0., -2., -2., -2., -2., -2., +0., +0.,
+                  +0., +0., -2., -2., +0., +0., +0., -2.
+              };
+              simulated_move = move_sub;
+          } 
+
+          if (id(halfmove_counter) == 23) {
+              std::array<float, 64> move_sub = {
+                  +2., +0., +0., +0., +2., +0., +0., +2.,
+                  +2., +2., +0., +2., +0., +2., +2., +2.,
+                  +0., +0., +2., +0., +2., +2., +2., +0.,
+                  +2., +0., +0., +0., +0., +0., +0., +0.,
+                  +0., +0., -2., -2., +0., +0., -2., +0.,
+                  -2., +0., +2., +0., +0., -2., +0., -2.,
+                  +0., -2., -2., -2., -2., -2., +0., +0.,
+                  +0., +0., -2., -2., +0., +0., +0., -2.
+              };
+              simulated_move = move_sub;
+          } 
+
+          if (id(halfmove_counter) == 24) {
+              std::array<float, 64> move_sub = {
+                  +2., +0., +0., +0., +2., +0., +0., +2.,
+                  +2., +2., +0., +2., +0., +2., +2., +2.,
+                  +0., +0., +2., +0., +2., +2., +2., +0.,
+                  +2., +0., +0., +0., +0., +0., +0., +0.,
+                  +0., +0., -2., -2., +0., +0., -2., +0.,
+                  -2., +0., -2., +0., +0., -2., +0., -2.,
+                  +0., -2., -2., +0., -2., -2., +0., +0.,
+                  +0., +0., -2., -2., +0., +0., +0., -2.
+              };
+              simulated_move = move_sub;
+          } 
+
+          if (id(halfmove_counter) == 25) {
+              std::array<float, 64> move_sub = {
+                  +2., +0., +0., +0., +2., +0., +0., +2.,
+                  +2., +2., +2., +2., +0., +2., +2., +2.,
+                  +0., +0., +2., +0., +2., +2., +2., +0.,
+                  +0., +0., +0., +0., +0., +0., +0., +0.,
+                  +0., +0., -2., -2., +0., +0., -2., +0.,
+                  -2., +0., -2., +0., +0., -2., +0., -2.,
+                  +0., -2., -2., +0., -2., -2., +0., +0.,
+                  +0., +0., -2., -2., +0., +0., +0., -2.
+              };
+              simulated_move = move_sub;
+          } 
+
+          if (id(halfmove_counter) == 26) {
+              std::array<float, 64> move_sub = {
+                  +2., +0., +0., +0., +2., +0., +0., +2.,
+                  +2., +2., +2., +2., +0., +2., +2., +2.,
+                  +0., +0., +2., +0., +2., +2., +2., +0.,
+                  +0., +0., +0., +0., +0., +0., +0., +0.,
+                  +0., +0., -2., -2., +0., +0., -2., +0.,
+                  -2., +0., -2., +0., +0., -2., +0., -2.,
+                  +0., -2., -2., +0., -2., -2., +0., +0.,
+                  +0., -2., +0., -2., +0., +0., +0., -2.
+              };
+              simulated_move = move_sub;
+          } 
+
+          if (id(halfmove_counter) == 27) {
+              std::array<float, 64> move_sub = {
+                  +2., +0., +0., +0., +2., +0., +0., +2.,
+                  +2., +0., +2., +2., +0., +2., +2., +2.,
+                  +0., +0., +2., +0., +2., +2., +2., +0.,
+                  +0., +2., +0., +0., +0., +0., +0., +0.,
+                  +0., +0., -2., -2., +0., +0., -2., +0.,
+                  -2., +0., -2., +0., +0., -2., +0., -2.,
+                  +0., -2., -2., +0., -2., -2., +0., +0.,
+                  +0., -2., +0., -2., +0., +0., +0., -2.
+              };
+              simulated_move = move_sub;
+          } 
+
+          if (id(halfmove_counter) == 28) {
+              std::array<float, 64> move_sub = {
+                  +2., +0., +0., +0., +2., +0., +0., +2.,
+                  +2., +0., +2., +2., +0., +2., +2., +2.,
+                  +0., +0., +2., +0., -2., +2., +2., +0.,
+                  +0., +2., +0., +0., +0., +0., +0., +0.,
+                  +0., +0., +0., -2., +0., +0., -2., +0.,
+                  -2., +0., -2., +0., +0., -2., +0., -2.,
+                  +0., -2., -2., +0., -2., -2., +0., +0.,
+                  +0., -2., +0., -2., +0., +0., +0., -2.
+              };
+              simulated_move = move_sub;
+          } 
+
+          if (id(halfmove_counter) == 29) {
+              std::array<float, 64> move_sub = {
+                  +2., +0., +0., +0., +2., +0., +0., +2.,
+                  +2., +0., +2., +2., +0., +0., +2., +2.,
+                  +0., +0., +2., +0., +2., +2., +2., +0.,
+                  +0., +2., +0., +0., +0., +0., +0., +0.,
+                  +0., +0., +0., -2., +0., +0., -2., +0.,
+                  -2., +0., -2., +0., +0., -2., +0., -2.,
+                  +0., -2., -2., +0., -2., -2., +0., +0.,
+                  +0., -2., +0., -2., +0., +0., +0., -2.
+              };
+              simulated_move = move_sub;
+          } 
+
+          if (id(halfmove_counter) == 30) {
+              std::array<float, 64> move_sub = {
+                  +2., +0., +0., +0., +2., +0., +0., +2.,
+                  +2., +0., +2., +2., +0., +0., +2., +2.,
+                  +0., +0., +2., +0., -2., +2., +2., +0.,
+                  +0., +2., +0., +0., +0., +0., +0., +0.,
+                  +0., +0., +0., -2., +0., +0., -2., +0.,
+                  -2., +0., -2., +0., +0., -2., +0., -2.,
+                  +0., -2., -2., +0., +0., -2., +0., +0.,
+                  +0., -2., +0., -2., +0., +0., +0., -2.
+              };
+              simulated_move = move_sub;
+          } 
+
+          if (id(halfmove_counter) == 31) {
+              std::array<float, 64> move_sub = {
+                  +2., +0., +0., +2., +0., +0., +0., +2.,
+                  +2., +0., +2., +2., +0., +0., +2., +2.,
+                  +0., +0., +2., +0., -2., +2., +2., +0.,
+                  +0., +2., +0., +0., +0., +0., +0., +0.,
+                  +0., +0., +0., -2., +0., +0., -2., +0.,
+                  -2., +0., -2., +0., +0., -2., +0., -2.,
+                  +0., -2., -2., +0., +0., -2., +0., +0.,
+                  +0., -2., +0., -2., +0., +0., +0., -2.
+              };
+              simulated_move = move_sub;
+          } 
+
+          if (id(halfmove_counter) == 32) {
+              std::array<float, 64> move_sub = {
+                  +2., +0., +0., +2., +0., +0., +0., +2.,
+                  +2., +0., +2., +2., +0., +0., +2., +2.,
+                  +0., +0., +2., +0., -2., +2., +2., +0.,
+                  +0., +2., +0., -2., +0., +0., +0., +0.,
+                  +0., +0., +0., +0., +0., +0., -2., +0.,
+                  -2., +0., -2., +0., +0., -2., +0., -2.,
+                  +0., -2., -2., +0., +0., -2., +0., +0.,
+                  +0., -2., +0., -2., +0., +0., +0., -2.
+              };
+              simulated_move = move_sub;
+          } 
+
+          if (id(halfmove_counter) == 33) {
+              std::array<float, 64> move_sub = {
+                  +2., +0., +0., +2., +2., +0., +0., +0.,
+                  +2., +0., +2., +2., +0., +0., +2., +2.,
+                  +0., +0., +2., +0., -2., +2., +2., +0.,
+                  +0., +2., +0., -2., +0., +0., +0., +0.,
+                  +0., +0., +0., +0., +0., +0., -2., +0.,
+                  -2., +0., -2., +0., +0., -2., +0., -2.,
+                  +0., -2., -2., +0., +0., -2., +0., +0.,
+                  +0., -2., +0., -2., +0., +0., +0., -2.
+              };
+              simulated_move = move_sub;
+          } 
+
+          if (id(halfmove_counter) == 34) {
+              std::array<float, 64> move_sub = {
+                  +2., +0., +0., +2., +2., +0., +0., +0.,
+                  +2., +0., +2., +2., +0., +0., +2., +2.,
+                  +0., +0., -2., +0., +0., +2., +2., +0.,
+                  +0., +2., +0., -2., +0., +0., +0., +0.,
+                  +0., +0., +0., +0., +0., +0., -2., +0.,
+                  -2., +0., -2., +0., +0., -2., +0., -2.,
+                  +0., -2., -2., +0., +0., -2., +0., +0.,
+                  +0., -2., +0., -2., +0., +0., +0., -2.
+              };
+              simulated_move = move_sub;
+          } 
+
+          if (id(halfmove_counter) == 35) {
+              std::array<float, 64> move_sub = {
+                  +0., +0., +2., +2., +2., +0., +0., +0.,
+                  +2., +0., +2., +2., +0., +0., +2., +2.,
+                  +0., +0., -2., +0., +0., +2., +2., +0.,
+                  +0., +2., +0., -2., +0., +0., +0., +0.,
+                  +0., +0., +0., +0., +0., +0., -2., +0.,
+                  -2., +0., -2., +0., +0., -2., +0., -2.,
+                  +0., -2., -2., +0., +0., -2., +0., +0.,
+                  +0., -2., +0., -2., +0., +0., +0., -2.
+              };
+              simulated_move = move_sub;
+          } 
+
+          if (id(halfmove_counter) == 36) {
+              std::array<float, 64> move_sub = {
+                  +0., +0., +2., +2., +2., +0., +0., +0.,
+                  +2., +0., +2., +2., +0., +0., +2., +2.,
+                  -2., +0., +0., +0., +0., +2., +2., +0.,
+                  +0., +2., +0., -2., +0., +0., +0., +0.,
+                  +0., +0., +0., +0., +0., +0., -2., +0.,
+                  -2., +0., -2., +0., +0., -2., +0., -2.,
+                  +0., -2., -2., +0., +0., -2., +0., +0.,
+                  +0., -2., +0., -2., +0., +0., +0., -2.
+              };
+              simulated_move = move_sub;
+          } 
+
+          if (id(halfmove_counter) == 37) {
+              std::array<float, 64> move_sub = {
+                  +0., +0., +2., +2., +2., +0., +0., +0.,
+                  +2., +0., +2., +0., +0., +0., +2., +2.,
+                  -2., +0., +0., +0., +0., +2., +2., +0.,
+                  +0., +2., +2., -2., +0., +0., +0., +0.,
+                  +0., +0., +0., +0., +0., +0., -2., +0.,
+                  -2., +0., -2., +0., +0., -2., +0., -2.,
+                  +0., -2., -2., +0., +0., -2., +0., +0.,
+                  +0., -2., +0., -2., +0., +0., +0., -2.
+              };
+              simulated_move = move_sub;
+          } 
+
+          if (id(halfmove_counter) == 38) {
+              std::array<float, 64> move_sub = {
+                  +0., +0., +2., +2., +2., +0., +0., +0.,
+                  +2., +0., +2., +0., +0., +0., +2., +2.,
+                  +0., +0., +0., +0., +0., +2., +2., +0.,
+                  +0., -2., +2., -2., +0., +0., +0., +0.,
+                  +0., +0., +0., +0., +0., +0., -2., +0.,
+                  -2., +0., -2., +0., +0., -2., +0., -2.,
+                  +0., -2., -2., +0., +0., -2., +0., +0.,
+                  +0., -2., +0., -2., +0., +0., +0., -2.
+              };
+              simulated_move = move_sub;
+          } 
+
+          if (id(halfmove_counter) == 39) {
+              std::array<float, 64> move_sub = {
+                  +0., +2., +0., +2., +2., +0., +0., +0.,
+                  +2., +0., +2., +0., +0., +0., +2., +2.,
+                  +0., +0., +0., +0., +0., +2., +2., +0.,
+                  +0., -2., +2., -2., +0., +0., +0., +0.,
+                  +0., +0., +0., +0., +0., +0., -2., +0.,
+                  -2., +0., -2., +0., +0., -2., +0., -2.,
+                  +0., -2., -2., +0., +0., -2., +0., +0.,
+                  +0., -2., +0., -2., +0., +0., +0., -2.
+              };
+              simulated_move = move_sub;
+          } 
+
+          if (id(halfmove_counter) == 40) {
+              std::array<float, 64> move_sub = {
+                  +0., +2., +0., +2., +2., +0., +0., +0.,
+                  +2., +0., +2., +0., +0., +0., +2., +2.,
+                  +0., +0., -2., +0., +0., +2., +2., +0.,
+                  +0., +0., +2., -2., +0., +0., +0., +0.,
+                  +0., +0., +0., +0., +0., +0., -2., +0.,
+                  -2., +0., -2., +0., +0., -2., +0., -2.,
+                  +0., -2., -2., +0., +0., -2., +0., +0.,
+                  +0., -2., +0., -2., +0., +0., +0., -2.
+              };
+              simulated_move = move_sub;
+          } 
+
+          if (id(halfmove_counter) == 41) {
+              std::array<float, 64> move_sub = {
+                  +0., +2., +0., +2., +2., +0., +0., +0.,
+                  +2., +0., +2., +0., +0., +0., +2., +2.,
+                  +0., +0., -2., +0., +0., +0., +2., +0.,
+                  +0., +0., +2., -2., +0., +0., +0., +0.,
+                  +0., +0., +0., +0., +2., +0., -2., +0.,
+                  -2., +0., -2., +0., +0., -2., +0., -2.,
+                  +0., -2., -2., +0., +0., -2., +0., +0.,
+                  +0., -2., +0., -2., +0., +0., +0., -2.
+              };
+              simulated_move = move_sub;
+          } 
+
+          if (id(halfmove_counter) == 42) {
+              std::array<float, 64> move_sub = {
+                  +0., +2., +0., +2., +2., +0., +0., +0.,
+                  +2., +0., -2., +0., +0., +0., +2., +2.,
+                  +0., +0., +0., +0., +0., +0., +2., +0.,
+                  +0., +0., +2., -2., +0., +0., +0., +0.,
+                  +0., +0., +0., +0., +2., +0., -2., +0.,
+                  -2., +0., -2., +0., +0., -2., +0., -2.,
+                  +0., -2., -2., +0., +0., -2., +0., +0.,
+                  +0., -2., +0., -2., +0., +0., +0., -2.
+              };
+              simulated_move = move_sub;
+          } 
+
+          if (id(halfmove_counter) == 43) {
+              std::array<float, 64> move_sub = {
+                  +0., +2., +0., +0., +2., +0., +0., +0.,
+                  +2., +0., +2., +0., +0., +0., +2., +2.,
+                  +0., +0., +0., +0., +0., +0., +2., +0.,
+                  +0., +0., +2., -2., +0., +0., +0., +0.,
+                  +0., +0., +0., +0., +2., +0., -2., +0.,
+                  -2., +0., -2., +0., +0., -2., +0., -2.,
+                  +0., -2., -2., +0., +0., -2., +0., +0.,
+                  +0., -2., +0., -2., +0., +0., +0., -2.
+              };
+              simulated_move = move_sub;
+          } 
+
+          if (id(halfmove_counter) == 44) {
+              std::array<float, 64> move_sub = {
+                  +0., +2., +0., +0., +2., +0., +0., +0.,
+                  +2., +0., +2., +0., +0., +0., +2., +2.,
+                  +0., +0., +0., +0., +0., +0., +2., +0.,
+                  +0., +0., +2., -2., +0., +0., +0., +0.,
+                  +0., +0., +0., -2., +2., +0., -2., +0.,
+                  -2., +0., +0., +0., +0., -2., +0., -2.,
+                  +0., -2., -2., +0., +0., -2., +0., +0.,
+                  +0., -2., +0., -2., +0., +0., +0., -2.
+              };
+              simulated_move = move_sub;
+          } 
+
+          if (id(halfmove_counter) == 45) {
+              std::array<float, 64> move_sub = {
+                  +0., +2., +0., +0., +2., +0., +0., +0.,
+                  +0., +0., +2., +0., +0., +0., +2., +2.,
+                  +0., +0., +0., +0., +0., +0., +2., +0.,
+                  +2., +0., +2., -2., +0., +0., +0., +0.,
+                  +0., +0., +0., -2., +2., +0., -2., +0.,
+                  -2., +0., +0., +0., +0., -2., +0., -2.,
+                  +0., -2., -2., +0., +0., -2., +0., +0.,
+                  +0., -2., +0., -2., +0., +0., +0., -2.
+              };
+              simulated_move = move_sub;
+          }
+
+          if (id(halfmove_counter) == 46) {
+              std::array<float, 64> move_sub = {
+                  +0., +2., +0., +0., +2., +0., +0., +0.,
+                  +0., +0., +2., +0., +0., +0., +2., +2.,
+                  +0., +0., +0., +0., +0., +0., +2., +0.,
+                  +2., +0., +2., -2., -2., +0., +0., +0.,
+                  +0., +0., +0., -2., +2., +0., -2., +0.,
+                  -2., +0., +0., +0., +0., +0., +0., -2.,
+                  +0., -2., -2., +0., +0., -2., +0., +0.,
+                  +0., -2., +0., -2., +0., +0., +0., -2.
+              };
+              simulated_move = move_sub;
+          }
+
+          if (id(halfmove_counter) == 47) { // ... Rb5
+              std::array<float, 64> move_sub = {
+                  +0., +0., +0., +0., +2., +0., +0., +0.,
+                  +0., +0., +2., +0., +0., +0., +2., +2.,
+                  +0., +0., +0., +0., +0., +0., +2., +0.,
+                  +2., +2., +2., -2., -2., +0., +0., +0.,
+                  +0., +0., +0., -2., +2., +0., -2., +0.,
+                  -2., +0., +0., +0., +0., +0., +0., -2.,
+                  +0., -2., -2., +0., +0., -2., +0., +0.,
+                  +0., -2., +0., -2., +0., +0., +0., -2.
+              };
+              simulated_move = move_sub;
+          }
+          
+
+          // overwrite offset
+          for (int i = 0; i < 64; i++) {
+            id(voltage_field_offset)[i] = simulated_move[i];   
+          };
+
+
+
+
