@@ -1815,11 +1815,43 @@ script:
             id(led_update).execute();            
           }
 
-  - id: check_color
+  - id: update_uci_notation
+    then:
+      - lambda: |-
+          // create uci move for lichess
+          std::string uci_move = id(chess_field_names)[id(current_move_from)] + id(chess_field_names)[id(current_move_to)];
+
+          // we have to add promotion to UCI
+          bool move_or_take = (bool)(id(current_move_type) == "MOVE" ||  id(current_move_type) == "TAKE");
+          bool promotion_move = (bool)(id(fen_position_last)[id(current_move_from)] == "P" || id(fen_position_last)[id(current_move_from)] == "p" );
+          if (move_or_take && promotion_move) {  
+
+            // white
+            if (id(white_to_move) && (id(chess_field_names)[id(current_move_to)].find('8') != std::string::npos)) {
+              // add promotion piece to uci notation
+              uci_move += id(default_pawn_promotion_to);
+              std::transform(uci_move.begin(), uci_move.end(), uci_move.begin(), ::tolower);
+            }
+
+            // black
+            if (!id(white_to_move) && (id(chess_field_names)[id(current_move_to)].find('1') != std::string::npos)) {
+              // add promotion piece to uci notation
+              uci_move += id(default_pawn_promotion_to);
+              std::transform(uci_move.begin(), uci_move.end(), uci_move.begin(), ::tolower);
+            }
+          }
+          
+          id(current_move_uci) = uci_move;
+          id(uci_current).update();
+
+
+  - id: check_chess_rules
     then:
       - lambda: |-
           // define flag          
           bool valid_check = false;
+
+          // check the color of moved piece is correct
           if (id(white_to_move)) {
             if (std::find(id(fen_white).begin(), id(fen_white).end(), id(moved_piece)) != id(fen_white).end())
             {
@@ -1831,8 +1863,16 @@ script:
               valid_check = true;
             }           
           }
+ 
+          //TODO: Implement chess-rule checker (uci_move & fen_position_current can be used)
+          // avaiable variables
+          // id(uci_move) -> current move in UCI notation 
+          // id(fen_position_last) -> last FEN position written as 65-elements array (castling rights are currently not implemented in FEN)
+          //id(current_move_from) -> index of the field "from"
+          //id(current_move_to) -> index of the field "to"
+          //id(current_move_type) -> type of the move: "MOVE", "TAKE", "CASTLING_SHORT", "CASTLING_LONG", "ENPASSANT";
 
-          // reset flag
+          // reset flag if not valid
           if (!valid_check) {
             id(valid_move) = false;
           }
@@ -1884,15 +1924,17 @@ script:
             // we call update_pgn if valid move only -> rise flag
             id(valid_move) = true;
             id(moved_piece) = id(fen_position_last)[from];
-            id(check_color).execute();
+
+            // update global variables
+            id(current_move_from) = from;
+            id(current_move_to) = to;
+            id(current_move_type) = "MOVE";
+
+            id(update_uci_notation).execute();
+            id(check_chess_rules).execute();
 
             // still valid
             if (id(valid_move)) {
-
-              // update global variables
-              id(current_move_from) = from;
-              id(current_move_to) = to;
-              id(current_move_type) = "MOVE";
 
               // update fen
               id(fen_position_current)[to] = id(fen_position_last)[from];
@@ -1925,15 +1967,16 @@ script:
             // we call update_pgn if valid move only -> rise flag
             id(valid_move) = true;
             id(moved_piece) = id(fen_position_last)[from];
-            id(check_color).execute();
+
+            id(current_move_from) = from;
+            id(current_move_to) = to;
+            id(current_move_type) = "TAKE";
+
+            id(update_uci_notation).execute();
+            id(check_chess_rules).execute();
 
             // still valid
             if (id(valid_move)) {
-
-              id(current_move_from) = from;
-              id(current_move_to) = to;
-              id(current_move_type) = "TAKE";
-
             // update fen
               id(fen_position_current)[to] = id(fen_position_last)[from];
               id(fen_position_current)[from] = "0";
@@ -1988,7 +2031,13 @@ script:
             // we call update_pgn if valid move only -> rise flag
             id(valid_move) = true;
             id(moved_piece) = id(fen_position_last)[from_k];
-            id(check_color).execute();
+
+            // king move only is set as from - to
+            id(current_move_from) = from_k;
+            id(current_move_to) = to_k;
+
+            id(update_uci_notation).execute();
+            id(check_chess_rules).execute();
 
             // still valid
             if (id(valid_move)) {
@@ -2002,9 +2051,6 @@ script:
 
               id(update_chess_board).execute();
 
-              id(current_move_from) = from_k;
-              id(current_move_to) = to_k;            
-              
               // run pgn move extractor 
               id(update_pgn).execute(); 
             }
@@ -2038,14 +2084,16 @@ script:
             // we call update_pgn if valid move only -> rise flag
             id(valid_move) = true;
             id(moved_piece) = id(fen_position_last)[from];
-            id(check_color).execute();
+
+            id(current_move_from) = from;
+            id(current_move_to) = to;
+            id(current_move_type) = "ENPASSANT";
+
+            id(update_uci_notation).execute();
+            id(check_chess_rules).execute();
 
             // still valid
             if (id(valid_move)) {
-
-              id(current_move_from) = from;
-              id(current_move_to) = to;
-              id(current_move_type) = "ENPASSANT";
 
               // update fen
               id(fen_position_current)[to] = id(fen_position_last)[from];
@@ -2089,9 +2137,6 @@ script:
   - id: update_pgn
     then:
       - lambda: |-
-            // create uci move for lichess
-            std::string uci_move = id(chess_field_names)[id(current_move_from)] + id(chess_field_names)[id(current_move_to)] ;            
-
             // create pgn notation (internal)
             std::string pgn_move = "";
             
@@ -2112,16 +2157,13 @@ script:
               pgn_move = (p_move) ? "" : fen_from;
 
               //for pawns, king and bishops we dont need to use "from" field (and queens, as long 1 on the board) 
-              if (id(current_move_type) == "MOVE" ) {
+              if (id(current_move_type) == "MOVE" ) { // BUG ?? promotion at a "TAKE" missing
                 if (pkb_move || q_1_move) {
                   // pgn without from field
                   pgn_move += id(chess_field_names)[id(current_move_to)];
                   // PAWN PROMOTION
                   // white
                   if (p_move && id(white_to_move) && (id(chess_field_names)[id(current_move_to)].find('8') != std::string::npos)) {
-                    // add promotion piece to uci notation
-                    uci_move += id(default_pawn_promotion_to);
-                    std::transform(uci_move.begin(), uci_move.end(), uci_move.begin(), ::tolower);
                     // add promotion piece
                     pgn_move += "=" + id(default_pawn_promotion_to);  
                     // update fen by promoted piece 
@@ -2133,9 +2175,7 @@ script:
                   }
                   // black
                   if (p_move && !id(white_to_move) && (id(chess_field_names)[id(current_move_to)].find('1') != std::string::npos)) {
-                    // add promotion piece to uci notation
-                    uci_move += id(default_pawn_promotion_to);
-                    std::transform(uci_move.begin(), uci_move.end(), uci_move.begin(), ::tolower);
+                    
                     // add promotion piece 
                     pgn_move += "=" + id(default_pawn_promotion_to);
                     // update fen by promoted piece (for black we have to lower it)
@@ -2170,9 +2210,7 @@ script:
             if (id(current_move_type) == "CASTLING_LONG" ) {
                 pgn_move += "O-O-O";
             }  
-            
-            id(current_move_uci) = uci_move;
-            id(uci_current).update();
+
             id(last_move_pgn_take_back) = id(last_move_pgn);
             id(last_move_pgn) = pgn_move;
             id(last_move_pgn_sensor).update();  
