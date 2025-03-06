@@ -3,7 +3,7 @@ esphome:
   friendly_name: chessboard
 
   includes:
-    - ChessMoveValidator.h
+    - chess_validator.h
   
 
   # Do some initialition work
@@ -241,6 +241,10 @@ globals:
   - id: fen_position_last
     type: std::array<std::string, 65>
     initial_value: '{""}'
+
+  - id: fen_position_last_string
+    type: std::string
+    initial_value: '"rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"'
 
   - id: fen_position_current
     type: std::array<std::string, 65>
@@ -1463,6 +1467,8 @@ script:
               // update further sensors
               id(update_chess_board).execute();
               id(last_move_pgn_sensor).update();
+              // update fen string
+              id(fen_position_last_arr_to_string).execute();
             }
             
 
@@ -1685,6 +1691,7 @@ script:
           };
           id(update_chess_board).execute();
           id(fen_position_chessboard) = "";
+          id(fen_position_last_arr_to_string).execute();
 
   - id: reset_raw_position
     then:
@@ -1791,6 +1798,9 @@ script:
               id(fen_position_last)[i] = id(fen_position_current)[i];          
             };
 
+            // update fen string
+            id(fen_position_last_arr_to_string).execute();
+
             // replace last position by current position
             for (int i = 0; i < 64; i++) {
               id(raw_position_take_back)[i] = id(raw_position_last)[i];
@@ -1850,6 +1860,68 @@ script:
           id(current_move_uci) = uci_move;
           id(uci_current).update();
 
+  - id: fen_position_last_arr_to_string
+    then:
+      - lambda: |-
+            // transform array to fen-string
+            int zero_count = 0;
+            std::string raw_fen = "";
+            for (int i=0; i<64; i++) {
+                if (id(fen_position_last)[i] == "0") {
+                    zero_count++;  // Count consecutive zeros
+                } else {
+                    if (zero_count > 0) {
+                      raw_fen += std::to_string(zero_count);  // Add zero count
+                      zero_count = 0;  // Reset zero count
+                    }
+                    raw_fen += id(fen_position_last)[i];  // Add non-zero character
+                  }
+                // add break line 
+                if ((i + 1) % 8 == 0 && i != 63) {
+                    raw_fen += "/";  
+                }
+            }
+            // If the FEN ends with zeros, append the count
+            if (zero_count > 0) {
+                raw_fen += std::to_string(zero_count);
+            }
+
+            // color to move
+            if (id(fen_position_last).length() > 64) {
+                raw_fen += " " + id(fen_position_last)[64];
+            } else {
+                raw_fen += " w"; // white to move, if no value
+            }
+
+            // castling rights
+            if (id(fen_position_last).length() > 67) {
+                raw_fen += " " + id(fen_position_last)[65] + id(fen_position_last)[66] + id(fen_position_last)[67] + id(fen_position_last)[68];
+            } else {
+                raw_fen += " KQkq"; // castling allowed
+            }
+
+            // en passant
+            if (id(fen_position_last).length() > 68) {
+                raw_fen += " " + id(fen_position_last)[69];
+            } else {
+                raw_fen += " -"; // castling allowed
+            }
+
+            // half move since last take
+            if (id(fen_position_last).length() > 69) {
+                raw_fen += " " + id(fen_position_last)[70];
+            } else {
+                raw_fen += " 0"; // no moves
+            }
+
+            // full move
+            if (id(fen_position_last).length() > 70) {
+                raw_fen += " " + id(fen_position_last)[71];
+            } else {
+                raw_fen += " 1"; // first move
+            }
+
+            id(fen_position_last_string) = raw_fen;
 
   - id: check_chess_rules
     then:
@@ -1879,8 +1951,53 @@ script:
           // id(current_move_type) -> type of the move: "MOVE", "TAKE", "CASTLING_SHORT", "CASTLING_LONG", "ENPASSANT";
           
           // for example as an external class
-          ChessMoveValidator validator(id(fen_position_last));
-          valid_check = validator.is_legal_move(id(current_move_from), id(current_move_to));
+          // ChessMoveValidator validator(id(fen_position_last));
+          // valid_check = validator.is_legal_move(id(current_move_from), id(current_move_to));
+
+          chess_validator::TableState table_state;
+          chess_validator::get_table_state( id(fen_position_last_string).c_str() , &table_state );
+          chess_validator::INVALID_REASON invalid = chess_validator::is_move_invalid( &table_state , id(current_move_from), id(current_move_to) );
+          if( invalid ){
+              switch(invalid){
+                  case chess_validator::INVALID_FEN_STRING:
+                      // todo cout << "Invalid move... reason: INVALID_FEN_STRING" << endl; 
+                      break;
+                  case chess_validator::NOT_PLAYER_TURN:
+                      // todo cout << "Invalid move... reason: NOT_PLAYER_TURN" << endl; 
+                      break;
+                  case chess_validator::NO_UNIT:
+                      // todo cout << "Invalid move... reason: NO_UNIT" << endl; 
+                      break;
+                  case chess_validator::SAME_PLACE:
+                      // todo cout << "Invalid move... reason: SAME_PLACE" << endl; 
+                      break;
+                  case chess_validator::CAPTURING_SAME_COLOR:
+                      // todo cout << "Invalid move... reason: CAPTURING_SAME_COLOR" << endl; 
+                      break;
+                  case chess_validator::INVALID_UNIT_MOVE:
+                      // todo cout << "Invalid move... reason: INVALID_UNIT_MOVE" << endl; 
+                      break;
+                  case chess_validator::KING_IN_CHECK:
+                      // todo cout << "Invalid move... reason: KING_IN_CHECK" << endl; 
+                      break;
+              }
+          } else {
+              chess_validator::TableState new_table_state = chess_validator::apply_move( &table_state , id(current_move_from), id(current_move_to) );
+              if (chess_validator::is_king_in_check(&new_table_state, new_table_state.next_color_to_play)) {
+                  // todo king in check
+              }
+              if (chess_validator::is_check_mate(&new_table_state))
+              {
+                  // todo checkmate
+              } else {
+                DRAW_REASON   draw  chess_validator::get_draw_reason(&new_table_state);
+                if (draw != DRAW_REASON::NO_DRAW) {
+                  // todo draw
+                }
+              }
+
+              valid_check = true;
+          }
 
           // reset flag if not valid
           id(valid_move) = valid_check;
