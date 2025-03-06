@@ -21,7 +21,7 @@ esp32:
 
 # Enable logging
 logger:
-  level: ERROR
+  level: WARN
 
 api:
   reboot_timeout: 0s
@@ -1195,15 +1195,6 @@ text_sensor:
       sorting_group_id: sorting_group_pgn
       sorting_weight: 0
   - platform: template
-    id: fen_position_last_string_sensor
-    name: "FEN last"
-    lambda: |-
-      return id(fen_position_last_string);
-    update_interval: never
-    web_server:
-      sorting_group_id: sorting_group_pgn
-      sorting_weight: 1
-  - platform: template
     id: pgn_history_1
     name: "PGN_1"
     lambda: |-
@@ -1653,6 +1644,14 @@ script:
   - id: update_pgn_history
     then:
       - lambda: |-
+          // add current pgn to history
+          if (id(white_to_move)) { // white
+            std::string fullmove = std::to_string((int)(id(halfmove_counter) / 2.) + 1);
+            id(pgn_history) = id(pgn_history) + fullmove + ". " + id(last_move_pgn);
+          } else { // black
+            id(pgn_history) = id(pgn_history) + " " + id(last_move_pgn) + "\n";
+          }
+
           // allways update first pgn          
           id(pgn_history_1).update();
           // update furhter sensors (pgn can not be shorten in game)
@@ -1763,6 +1762,42 @@ script:
             if (id(led_white_valid_move).state) {
               id(led_white_valid_move).turn_off();
             }
+  - id: led_update_game_over
+    then:
+      - lambda: |-
+          // turn all led's off
+          if (id(led_white_to_move).state) {
+            id(led_white_to_move).turn_off();
+          }
+          if (id(led_black_to_move).state) {
+            id(led_black_to_move).turn_off();
+          }
+          if (id(led_black_nonvalid_move).state) {
+            id(led_black_nonvalid_move).turn_off();
+          }
+          if (id(led_black_valid_move).state) {
+            id(led_black_valid_move).turn_off();
+          }
+          if (id(led_white_nonvalid_move).state) {
+            id(led_white_nonvalid_move).turn_off();
+          }
+          if (id(led_white_valid_move).state) {
+            id(led_white_valid_move).turn_off();
+          }
+
+          // leds: won -> green, lost -> rot, remis -> both blue
+          if (id(last_move_pgn_additional) == "#") {
+            if (id(white_to_move)) { 
+              id(led_white_valid_move).turn_on(); // green
+              id(led_black_nonvalid_move).turn_on(); // red
+            } else {
+              id(led_black_valid_move).turn_on(); // green
+              id(led_white_nonvalid_move).turn_on(); // red
+            }
+          } else { // remis
+            id(led_white_to_move).turn_on(); // blue
+            id(led_black_to_move).turn_on(); // blue
+          }
 
   - id: sync_time_control
     then:
@@ -1794,6 +1829,7 @@ script:
             call.set_option("Rapid (15+10)");  // Default option
           }
           call.perform();
+
   - id: store_move
     then:
       - lambda: |-
@@ -1804,35 +1840,11 @@ script:
             // store previous pgn history
             id(pgn_history_take_back) = id(pgn_history);
 
-            // add current pgn to history
-            if (id(white_to_move)) { // white
-              std::string fullmove = std::to_string((int)(id(halfmove_counter) / 2.) + 1);
-              id(pgn_history) = id(pgn_history) + fullmove + ". " + id(last_move_pgn);
-            } else { // black
-              id(pgn_history) = id(pgn_history) + " " + id(last_move_pgn) + "\n";
-            }
-
-            // update fen move counters
-            if (id(current_move_type) == "TAKE" || id(moved_piece) == "p" || id(moved_piece) == "P") {
-              id(halfmove_or_capture_counter) = 0;
-            } else {
-              id(halfmove_or_capture_counter) += 1;
-            }
-            id(fen_position_current)[70] = std::to_string(id(halfmove_or_capture_counter));
-            id(fen_position_current)[71] = id(white_to_move) ? std::to_string((int)(id(halfmove_counter) / 2.) + 1) : std::to_string((int)(id(halfmove_counter) / 2.) + 2);
-
-            //en passant field
-            if (id(current_move_type) == "ENPASSANT") {
-              id(fen_position_current)[69] = id(chess_field_names)[id(fen_enpassant_index)];
-            } else {
-              id(fen_position_current)[69] = "";
-            }
-
             //update pgn sensors
             id(update_pgn_history).execute();
 
-            // update castling rights
-            id(update_fen_castling).execute();
+            // update fen move, castling, enpassant, move counts
+            id(update_fen_additional_fields).execute();
 
             // replace last fen by current fen
             for (int i = 0; i < 72; i++) {
@@ -1840,7 +1852,7 @@ script:
               id(fen_position_last)[i] = id(fen_position_current)[i];          
             };
 
-            // update fen string
+            // update fen string current to last
             id(fen_position_last_arr_to_string).execute();
 
             // replace last position by current position
@@ -1849,25 +1861,36 @@ script:
               id(raw_position_last)[i] = id(raw_position_current)[i];   
             };
 
-            // update timer
-            if (id(white_to_move)){
-              id(time_control_timer_white) += id(time_control_increment);
+            // game finished ?
+            if (id(last_move_pgn_additional) == "#" || id(last_move_pgn_additional) == " 1/2-1/2" ){
+              id(game_running) = false;
+              // game over
+              id(led_update_game_over).execute();
             } else {
-              id(time_control_timer_black) += id(time_control_increment);
+              // update timer
+              id(time_control_add_increment).execute();
+              // toggle white_to_move
+              id(white_to_move) = !id(white_to_move);
+              // increase coutner of halfmoves
+              id(halfmove_counter) += 1;
+              // there is no moved piece
+              id(moved_piece) = "";
+              // reset valid move
+              id(valid_move) = false;
+              // reset move type
+              id(current_move_type) = "";
+              // reset led for next move
+              id(led_update).execute();   
             }
+          }
 
-            // toggle white_to_move
-            id(white_to_move) = !id(white_to_move);
-            // increase coutner of halfmoves
-            id(halfmove_counter) += 1;
-            // there is no moved piece
-            id(moved_piece) = "";
-            // reset valid move
-            id(valid_move) = false;
-            // reset move type
-            id(current_move_type) = "";
-            // reset led for next move
-            id(led_update).execute();            
+  - id: time_control_add_increment
+    then:
+      - lambda: |-
+          if (id(white_to_move)){
+            id(time_control_timer_white) += id(time_control_increment);
+          } else {
+            id(time_control_timer_black) += id(time_control_increment);
           }
 
   - id: update_uci_notation
@@ -1944,7 +1967,6 @@ script:
             raw_fen += " " + id(fen_position_last)[71];
 
             id(fen_position_last_string) = raw_fen;
-            id(fen_position_last_string_sensor).update();
 
   - id: check_chess_rules
     then:
@@ -1957,43 +1979,36 @@ script:
           chess_validator::TableState table_state;
           chess_validator::get_table_state( id(fen_position_last_string).c_str() , &table_state );
           chess_validator::INVALID_REASON invalid = chess_validator::is_move_invalid( &table_state , id(current_move_from), id(current_move_to) );
-          if( invalid ){              
+          if( invalid ){
+              std::string fen_string = ", FEN = " + id(fen_position_last_string) + ", MOVE: " + id(current_move_uci);              
               switch(invalid){
                   case chess_validator::INVALID_FEN_STRING:
-                      ESP_LOGW("Validator", "Invalid move... reason: INVALID_FEN_STRING");
+                      ESP_LOGW("Validator", "Invalid move... reason: INVALID_FEN_STRING %s",  fen_string.c_str() );
                       break;
                   case chess_validator::NOT_PLAYER_TURN:
-                      ESP_LOGW("Validator", "Invalid move... reason: NOT_PLAYER_TURN");
+                      ESP_LOGW("Validator", "Invalid move... reason: NOT_PLAYER_TURN %s",  fen_string.c_str() );
                       break;
                   case chess_validator::NO_UNIT:
-                      ESP_LOGW("Validator", "Invalid move... reason: NO_UNIT");
+                      ESP_LOGW("Validator", "Invalid move... reason: NO_UNIT %s",  fen_string.c_str() );
                       break;
                   case chess_validator::SAME_PLACE:
-                      ESP_LOGW("Validator", "Invalid move... reason: SAME_PLACE");
+                      ESP_LOGW("Validator", "Invalid move... reason: SAME_PLACE %s",  fen_string.c_str() );
                       break;
                   case chess_validator::CAPTURING_SAME_COLOR:
-                      ESP_LOGW("Validator", "Invalid move... reason: CAPTURING_SAME_COLOR");
+                      ESP_LOGW("Validator", "Invalid move... reason: CAPTURING_SAME_COLOR %s",  fen_string.c_str() );
                       break;
                   case chess_validator::INVALID_UNIT_MOVE:
-                      ESP_LOGW("Validator", "Invalid move... reason: INVALID_UNIT_MOVE");
+                      ESP_LOGW("Validator", "Invalid move... reason: INVALID_UNIT_MOVE %s",  fen_string.c_str() );
                       break;
                   case chess_validator::KING_IN_CHECK:
-                      ESP_LOGW("Validator", "Invalid move... reason: KING_IN_CHECK");
+                      ESP_LOGW("Validator", "Invalid move... reason: KING_IN_CHECK %s",  fen_string.c_str() );
                       break;
               }
           } else {
 
-              // apply current move and check if any checks, mates, draws
-              int promotion = 0;
-              switch( id(default_pawn_promotion_to)[0] ){
-                  case 'Q': promotion = chess_validator::TYPE_QUEEN; break;
-                  case 'N': promotion = chess_validator::TYPE_KNIGHT; break;
-                  case 'B': promotion = chess_validator::TYPE_BISHOP; break;
-                  case 'R': promotion = chess_validator::TYPE_ROOK; break;
-                  default:  promotion = chess_validator::TYPE_QUEEN; break; // If not specified, consider promotion as queen
-              }
-              // next move
-              chess_validator::TableState new_table_state = chess_validator::apply_move( &table_state , id(current_move_from), id(current_move_to), promotion );
+              // apply current move and check if any checks, mates, draws (we use here UCI due to missing promotion parameter)
+              chess_validator::TableState new_table_state = chess_validator::apply_move( &table_state , id(current_move_uci).c_str() );
+
               // king in check ?
               if (chess_validator::is_king_in_check(&new_table_state, new_table_state.next_color_to_play)) {
                   id(last_move_pgn_additional) = "+";
@@ -2249,8 +2264,7 @@ script:
 
           // if no valid move found, rise flag
           if (id(valid_move)) {
-            // update who to move
-            id(fen_position_current)[64] = (id(white_to_move) ? "b" : "w");
+            
 
             // update leds
             if (id(white_to_move)) {
@@ -2273,9 +2287,13 @@ script:
               id(led_black_to_move).turn_off();                
             }
           }
-  - id: update_fen_castling
+  - id: update_fen_additional_fields
     then:
       - lambda: |-
+          // update who to move
+          id(fen_position_current)[64] = (id(white_to_move) ? "b" : "w");
+
+          // update castling part
           if (std::string("KRkr").find(id(moved_piece)) != std::string::npos){
             if (id(white_to_move)) { // white
               // king
@@ -2305,6 +2323,22 @@ script:
               }
             }
           }
+
+          //en passant field
+          if (id(current_move_type) == "ENPASSANT") {
+            id(fen_position_current)[69] = id(chess_field_names)[id(fen_enpassant_index)];
+          } else {
+            id(fen_position_current)[69] = "-";
+          }
+
+          // update fen move counters
+          if (id(current_move_type) == "TAKE" || id(moved_piece) == "p" || id(moved_piece) == "P") {
+            id(halfmove_or_capture_counter) = 0;
+          } else {
+            id(halfmove_or_capture_counter) += 1;
+          }
+          id(fen_position_current)[70] = std::to_string(id(halfmove_or_capture_counter));
+          id(fen_position_current)[71] = id(white_to_move) ? std::to_string((int)(id(halfmove_counter) / 2.) + 1) : std::to_string((int)(id(halfmove_counter) / 2.) + 2);
 
   - id: update_pgn
     then:
