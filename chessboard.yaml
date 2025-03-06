@@ -1883,9 +1883,7 @@ script:
           valid_check = validator.is_legal_move(id(current_move_from), id(current_move_to));
 
           // reset flag if not valid
-          if (!valid_check) {
-            id(valid_move) = false;
-          }
+          id(valid_move) = valid_check;
 
   - id: move_analyser
     then:
