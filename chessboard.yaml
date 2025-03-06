@@ -21,7 +21,7 @@ esp32:
 
 # Enable logging
 logger:
-  level: WARN
+  level: ERROR
 
 api:
   reboot_timeout: 0s
@@ -79,8 +79,8 @@ time:
 substitutions:
   n_adc_samples: '25'
   attenuation_value: 12db
-  hall_sensor_intervall_game: 250ms
-  hall_sensor_intervall_idle: 1s
+  hall_sensor_intervall_game: 500ms
+  hall_sensor_intervall_idle: 3s
   delay_before_adc_reading: '5'
 
 globals:
@@ -224,7 +224,7 @@ globals:
 
   # Variables for FEN
   - id: fen_position_init
-    type: std::array<std::string, 65>
+    type: std::array<std::string, 72>
     initial_value: |-
       {
         "r","n","b","q","k","b","n","r",
@@ -235,11 +235,11 @@ globals:
         "0","0","0","0","0","0","0","0",
         "P","P","P","P","P","P","P","P",
         "R","N","B","Q","K","B","N","R",
-        "w"
+        "w","K","Q","k","q", "-", "0", "1"
       }
 
   - id: fen_position_last
-    type: std::array<std::string, 65>
+    type: std::array<std::string, 72>
     initial_value: '{""}'
 
   - id: fen_position_last_string
@@ -247,15 +247,19 @@ globals:
     initial_value: '"rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"'
 
   - id: fen_position_current
-    type: std::array<std::string, 65>
+    type: std::array<std::string, 72>
     initial_value: '{""}'
 
   - id: fen_position_chessboard
     type: std::string
     initial_value: '""'
 
+  - id: fen_enpassant_index
+    type: int
+    initial_value: '-1'
+
   - id: fen_position_take_back
-    type: std::array<std::string, 65>
+    type: std::array<std::string, 72>
     initial_value: '{""}'
   
   # Variables for RAW-position
@@ -352,11 +356,19 @@ globals:
     type: int
     initial_value: '0'
 
+  - id: halfmove_or_capture_counter
+    type: int
+    initial_value: '0'
+
   - id: last_move_pgn_take_back
     type: std::string
     initial_value: ''
 
   - id: last_move_pgn
+    type: std::string
+    initial_value: ''
+
+  - id: last_move_pgn_additional
     type: std::string
     initial_value: ''
 
@@ -1183,6 +1195,15 @@ text_sensor:
       sorting_group_id: sorting_group_pgn
       sorting_weight: 0
   - platform: template
+    id: fen_position_last_string_sensor
+    name: "FEN last"
+    lambda: |-
+      return id(fen_position_last_string);
+    update_interval: never
+    web_server:
+      sorting_group_id: sorting_group_pgn
+      sorting_weight: 1
+  - platform: template
     id: pgn_history_1
     name: "PGN_1"
     lambda: |-
@@ -1414,7 +1435,7 @@ script:
               id(white_to_move) = !id(white_to_move);
 
               // replace last fen by take back
-              for (int i = 0; i < 65; i++) {
+              for (int i = 0; i < 72; i++) {
                 id(fen_position_current)[i] = id(fen_position_last)[i];
                 id(fen_position_last)[i] = id(fen_position_take_back)[i];
               };
@@ -1611,6 +1632,7 @@ script:
           id(led_update).execute();
           id(game_running) = false;
           id(halfmove_counter) = 0;
+          id(halfmove_or_capture_counter) = 0;
           id(current_move_from) = 0;
           id(current_move_to) = 0;
           id(current_move_type) = "";
@@ -1664,6 +1686,7 @@ script:
     then:
       - lambda: |-
           id(last_move_pgn) = "";
+          id(last_move_pgn_additional) = "";
           id(last_move_pgn_take_back) = "";
           id(pgn_history) = "";
           id(pgn_history_take_back) = "";
@@ -1683,7 +1706,7 @@ script:
   - id: reset_fen_position
     then:
       - lambda: |-
-          for (int i = 0; i < 65; i++) {
+          for (int i = 0; i < 72; i++) {
             std::string curr_value = id(fen_position_init)[i];
             id(fen_position_take_back)[i] = curr_value;
             id(fen_position_last)[i] = curr_value;   
@@ -1789,11 +1812,30 @@ script:
               id(pgn_history) = id(pgn_history) + " " + id(last_move_pgn) + "\n";
             }
 
+            // update fen move counters
+            if (id(current_move_type) == "TAKE" || id(moved_piece) == "p" || id(moved_piece) == "P") {
+              id(halfmove_or_capture_counter) = 0;
+            } else {
+              id(halfmove_or_capture_counter) += 1;
+            }
+            id(fen_position_current)[70] = std::to_string(id(halfmove_or_capture_counter));
+            id(fen_position_current)[71] = id(white_to_move) ? std::to_string((int)(id(halfmove_counter) / 2.) + 1) : std::to_string((int)(id(halfmove_counter) / 2.) + 2);
+
+            //en passant field
+            if (id(current_move_type) == "ENPASSANT") {
+              id(fen_position_current)[69] = id(chess_field_names)[id(fen_enpassant_index)];
+            } else {
+              id(fen_position_current)[69] = "";
+            }
+
             //update pgn sensors
             id(update_pgn_history).execute();
 
+            // update castling rights
+            id(update_fen_castling).execute();
+
             // replace last fen by current fen
-            for (int i = 0; i < 65; i++) {
+            for (int i = 0; i < 72; i++) {
               id(fen_position_take_back)[i] = id(fen_position_last)[i];
               id(fen_position_last)[i] = id(fen_position_current)[i];          
             };
@@ -1864,136 +1906,107 @@ script:
     then:
       - lambda: |-
             // transform array to fen-string
-            int zero_count = 0;
-            std::string raw_fen = "";
-            for (int i=0; i<64; i++) {
-                if (id(fen_position_last)[i] == "0") {
-                    zero_count++;  // Count consecutive zeros
-                } else {
-                    if (zero_count > 0) {
-                      raw_fen += std::to_string(zero_count);  // Add zero count
-                      zero_count = 0;  // Reset zero count
+            std::string raw_fen;
+            int emptyCount = 0;            
+            for (int row = 0; row < 8; ++row) {
+                for (int col = 0; col < 8; ++col) {
+                    std::string piece = id(fen_position_last)[row * 8 + col];
+                    if (piece == "0") {
+                        ++emptyCount;
+                    } else {
+                        if (emptyCount > 0) {
+                            raw_fen += std::to_string(emptyCount);
+                            emptyCount = 0;
+                        }
+                       raw_fen += piece;
                     }
-                    raw_fen += id(fen_position_last)[i];  // Add non-zero character
-                  }
-                // add break line 
-                if ((i + 1) % 8 == 0 && i != 63) {
-                    raw_fen += "/";  
                 }
-            }
-            // If the FEN ends with zeros, append the count
-            if (zero_count > 0) {
-                raw_fen += std::to_string(zero_count);
+                if (emptyCount > 0) {
+                    raw_fen += std::to_string(emptyCount);
+                    emptyCount = 0;
+                }
+                if (row < 7) raw_fen += "/";
             }
 
             // color to move
-            if (id(fen_position_last).length() > 64) {
-                raw_fen += " " + id(fen_position_last)[64];
-            } else {
-                raw_fen += " w"; // white to move, if no value
-            }
+            raw_fen += " " + id(fen_position_last)[64];
 
             // castling rights
-            if (id(fen_position_last).length() > 67) {
-                raw_fen += " " + id(fen_position_last)[65] + id(fen_position_last)[66] + id(fen_position_last)[67] + id(fen_position_last)[68];
-            } else {
-                raw_fen += " KQkq"; // castling allowed
-            }
+            raw_fen += " " + id(fen_position_last)[65] + id(fen_position_last)[66] + id(fen_position_last)[67] + id(fen_position_last)[68];
 
             // en passant
-            if (id(fen_position_last).length() > 68) {
-                raw_fen += " " + id(fen_position_last)[69];
-            } else {
-                raw_fen += " -"; // castling allowed
-            }
+            raw_fen += " " + id(fen_position_last)[69];
 
             // half move since last take
-            if (id(fen_position_last).length() > 69) {
-                raw_fen += " " + id(fen_position_last)[70];
-            } else {
-                raw_fen += " 0"; // no moves
-            }
+            raw_fen += " " + id(fen_position_last)[70];
 
             // full move
-            if (id(fen_position_last).length() > 70) {
-                raw_fen += " " + id(fen_position_last)[71];
-            } else {
-                raw_fen += " 1"; // first move
-            }
+            raw_fen += " " + id(fen_position_last)[71];
 
             id(fen_position_last_string) = raw_fen;
+            id(fen_position_last_string_sensor).update();
 
   - id: check_chess_rules
     then:
       - lambda: |-
           // define flag          
           bool valid_check = false;
+          id(last_move_pgn_additional) = "";
 
-          // check if the color of the moved piece is correct
-          if (id(white_to_move)) {
-            if (std::find(id(fen_white).begin(), id(fen_white).end(), id(moved_piece)) != id(fen_white).end())
-            {
-              valid_check = true;
-            }
-          } else {
-            if (std::find(id(fen_black).begin(), id(fen_black).end(), id(moved_piece)) != id(fen_black).end())
-            {
-              valid_check = true;
-            }           
-          }
-           
-          // TODO: Implement chess-rule checker (uci_move & fen_position_current can be used)
-          // avaiable variables
-          // id(uci_move) -> current move in UCI notation: i.e. e2e4 or b1c3 
-          // id(fen_position_last) -> last FEN position written as 65-elements array (castling rights are currently missed in FEN)
-          // id(current_move_from) -> index of the field "from"
-          // id(current_move_to) -> index of the field "to"
-          // id(current_move_type) -> type of the move: "MOVE", "TAKE", "CASTLING_SHORT", "CASTLING_LONG", "ENPASSANT";
-          
-          // for example as an external class
-          // ChessMoveValidator validator(id(fen_position_last));
-          // valid_check = validator.is_legal_move(id(current_move_from), id(current_move_to));
-
+          // we use validator by https://github.com/rilpires/chess_fen_validator/blob/master/chess_validator.h
           chess_validator::TableState table_state;
           chess_validator::get_table_state( id(fen_position_last_string).c_str() , &table_state );
           chess_validator::INVALID_REASON invalid = chess_validator::is_move_invalid( &table_state , id(current_move_from), id(current_move_to) );
-          if( invalid ){
+          if( invalid ){              
               switch(invalid){
                   case chess_validator::INVALID_FEN_STRING:
-                      // todo cout << "Invalid move... reason: INVALID_FEN_STRING" << endl; 
+                      ESP_LOGW("Validator", "Invalid move... reason: INVALID_FEN_STRING");
                       break;
                   case chess_validator::NOT_PLAYER_TURN:
-                      // todo cout << "Invalid move... reason: NOT_PLAYER_TURN" << endl; 
+                      ESP_LOGW("Validator", "Invalid move... reason: NOT_PLAYER_TURN");
                       break;
                   case chess_validator::NO_UNIT:
-                      // todo cout << "Invalid move... reason: NO_UNIT" << endl; 
+                      ESP_LOGW("Validator", "Invalid move... reason: NO_UNIT");
                       break;
                   case chess_validator::SAME_PLACE:
-                      // todo cout << "Invalid move... reason: SAME_PLACE" << endl; 
+                      ESP_LOGW("Validator", "Invalid move... reason: SAME_PLACE");
                       break;
                   case chess_validator::CAPTURING_SAME_COLOR:
-                      // todo cout << "Invalid move... reason: CAPTURING_SAME_COLOR" << endl; 
+                      ESP_LOGW("Validator", "Invalid move... reason: CAPTURING_SAME_COLOR");
                       break;
                   case chess_validator::INVALID_UNIT_MOVE:
-                      // todo cout << "Invalid move... reason: INVALID_UNIT_MOVE" << endl; 
+                      ESP_LOGW("Validator", "Invalid move... reason: INVALID_UNIT_MOVE");
                       break;
                   case chess_validator::KING_IN_CHECK:
-                      // todo cout << "Invalid move... reason: KING_IN_CHECK" << endl; 
+                      ESP_LOGW("Validator", "Invalid move... reason: KING_IN_CHECK");
                       break;
               }
           } else {
-              chess_validator::TableState new_table_state = chess_validator::apply_move( &table_state , id(current_move_from), id(current_move_to) );
-              if (chess_validator::is_king_in_check(&new_table_state, new_table_state.next_color_to_play)) {
-                  // todo king in check
+
+              // apply current move and check if any checks, mates, draws
+              int promotion = 0;
+              switch( id(default_pawn_promotion_to)[0] ){
+                  case 'Q': promotion = chess_validator::TYPE_QUEEN; break;
+                  case 'N': promotion = chess_validator::TYPE_KNIGHT; break;
+                  case 'B': promotion = chess_validator::TYPE_BISHOP; break;
+                  case 'R': promotion = chess_validator::TYPE_ROOK; break;
+                  default:  promotion = chess_validator::TYPE_QUEEN; break; // If not specified, consider promotion as queen
               }
+              // next move
+              chess_validator::TableState new_table_state = chess_validator::apply_move( &table_state , id(current_move_from), id(current_move_to), promotion );
+              // king in check ?
+              if (chess_validator::is_king_in_check(&new_table_state, new_table_state.next_color_to_play)) {
+                  id(last_move_pgn_additional) = "+";
+              }
+              // kind in mate?
               if (chess_validator::is_check_mate(&new_table_state))
               {
-                  // todo checkmate
-              } else {
-                DRAW_REASON   draw  chess_validator::get_draw_reason(&new_table_state);
-                if (draw != DRAW_REASON::NO_DRAW) {
-                  // todo draw
-                }
+                  id(last_move_pgn_additional) = "#";
+              }
+              // draw ?
+              chess_validator::DRAW_REASON   draw  = chess_validator::get_draw_reason(&new_table_state);
+              if (draw != chess_validator::DRAW_REASON::NO_DRAW) {
+                  id(last_move_pgn_additional) = " 1/2-1/2";
               }
 
               valid_check = true;
@@ -2007,6 +2020,7 @@ script:
       - lambda: |-
           // reset flag
           id(valid_move) = false;
+          id(fen_enpassant_index) = -1;
 
           // Define a array of size 64 to hold differences
           std::array<int, 64> pos_difference;
@@ -2210,6 +2224,7 @@ script:
             id(moved_piece) = id(fen_position_last)[from];
             id(current_move_from) = from;
             id(current_move_to) = to;
+            id(fen_enpassant_index) = from_opponent;
             id(current_move_type) = "ENPASSANT";
 
             // prepare uci notation
@@ -2256,6 +2271,38 @@ script:
               id(led_black_nonvalid_move).turn_on();
               id(led_black_valid_move).turn_off();
               id(led_black_to_move).turn_off();                
+            }
+          }
+  - id: update_fen_castling
+    then:
+      - lambda: |-
+          if (std::string("KRkr").find(id(moved_piece)) != std::string::npos){
+            if (id(white_to_move)) { // white
+              // king
+              if (id(moved_piece) == "K"){
+                id(fen_position_current)[65] = "-";
+                id(fen_position_current)[66] = "-";
+              } else { // rook
+                  // short
+                  if (id(current_move_from) == 63) {
+                    id(fen_position_current)[65] = "-";
+                  } else { // long
+                    id(fen_position_current)[66] = "-";
+                  }
+              }
+            } else {
+              // king
+              if (id(moved_piece) == "k"){
+                id(fen_position_current)[67] = "-";
+                id(fen_position_current)[68] = "-";
+              } else { // rook
+                  // short
+                  if (id(current_move_from) == 7) {
+                    id(fen_position_current)[67] = "-";
+                  } else { // long
+                    id(fen_position_current)[68] = "-";
+                  }
+              }
             }
           }
 
@@ -2334,7 +2381,10 @@ script:
             } 
             if (id(current_move_type) == "CASTLING_LONG" ) {
                 pgn_move += "O-O-O";
-            }  
+            }
+
+            // check, mate, draw
+            pgn_move +=  id(last_move_pgn_additional);
 
             id(last_move_pgn_take_back) = id(last_move_pgn);
             id(last_move_pgn) = pgn_move;
