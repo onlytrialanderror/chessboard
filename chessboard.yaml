@@ -77,11 +77,66 @@ time:
 
 
 substitutions:
-  n_adc_samples: '25'
+  n_adc_samples: '10'
   attenuation_value: 12db
   hall_sensor_intervall_game: 500ms
   hall_sensor_intervall_idle: 3s
-  delay_before_adc_reading: '5'
+  delay_before_adc_reading: '2'
+
+i2c:
+  sda: GPIO21
+  scl: GPIO22
+  id: i2c0
+  scan: true
+  frequency: 200kHz
+  
+
+tca9548a:
+  - address: 0x70
+    id: i2c_mux_w
+    i2c_id: i2c0
+    channels:
+      - bus_id: i2c_mux_w_0
+        channel: 0
+      - bus_id: i2c_mux_b_0
+        channel: 1
+      - bus_id: i2c_mux_w_1
+        channel: 2
+
+  #- address: 0x77 # (high, high, high)
+  #  id: i2c_mux_b
+  #  i2c_id: i2c0
+  #  channels:
+  #    - bus_id: i2c_mux_b_0_
+  #      channel: 0
+  #    - bus_id: i2c_mux_b_1_
+  #      channel: 1
+
+pcf8574:
+  - id: 'pcf8574_w'
+    address: 0x20
+    i2c_id: i2c0
+    pcf8575: false
+
+font:
+  - file: "gfonts://Roboto"
+    id: roboto_10
+    size: 10
+  - file: "gfonts://Roboto"
+    id: roboto_12
+    size: 12
+  - file: "gfonts://Roboto"
+    id: roboto_14
+    size: 14
+  - file: "gfonts://Roboto"
+    id: roboto_24
+    size: 24
+  - file: "gfonts://Roboto"
+    id: roboto_30
+    size: 30
+  - file: "gfonts://Roboto"
+    id: roboto_32
+    size: 32
 
 globals:
 
@@ -441,59 +496,8 @@ interval:
   - interval: 1000ms
     then:
       - script.execute: update_timer
-font:
-  - file: "gfonts://Roboto"
-    id: roboto_10
-    size: 10
-  - file: "gfonts://Roboto"
-    id: roboto_12
-    size: 12
-  - file: "gfonts://Roboto"
-    id: roboto_14
-    size: 14
-  - file: "gfonts://Roboto"
-    id: roboto_24
-    size: 24
-  - file: "gfonts://Roboto"
-    id: roboto_30
-    size: 30
-  - file: "gfonts://Roboto"
-    id: roboto_32
-    size: 32
 
-i2c:
-  sda: GPIO21
-  scl: GPIO22
-  id: i2c0
-  scan: true
-  
 
-tca9548a:
-  - address: 0x70
-    id: i2c_mux_w
-    i2c_id: i2c0
-    channels:
-      - bus_id: i2c_mux_w_0
-        channel: 0
-      - bus_id: i2c_mux_b_0
-        channel: 1
-      - bus_id: i2c_mux_w_1
-        channel: 2
-
-  #- address: 0x77 # (high, high, high)
-  #  id: i2c_mux_b
-  #  i2c_id: i2c0
-  #  channels:
-  #    - bus_id: i2c_mux_b_0_
-  #      channel: 0
-  #    - bus_id: i2c_mux_b_1_
-  #      channel: 1
-
-pcf8574:
-  - id: 'pcf8574_w'
-    address: 0x20
-    i2c_id: i2c0
-    pcf8575: false
 
 display:
   - platform: ssd1306_i2c
