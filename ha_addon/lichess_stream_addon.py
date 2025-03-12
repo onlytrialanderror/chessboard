@@ -1,7 +1,6 @@
 import asyncio
 import httpx
 import json
-import os
 import paho.mqtt.client as mqtt
 
 debug = True
