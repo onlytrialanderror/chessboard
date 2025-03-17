@@ -1099,13 +1099,27 @@ select:
   - platform: template
     name: "Account"
     id: lichess_account
-    internal: true
+    internal: False
     optimistic: true
     options:
-      - !secret chessboard_player_b
       - !secret chessboard_player_a
+      - !secret chessboard_player_b
       - !secret chessboard_player_c
-    initial_option: !secret chessboard_player_b
+    initial_option: !secret chessboard_player_c
+    on_value: 
+      then:
+        lambda: |-
+          auto index = id(lichess_account).active_index();
+          if (index.value() == 0) {
+            id(chessboard_token_current) = id(chessboard_token_a);
+          } else if (index.value() == 1) {
+            id(chessboard_token_current) = id(chessboard_token_b);
+          } else if (index.value() == 2) {
+            id(chessboard_token_current) = id(chessboard_token_c);
+          } else {
+            id(chessboard_token_current) = id(chessboard_token_c);
+          }
+          id(lichess_token).update();
     web_server:
       sorting_group_id: sorting_group_lichess
       sorting_weight: 1
@@ -1162,14 +1176,14 @@ text_sensor:
     internal: true
     web_server:
       sorting_group_id: sorting_group_lichess
-      sorting_weight: 12
+      sorting_weight: 3
   - platform: template
     name: lichess_last_move
     id: "lichess_last_move"
     update_interval: never
     web_server:
       sorting_group_id: sorting_group_lichess
-      sorting_weight: 12
+      sorting_weight: 4
       
   - platform: template
     name: "lichess_game_id"
@@ -1177,7 +1191,7 @@ text_sensor:
     update_interval: never
     web_server:
       sorting_group_id: sorting_group_lichess
-      sorting_weight: 13
+      sorting_weight: 5
 
   - platform: template
     name: lichess_token
@@ -1187,7 +1201,7 @@ text_sensor:
     update_interval: never
     web_server:
       sorting_group_id: sorting_group_lichess
-      sorting_weight: 14
+      sorting_weight: 2
 
   - platform: template
     name: "Hall Array Part 1"
