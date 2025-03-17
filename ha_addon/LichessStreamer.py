@@ -105,14 +105,16 @@ class LichessStreamer(hass.Hass):
 
             url = URL_TEMPLATE.format(self.__class__._current_game_id)
 
-            with httpx.stream("GET", url, headers=headers, timeout=60) as response:
+            # open the stream for whole chess game
+            with httpx.stream("GET", url, headers=headers, timeout=30) as response:
                 for line in response.iter_lines():
                     if line:
-
+                        # convert to json - object
                         data = json.loads(line)
                         
-                        if data:
+                        if data: # valid json
                             reduced_data = self.reduce_response(data)
+                            # extract last move again, to set the state
                             last_move = ""
                             if (reduced_data.get('last') != ""):
                                 last_move = reduced_data.get('last', '')
@@ -123,3 +125,5 @@ class LichessStreamer(hass.Hass):
                                 self.log(f"Terminating the stream: {self.__class__._current_game_id}")
                                 # listener will overwrite the global variable here
                                 self.set_state(LICHESS_GAME_ID_SENSOR, state=IDLE_GAME_ID)
+        else:
+            self.log(f"Waiting for new stream")

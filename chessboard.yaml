@@ -69,6 +69,9 @@ web_server:
     - id: sorting_group_simulation
       name: "DEBUG"
       sorting_weight: 50
+    - id: sorting_group_lichess
+      name: "Lichess"
+      sorting_weight: 60
 
 time:
   - platform: sntp
@@ -1101,11 +1104,11 @@ select:
     options:
       - !secret chessboard_player_b
       - !secret chessboard_player_a
-      - "Test"
+      - !secret chessboard_player_c
     initial_option: !secret chessboard_player_b
     web_server:
-      sorting_group_id: sorting_group_settings
-      sorting_weight: 3
+      sorting_group_id: sorting_group_lichess
+      sorting_weight: 1
 sensor:
   - platform: adc
     pin: GPIO36
@@ -1158,14 +1161,14 @@ text_sensor:
     attribute: response
     internal: true
     web_server:
-      sorting_group_id: sorting_group_sensors
+      sorting_group_id: sorting_group_lichess
       sorting_weight: 12
   - platform: template
     name: lichess_last_move
     id: "lichess_last_move"
     update_interval: never
     web_server:
-      sorting_group_id: sorting_group_sensors
+      sorting_group_id: sorting_group_lichess
       sorting_weight: 12
       
   - platform: template
@@ -1173,7 +1176,7 @@ text_sensor:
     id: lichess_game_id
     update_interval: never
     web_server:
-      sorting_group_id: sorting_group_sensors
+      sorting_group_id: sorting_group_lichess
       sorting_weight: 13
 
   - platform: template
@@ -1183,7 +1186,7 @@ text_sensor:
       return id(chessboard_token_current);
     update_interval: never
     web_server:
-      sorting_group_id: sorting_group_sensors
+      sorting_group_id: sorting_group_lichess
       sorting_weight: 14
 
   - platform: template
