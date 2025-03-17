@@ -2,8 +2,6 @@ import appdaemon.plugins.hass.hassapi as hass
 import httpx
 import json
 
-debug = True
-
 IDLE_GAME_ID = "idle"
 LICHESS_TOKEN = ''
 
@@ -27,7 +25,7 @@ class LichessStreamer(hass.Hass):
         self.listen_state(self.game_id_changed, LICHESS_GAME_ID_SENSOR)
         self.listen_state(self.token_changed, LICHESS_TOKEN_SENSOR)
         # continue stream if any
-        self.stream_game()
+        # self.stream_game()
 
     def game_id_changed(self, entity, attribute, old, new, kwargs):
         if new and new != old:
@@ -76,7 +74,11 @@ class LichessStreamer(hass.Hass):
         # gameFull
         if (dat.get('type') == 'gameFull'):
             reduced_data = {
-                "type": dat.get('state', {}).get("type", ""),
+                "type": dat.get("type", ""),
+                "bname": dat.get('black', {}).get("name", "black"),
+                "brating": dat.get('black', {}).get("rating", 0),
+                "wname": dat.get('white', {}).get("name", "white"),
+                "wrating": dat.get('white', {}).get("rating", 0), 
                 "wtime": dat.get('state', {}).get("wtime", ""),
                 "btime": dat.get('state', {}).get("btime", ""),
                 "status": dat.get('state', {}).get("status", ""),
@@ -92,7 +94,6 @@ class LichessStreamer(hass.Hass):
 
     # function to stream game
     def stream_game(self):
-
         if (self.__class__._current_game_id != IDLE_GAME_ID):
 
             headers = {
@@ -103,7 +104,7 @@ class LichessStreamer(hass.Hass):
 
             url = URL_TEMPLATE.format(self.__class__._current_game_id)
 
-            with httpx.stream("GET", url, headers=headers, timeout=60) as response:
+            with httpx.stream("GET", url, headers=headers, timeout=300) as response:
                 for line in response.iter_lines():
                     if line:
 
@@ -116,12 +117,8 @@ class LichessStreamer(hass.Hass):
                                 last_move = reduced_data.get('last', '')
                             self.set_state(LICHESS_LAST_MOVE_SENSOR, state=last_move, attributes={"response": reduced_data})
                             
-                        if debug:
-                            self.log(reduced_data)  # Process the JSON object
-
-                        # check if we have to abort the game
-                        if data and self.check_game_over(data):
-                            self.log("Terminating the stream")
-                            self.__class__._current_game_id = IDLE_GAME_ID
-                            self.set_state(LICHESS_GAME_ID_SENSOR, state=IDLE_GAME_ID)
-                            pass
+                            # check if we have to abort the game
+                            if self.check_game_over(data):
+                                self.log("Terminating the stream")
+                                # listener will overwrite the global variable here
+                                self.set_state(LICHESS_GAME_ID_SENSOR, state=IDLE_GAME_ID)
