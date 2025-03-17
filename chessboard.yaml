@@ -77,46 +77,100 @@ time:
 
 
 substitutions:
-  n_adc_samples: '10'
+  n_adc_samples: '50'
   attenuation_value: 12db
   hall_sensor_intervall_game: 500ms
   hall_sensor_intervall_idle: 3s
-  delay_before_adc_reading: '2'
+  delay_before_adc_reading: '7'
 
 i2c:
   sda: GPIO21
   scl: GPIO22
   id: i2c0
   scan: true
-  frequency: 200kHz
+  frequency: 100kHz 
+  # max frequency of pcf8574 is 100kHz 
   
 
 tca9548a:
   - address: 0x70
+    id: i2c_mux_b
+    i2c_id: i2c0
+    channels:
+      - bus_id: i2c_mux_b_display
+        channel: 7
+      - bus_id: i2c_mux_b_buttons
+        channel: 2
+
+  - address: 0x77 # (high, high, high)
     id: i2c_mux_w
     i2c_id: i2c0
     channels:
-      - bus_id: i2c_mux_w_0
-        channel: 0
-      - bus_id: i2c_mux_b_0
-        channel: 1
-      - bus_id: i2c_mux_w_1
+      - bus_id: i2c_mux_w_display
+        channel: 7
+      - bus_id: i2c_mux_w_buttons
         channel: 2
 
-  #- address: 0x77 # (high, high, high)
-  #  id: i2c_mux_b
-  #  i2c_id: i2c0
-  #  channels:
-  #    - bus_id: i2c_mux_b_0_
-  #      channel: 0
-  #    - bus_id: i2c_mux_b_1_
-  #      channel: 1
-
 pcf8574:
+  - id: 'pcf8574_b'
+    address: 0x20
+    i2c_id: i2c_mux_b_buttons
+    pcf8575: false
   - id: 'pcf8574_w'
     address: 0x20
-    i2c_id: i2c0
+    i2c_id: i2c_mux_w_buttons
     pcf8575: false
+
+display:
+
+  - platform: ssd1306_i2c
+    id: oled_white
+    model: "SSD1306 128x32"
+    flip_y: False
+    flip_x: False
+    address: 0x3C
+    i2c_id: i2c_mux_w_display
+    lambda: |-
+      const auto display_width = it.get_width();
+      const auto display_height = it.get_height();
+
+      if (id(my_menu).is_active()) {
+        it.menu(0, 0, id(my_menu), display_width, display_height);
+      } else {
+        std::string time_to_show_w = id(timer_white).state + "|";
+        it.printf(0, 0, id(roboto_30), time_to_show_w.c_str());
+
+        std::string time_to_show_b = id(timer_black).state;
+        it.printf(85, 0, id(roboto_12), time_to_show_b.c_str());
+
+        std::string move_to_show = "M: " + std::to_string((int)(id(halfmove_counter) / 2.) + 1);
+        it.printf(85, 18, id(roboto_12), move_to_show.c_str());
+      }
+
+  - platform: ssd1306_i2c
+    id: oled_black
+    flip_y: False
+    flip_x: False
+    model: "SSD1306 128x32"
+    address: 0x3C
+    i2c_id: i2c_mux_b_display
+    lambda: |-
+      const auto display_width = it.get_width();
+      const auto display_height = it.get_height();
+
+      if (id(my_menu).is_active()) {
+        it.menu(0, 0, id(my_menu), display_width, display_height);
+      } else {
+        std::string time_to_show_b = id(timer_black).state + "|";
+        it.printf(0, 0, id(roboto_30), time_to_show_b.c_str());
+
+        std::string time_to_show_w = id(timer_white).state;
+        it.printf(85, 0, id(roboto_12), time_to_show_w.c_str());
+
+        std::string move_to_show = "M: " + std::to_string((int)(id(halfmove_counter) / 2.) + 1);
+        it.printf(85, 18, id(roboto_12), move_to_show.c_str());
+      }
+
 
 font:
   - file: "gfonts://Roboto"
@@ -353,14 +407,14 @@ globals:
     type: std::array<float, 64>
     initial_value: |-
       {
-        2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0,
-        2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0,
-        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-        -2.0, -2.0, -2.0, -2.0, -2.0, -2.0, -2.0, -2.0,
-        -2.0, -2.0, -2.0, -2.0, -2.0, -2.0, -2.0, -2.0
+        0.14, 0.14, 0.14, 0.14, 0.14, 0.14, 0.14, 0.14,
+        0.14, 0.14, 0.14, 0.14, 0.14, 0.14, 0.14, 0.14,
+        0.14, 0.14, 0.14, 0.14, 0.14, 0.14, 0.14, 0.14,
+        0.14, 0.14, 0.14, 0.14, 0.14, 0.14, 0.14, 0.14,
+        0.14, 0.14, 0.14, 0.14, 0.14, 0.14, 0.14, 0.14,
+        0.14, 0.14, 0.14, 0.14, 0.14, 0.14, 0.14, 0.14,
+        0.14, 0.14, 0.14, 0.14, 0.14, 0.14, 0.14, 0.14,
+        0.14, 0.14, 0.14, 0.14, 0.14, 0.14, 0.14, 0.14
       }
 
   - id: voltage_field_detection_threshold
@@ -475,6 +529,19 @@ globals:
     type: std::string
     initial_value: '"Q"' 
 
+  - id: chessboard_token_a
+    type: std::string
+    initial_value: !secret chessboard_token_a
+  - id: chessboard_token_b
+    type: std::string
+    initial_value: !secret chessboard_token_b
+  - id: chessboard_token_c
+    type: std::string
+    initial_value: !secret chessboard_token_c
+  - id: chessboard_token_current
+    type: std::string
+    initial_value: !secret chessboard_token_c
+
 # we updating all the time the values of hall sensors
 interval:
   - interval: $hall_sensor_intervall_game
@@ -496,53 +563,6 @@ interval:
   - interval: 1000ms
     then:
       - script.execute: update_timer
-
-
-
-display:
-  - platform: ssd1306_i2c
-    id: oled_white
-    model: "SSD1306 128x32"
-    address: 0x3C
-    i2c_id: i2c0
-    lambda: |-
-      const auto display_width = it.get_width();
-      const auto display_height = it.get_height();
-
-      if (id(my_menu).is_active()) {
-        it.menu(0, 0, id(my_menu), display_width, display_height);
-      } else {
-        std::string time_to_show_w = id(timer_white).state + "|";
-        it.printf(0, 0, id(roboto_30), time_to_show_w.c_str());
-
-        std::string time_to_show_b = id(timer_black).state;
-        it.printf(85, 0, id(roboto_12), time_to_show_b.c_str());
-
-        std::string move_to_show = "M: " + std::to_string((int)(id(halfmove_counter) / 2.) + 1);
-        it.printf(85, 18, id(roboto_12), move_to_show.c_str());
-      }
-
-#  - platform: ssd1306_i2c
-#    id: oled_black
-#    model: "SSD1306 128x32"
-#    address: 0x70
-#    i2c_id: i2c0
-#    lambda: |-
-#      const auto display_width = it.get_width();
-#      const auto display_height = it.get_height();
-#
-#      if (id(my_menu).is_active()) {
-#       it.menu(0, 0, id(my_menu), display_width, display_height);
-#      } else {
-#        std::string time_to_show_b = id(timer_black).state + "|";
-#        it.printf(0, 0, id(roboto_30), time_to_show_b.c_str());
-#
-#        std::string time_to_show_w = id(timer_white).state;
-#        it.printf(85, 0, id(roboto_12), time_to_show_w.c_str());
-#
-#        std::string move_to_show = "M: " + std::to_string((int)(id(halfmove_counter) / 2.) + 1);
-#        it.printf(85, 18, id(roboto_12), move_to_show.c_str());
-#      }
 
 # Declare a LCD menu
 graphical_display_menu:
@@ -646,7 +666,7 @@ switch:
     name: White to move
     pin:
       pcf8574: pcf8574_w
-      number: 1
+      number: 2
       mode:
         output: true
       inverted: true
@@ -657,9 +677,13 @@ switch:
   - platform: gpio
     id: led_black_to_move
     icon: mdi:led-on
-    inverted: false
     name: Black to move
-    pin: GPIO15
+    pin:
+      pcf8574: pcf8574_b
+      number: 2
+      mode:
+        output: true
+      inverted: true
     web_server:
       sorting_group_id: sorting_group_simulation
       sorting_weight: 3
@@ -670,7 +694,7 @@ switch:
     name: White (non valid move)
     pin:
       pcf8574: pcf8574_w
-      number: 2
+      number: 0
       mode:
         output: true
       inverted: true
@@ -684,7 +708,7 @@ switch:
     name: White (valid move)
     pin:
       pcf8574: pcf8574_w
-      number: 0
+      number: 1
       mode:
         output: true
       inverted: true
@@ -692,20 +716,30 @@ switch:
       sorting_group_id: sorting_group_simulation
       sorting_weight: 2
 
-  - platform: template
+  - platform: gpio
     id: led_black_nonvalid_move
     icon: mdi:led-on
     name: Black (non valid move)
-    optimistic: true
+    pin:
+      pcf8574: pcf8574_b
+      number: 0
+      mode:
+        output: true
+      inverted: true
     web_server:
       sorting_group_id: sorting_group_simulation
       sorting_weight: 6
 
-  - platform: template
+  - platform: gpio
     id: led_black_valid_move
     icon: mdi:led-on
     name: Black (valid move)
-    optimistic: true
+    pin:
+      pcf8574: pcf8574_b
+      number: 1
+      mode:
+        output: true
+      inverted: true
     web_server:
       sorting_group_id: sorting_group_simulation
       sorting_weight: 4
@@ -859,8 +893,10 @@ binary_sensor:
       sorting_weight: 1
   - platform: gpio
     pin:
-      number: GPIO18
-      mode: INPUT_PULLUP
+      pcf8574: pcf8574_b
+      number: 3
+      mode:
+        input: true
       inverted: true
     name: "Black finished"
     id: button_black_finished
@@ -1116,26 +1152,6 @@ sensor:
     samples: $n_adc_samples
     update_interval: never
   - platform: template
-    id: field_a8
-    name: "field_a8"
-    internal: false
-    accuracy_decimals: 2
-    lambda: |-
-      return id(voltage_field_current)[0];
-    update_interval: 10s
-    web_server:
-      sorting_group_id: sorting_group_sensors
-  - platform: template
-    id: field_h1
-    name: "field_h1"
-    internal: false
-    accuracy_decimals: 2
-    lambda: |-
-      return id(voltage_field_current)[63];
-    update_interval: 10s
-    web_server:
-      sorting_group_id: sorting_group_sensors
-  - platform: template
     id: halfmove_counter_sensor
     name: "halfmove_counter"
     internal: true
@@ -1147,6 +1163,52 @@ sensor:
       sorting_group_id: sorting_group_sensors
 
 text_sensor:
+
+  - platform: homeassistant
+    id: lichess_stream
+    entity_id: sensor.lichess_last_move
+    attribute: response
+    internal: true
+    web_server:
+      sorting_group_id: sorting_group_sensors
+      sorting_weight: 12
+  - platform: template
+    name: lichess_last_move
+    id: "lichess_last_move"
+    update_interval: never
+    web_server:
+      sorting_group_id: sorting_group_sensors
+      sorting_weight: 12
+      
+  - platform: template
+    name: "lichess_game_id"
+    id: lichess_game_id
+    update_interval: never
+    web_server:
+      sorting_group_id: sorting_group_sensors
+      sorting_weight: 13
+
+  - platform: template
+    name: lichess_token
+    lambda: >- 
+      return id(chessboard_token_current);
+    update_interval: never
+    web_server:
+      sorting_group_id: sorting_group_sensors
+      sorting_weight: 14
+
+  - platform: template
+    name: "Hall Array Part 1"
+    id: array_part_1
+    web_server:
+      sorting_group_id: sorting_group_sensors
+      sorting_weight: 10
+  - platform: template
+    name: "Hall Array Part 2"
+    id: array_part_2
+    web_server:
+      sorting_group_id: sorting_group_sensors
+      sorting_weight: 11
   - platform: template
     name: "Timer (white)"
     id: timer_white
@@ -1413,6 +1475,33 @@ text_sensor:
       sorting_group_id: sorting_group_fen
 
 script:
+  - id: update_array_text
+    mode: queued
+    then:
+      - lambda: |-
+          std::string part1;
+          std::string part2;
+          std::string* target = &part1;
+
+          for (size_t i = 0; i < 64; i++) {
+            if (!target->empty()) *target += "\n";
+
+            // Round to 2 decimal places
+            int rounded = static_cast<int>(id(voltage_field_current)[i] * 100);
+            float rounded_val = rounded / 100.0f;
+
+            char buffer[6]; // Max "3.99\0"
+            snprintf(buffer, sizeof(buffer), "%.2f", rounded_val);
+            *target += buffer;
+
+            if (target == &part1 && part1.length() >= 250) {
+              target = &part2; // Switch to second sensor
+            }
+          }
+
+          id(array_part_1).publish_state(part1);
+          id(array_part_2).publish_state(part2);
+
   - id: take_back
     then:
       - lambda: |-
@@ -1573,7 +1662,7 @@ script:
           headers:
             Content-Type: application/json
           json:
-            chat_id: !secret telegram_cheesboard_chat_id_1
+            chat_id: !secret telegram_cheesboard_chat_id_a
             text: !lambda |-
                 return id(pgn_full);
               
@@ -1582,7 +1671,7 @@ script:
           headers:
             Content-Type: application/json
           json:
-            chat_id: !secret telegram_cheesboard_chat_id_2
+            chat_id: !secret telegram_cheesboard_chat_id_b
             text: !lambda |-
                 return id(pgn_full);
 
@@ -1645,6 +1734,10 @@ script:
 
           id(timer_black).update();
           id(timer_white).update();
+
+          id(lichess_last_move).publish_state(std::string(""));
+          id(lichess_game_id).publish_state(std::string("idle"));
+          id(lichess_token).update();
 
   - id: update_pgn_history
     then:
@@ -2000,7 +2093,7 @@ script:
                             raw_fen += std::to_string(emptyCount);
                             emptyCount = 0;
                         }
-                       raw_fen += piece;
+                      raw_fen += piece;
                     }
                 }
                 if (emptyCount > 0) {
@@ -2571,6 +2664,9 @@ script:
           for (int i = 0; i < 64; i++) {
             id(voltage_field_current)[i] = adc_values[id(hall_sensor_order)[i]];
           }
+
+          // debug: show voltage
+          id(update_array_text).execute();
 
 
         
