@@ -96,6 +96,7 @@ class LichessStreamer(hass.Hass):
     def stream_game(self):
         if (self.__class__._current_game_id != IDLE_GAME_ID):
 
+            self.log(f"Starting the stream: {self.__class__._current_game_id}")
             headers = {
                     "Content-Type": "application/x-ndjson",
                     "Authorization": f"Bearer {self.__class__._current_token}",
@@ -104,7 +105,7 @@ class LichessStreamer(hass.Hass):
 
             url = URL_TEMPLATE.format(self.__class__._current_game_id)
 
-            with httpx.stream("GET", url, headers=headers, timeout=300) as response:
+            with httpx.stream("GET", url, headers=headers, timeout=60) as response:
                 for line in response.iter_lines():
                     if line:
 
@@ -113,12 +114,12 @@ class LichessStreamer(hass.Hass):
                         if data:
                             reduced_data = self.reduce_response(data)
                             last_move = ""
-                            if (reduced_data.get('last')):
+                            if (reduced_data.get('last') != ""):
                                 last_move = reduced_data.get('last', '')
                             self.set_state(LICHESS_LAST_MOVE_SENSOR, state=last_move, attributes={"response": reduced_data})
                             
                             # check if we have to abort the game
                             if self.check_game_over(data):
-                                self.log("Terminating the stream")
+                                self.log(f"Terminating the stream: {self.__class__._current_game_id}")
                                 # listener will overwrite the global variable here
                                 self.set_state(LICHESS_GAME_ID_SENSOR, state=IDLE_GAME_ID)
