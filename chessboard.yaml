@@ -1187,7 +1187,22 @@ text_sensor:
     web_server:
       sorting_group_id: sorting_group_lichess
       sorting_weight: 4
-      
+
+    # temporary used for better debbuging    
+  - platform: homeassistant
+    name: "HA Lichess game id"
+    id: ha_lichess_game_id
+    entity_id: sensor.ha_lichess_game_id
+    internal: True
+    on_value:
+      then:
+        lambda: |-
+          id(lichess_game_id).publish_state(id(ha_lichess_game_id).state);
+
+    web_server:
+      sorting_group_id: sorting_group_lichess
+      sorting_weight: 4
+
   - platform: template
     name: "lichess_game_id"
     id: lichess_game_id

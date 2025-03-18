@@ -3,7 +3,8 @@ import httpx
 import json
 
 IDLE_GAME_ID = "idle"
-UNAVAILABLE_GAME_ID = "unavailable"
+UNAVAILABLE_STATE = "unavailable"
+UNKNOWN_STATE = "unknown"
 LICHESS_TOKEN = ''
 
 URL_TEMPLATE = "https://lichess.org/api/board/game/stream/{}"
@@ -25,19 +26,23 @@ class LichessStreamer(hass.Hass):
         self.log(f"Initialized Token: {self.__class__._current_token}")
         self.listen_state(self.game_id_changed, LICHESS_GAME_ID_SENSOR)
         self.listen_state(self.token_changed, LICHESS_TOKEN_SENSOR)
-        # continue stream if any
-        # self.stream_game()
 
     def game_id_changed(self, entity, attribute, old, new, kwargs):
-        if new and new != old:
+        if new and new != old and new != UNAVAILABLE_STATE and new != UNKNOWN_STATE:
             self.log(f"Game ID changed: {old} -> {new}")
             self.__class__._current_game_id = new
             self.stream_game()
+        else:
+            if new is None or new == UNAVAILABLE_STATE or new == UNKNOWN_STATE: 
+                self.log("Not allowed game_id: {}".format(new))
 
     def token_changed(self, entity, attribute, old, new, kwargs):
-        if new and new != old:
+        if new and new != old and new != UNAVAILABLE_STATE and new != UNKNOWN_STATE:
             self.log(f"Token changed: {old} -> {new}")
             self.__class__._current_token = new
+        else:
+            if new is None or new == UNAVAILABLE_STATE or new == UNKNOWN_STATE: 
+                self.log("Not allowed token: {}".format(new))
 
     def check_game_over(self, dat):
         break_game = False
@@ -47,7 +52,7 @@ class LichessStreamer(hass.Hass):
             break_game = True
         if (dat.get('type') == 'opponentGone' and dat.get('gone') == True):
             break_game = True
-        if (self.__class__._current_game_id == IDLE_GAME_ID or self.__class__._current_game_id == UNAVAILABLE_GAME_ID):
+        if (self.__class__._current_game_id == IDLE_GAME_ID or self.__class__._current_game_id == UNAVAILABLE_STATE or self.__class__._current_game_id == UNKNOWN_STATE):
             break_game = True
         return break_game
 
@@ -55,47 +60,53 @@ class LichessStreamer(hass.Hass):
         
         reduced_data = dat
 
-        # chat-line and opponent gone is not reduced
-
-        # gameState
+        # gameState (we try to short the json, due to limit of 255 characters for HA sensors)
         if (dat.get('type') == 'gameState'):
             reduced_data = {
                 "type": dat.get("type", ""),
-                "wtime": dat.get("wtime", ""),
-                "btime": dat.get("btime", ""),
-                "status": dat.get("status", ""),
-                "win": dat.get("winner", ""),
-                "wdraw": dat.get("wdraw", False),
-                "bdraw": dat.get("bdraw", False),
-                "wback": dat.get("wtakeback", False),
-                "bback": dat.get("btakeback", False),
+                "wclk": "{}+{}".format(round(dat.get("wtime", 0) / 100), round(dat.get("winc", 0) / 100)),
+                "bclk": "{}+{}".format(round(dat.get("btime", 0) / 100), round(dat.get("binc", 0) / 100)),  
+                "state": dat.get("status", ""),
+                "win": {"white": "w", "black": "b"}.get(dat.get("winner", ""), ""),
+                "wdraw": int(dat.get("wdraw", False)),
+                "bdraw": int(dat.get("bdraw", False)),
+                "wback": int(dat.get("wtakeback", False)),
+                "bback": int(dat.get("btakeback", False)),
                 "last": dat.get("moves", "").split()[-1] if dat.get("moves") else ""
-            }
+            } 
+        else :
+            # gameFull (we try to short the json, due to limit of 255 characters for HA sensors)
+            if (dat.get('type') == 'gameFull'):
+                reduced_data = {
+                    "type": dat.get("type", ""),
+                    "wid": "{}: {}".format(dat.get('white', {}).get("name", "white"), dat.get('white', {}).get("rating", 0)),
+                    "bid": "{}: {}".format(dat.get('black', {}).get("name", "black"), dat.get('black', {}).get("rating", 0)),
+                    "wclk": "{}+{}".format(round(dat.get('state', {}).get("wtime", 0) / 100), round(dat.get('state', {}).get("winc", 0) / 100)),
+                    "bclk": "{}+{}".format(round(dat.get('state', {}).get("btime", 0) / 100), round(dat.get('state', {}).get("binc", 0) / 100)),                
+                    "state": dat.get('state', {}).get("status", ""),
+                    "win": {"white": "w", "black": "b"}.get(dat.get('state', {}).get("winner", ""), ""),
+                    "wdraw": int(dat.get('state', {}).get("wdraw", False)),
+                    "bdraw": int(dat.get('state', {}).get("bdraw", False)),
+                    "wback": int(dat.get('state', {}).get("wtakeback", False)),
+                    "bback": int(dat.get('state', {}).get("btakeback", False)),
+                    "last": dat.get('state', {}).get("moves", "").split()[-1] if dat.get("moves") else ""
+                }
+            else :
+                # chatline: cut the message, that we dont exeed 255 characters
+                if (dat.get('type') == 'chatLine'):
+                        # calulates: max-length - base length
+                        max_text_length = 255 - len(json.dumps({"type": "chatLine", "username": reduced_data["username"], "text": "", "room": reduced_data["room"]}))
 
-        # gameFull
-        if (dat.get('type') == 'gameFull'):
-            reduced_data = {
-                "type": dat.get("type", ""),
-                "bname": dat.get('black', {}).get("name", "black"),
-                "brating": dat.get('black', {}).get("rating", 0),
-                "wname": dat.get('white', {}).get("name", "white"),
-                "wrating": dat.get('white', {}).get("rating", 0), 
-                "wtime": dat.get('state', {}).get("wtime", ""),
-                "btime": dat.get('state', {}).get("btime", ""),
-                "status": dat.get('state', {}).get("status", ""),
-                "win": dat.get('state', {}).get("winner", ""),
-                "wdraw": dat.get('state', {}).get("wdraw", False),
-                "bdraw": dat.get('state', {}).get("bdraw", False),
-                "wback": dat.get('state', {}).get("wtakeback", False),
-                "bback": dat.get('state', {}).get("btakeback", False),
-                "last": dat.get('state', {}).get("moves", "").split()[-1] if dat.get("moves") else ""
-            }
+                        if len(reduced_data["text"]) > max_text_length:
+                            reduced_data["text"] = reduced_data["text"][:max_text_length-3] + "..."  # Truncate and add "..."
+        
+        #opponent gone is not reduced
 
         return reduced_data
 
     # function to stream game
     def stream_game(self):
-        if (self.__class__._current_game_id != IDLE_GAME_ID and self.__class__._current_game_id != UNAVAILABLE_GAME_ID):
+        if (self.__class__._current_game_id != IDLE_GAME_ID and self.__class__._current_game_id != UNAVAILABLE_STATE and self.__class__._current_game_id != UNKNOWN_STATE):
 
             self.log(f"Starting the stream: {self.__class__._current_game_id}")
             headers = {
