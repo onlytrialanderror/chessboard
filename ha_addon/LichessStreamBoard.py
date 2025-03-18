@@ -13,13 +13,13 @@ LICHESS_TOKEN_SENSOR = 'sensor.chessboard_lichess_token'
 LICHESS_GAME_ID_SENSOR = 'sensor.chessboard_lichess_game_id'
 LICHESS_LAST_MOVE_SENSOR = 'sensor.ha_lichess_last_move'
 
-class LichessStreamer(hass.Hass):
+class LichessStreamBoard(hass.Hass):
 
     _current_game_id = IDLE_GAME_ID
     _current_token = LICHESS_TOKEN
 
     def initialize(self):
-        self.log("AppDaemon LichessStream script initialized!")
+        self.log("AppDaemon LichessStreamBoard script initialized!")
         self.__class__._current_token = self.get_state(LICHESS_TOKEN_SENSOR)
         self.__class__._current_game_id = self.get_state(LICHESS_GAME_ID_SENSOR)
         self.log(f"Initialized Game ID: {self.__class__._current_game_id}")
@@ -38,11 +38,11 @@ class LichessStreamer(hass.Hass):
 
     def token_changed(self, entity, attribute, old, new, kwargs):
         if new and new != old and new != UNAVAILABLE_STATE and new != UNKNOWN_STATE:
-            self.log(f"Token changed: {old} -> {new}")
+            self.log(f"Token changed (board): {old} -> {new}")
             self.__class__._current_token = new
         else:
             if new is None or new == UNAVAILABLE_STATE or new == UNKNOWN_STATE: 
-                self.log("Not allowed token: {}".format(new))
+                self.log("Not allowed token (board): {}".format(new))
 
     def check_game_over(self, dat):
         break_game = False
@@ -64,8 +64,8 @@ class LichessStreamer(hass.Hass):
         if (dat.get('type') == 'gameState'):
             reduced_data = {
                 "type": dat.get("type", ""),
-                "wclk": "{}+{}".format(round(dat.get("wtime", 0) / 100), round(dat.get("winc", 0) / 100)),
-                "bclk": "{}+{}".format(round(dat.get("btime", 0) / 100), round(dat.get("binc", 0) / 100)),  
+                "wclk": "{}+{}".format(round(dat.get("wtime", 0) / 1000), round(dat.get("winc", 0) / 1000)),
+                "bclk": "{}+{}".format(round(dat.get("btime", 0) / 1000), round(dat.get("binc", 0) / 1000)),  
                 "state": dat.get("status", ""),
                 "win": {"white": "w", "black": "b"}.get(dat.get("winner", ""), ""),
                 "wdraw": int(dat.get("wdraw", False)),
@@ -81,8 +81,8 @@ class LichessStreamer(hass.Hass):
                     "type": dat.get("type", ""),
                     "wid": "{}: {}".format(dat.get('white', {}).get("name", "white"), dat.get('white', {}).get("rating", 0)),
                     "bid": "{}: {}".format(dat.get('black', {}).get("name", "black"), dat.get('black', {}).get("rating", 0)),
-                    "wclk": "{}+{}".format(round(dat.get('state', {}).get("wtime", 0) / 100), round(dat.get('state', {}).get("winc", 0) / 100)),
-                    "bclk": "{}+{}".format(round(dat.get('state', {}).get("btime", 0) / 100), round(dat.get('state', {}).get("binc", 0) / 100)),                
+                    "wclk": "{}+{}".format(round(dat.get('state', {}).get("wtime", 0) / 1000), round(dat.get('state', {}).get("winc", 0) / 1000)),
+                    "bclk": "{}+{}".format(round(dat.get('state', {}).get("btime", 0) / 1000), round(dat.get('state', {}).get("binc", 0) / 1000)),                
                     "state": dat.get('state', {}).get("status", ""),
                     "win": {"white": "w", "black": "b"}.get(dat.get('state', {}).get("winner", ""), ""),
                     "wdraw": int(dat.get('state', {}).get("wdraw", False)),

@@ -803,7 +803,7 @@ button:
       then:
         - lambda: |-
             id(game_running) = !id(game_running);
-            id(led_update_move_over).execute();
+            id(led_update_move_over).execute();            
     web_server:
       sorting_group_id: sorting_group_simulation
       sorting_weight: 10
@@ -846,7 +846,7 @@ button:
     on_press:
       then:
         - display_menu.show_main:   my_menu
-        - display_menu.hide:  my_menu                
+        - display_menu.hide:  my_menu     
     web_server:
       sorting_group_id: sorting_group_simulation
       sorting_weight: 15
@@ -856,7 +856,8 @@ button:
     on_press:
       then:
         - lambda: |-
-            id(take_back).execute();              
+            // id(take_back).execute();   
+            id(lichess_seek_new_game).execute();           
     web_server:
       sorting_group_id: sorting_group_simulation
       sorting_weight: 16
@@ -2630,6 +2631,7 @@ script:
             id(raw_position_current)[value] = pos_values[value];
           }
 
+
   - id: update_all_hall_sensors
     then:
       - lambda: |-
@@ -2691,6 +2693,33 @@ script:
 
           // debug: show voltage
           id(update_array_text).execute();
+
+  - id: lichess_seek_new_game
+    then:
+      - http_request.post:
+          url: https://lichess.org/api/board/seek
+          headers:
+            Authorization: !lambda 'return (std::string("Bearer ") + id(chessboard_token_current)).c_str();'
+            Content-Type: application/json
+          capture_response: true
+          json: |-
+            root["rated"] = false;
+            root["time"] = int(std::round(float(id(time_control_duration)) / 60.));
+            root["increment"] = id(time_control_increment);
+            root["variant"] = "standard";
+
+          on_response:
+            then:
+              - lambda: |-
+                  if (response->status_code == 200) {
+                    ESP_LOGW("lichess", "Info: New game seeked");                     
+                  } else {
+                    ESP_LOGD("lichess", "Error: " + std::to_string(response->status_code));
+                  }
+          on_error:
+            then:
+              - lambda: |-
+                  ESP_LOGD("lichess", "Error: " + std::to_string(response->status_code));
 
 
 
