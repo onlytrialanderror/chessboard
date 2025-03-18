@@ -562,6 +562,7 @@ interval:
             id(update_all_hall_sensors).execute();
             id(update_raw_position_current).execute();
             id(compare_raw_position).execute();
+            id(lichess_game_id).update();
           }
   - interval: 1000ms
     then:
@@ -1170,17 +1171,19 @@ sensor:
 text_sensor:
 
   - platform: homeassistant
+    name: "Lichess Stream"
     id: lichess_stream
-    entity_id: sensor.lichess_last_move
+    entity_id: sensor.ha_lichess_last_move
     attribute: response
-    internal: true
+    internal: False
     web_server:
       sorting_group_id: sorting_group_lichess
       sorting_weight: 3
-  - platform: template
-    name: lichess_last_move
-    id: "lichess_last_move"
-    update_interval: never
+  - platform: homeassistant
+    name: "Lichess Last Move"
+    id: lichess_last_move
+    entity_id: sensor.ha_lichess_last_move
+    internal: False
     web_server:
       sorting_group_id: sorting_group_lichess
       sorting_weight: 4

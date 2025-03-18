@@ -3,13 +3,14 @@ import httpx
 import json
 
 IDLE_GAME_ID = "idle"
+UNAVAILABLE_GAME_ID = "unavailable"
 LICHESS_TOKEN = ''
 
 URL_TEMPLATE = "https://lichess.org/api/board/game/stream/{}"
 
 LICHESS_TOKEN_SENSOR = 'sensor.chessboard_lichess_token'
 LICHESS_GAME_ID_SENSOR = 'sensor.chessboard_lichess_game_id'
-LICHESS_LAST_MOVE_SENSOR = 'sensor.chessboard_lichess_last_move'
+LICHESS_LAST_MOVE_SENSOR = 'sensor.ha_lichess_last_move'
 
 class LichessStreamer(hass.Hass):
 
@@ -46,7 +47,7 @@ class LichessStreamer(hass.Hass):
             break_game = True
         if (dat.get('type') == 'opponentGone' and dat.get('gone') == True):
             break_game = True
-        if (self.__class__._current_game_id == IDLE_GAME_ID):
+        if (self.__class__._current_game_id == IDLE_GAME_ID or self.__class__._current_game_id == UNAVAILABLE_GAME_ID):
             break_game = True
         return break_game
 
@@ -94,7 +95,7 @@ class LichessStreamer(hass.Hass):
 
     # function to stream game
     def stream_game(self):
-        if (self.__class__._current_game_id != IDLE_GAME_ID):
+        if (self.__class__._current_game_id != IDLE_GAME_ID and self.__class__._current_game_id != UNAVAILABLE_GAME_ID):
 
             self.log(f"Starting the stream: {self.__class__._current_game_id}")
             headers = {
