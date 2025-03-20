@@ -1171,41 +1171,52 @@ sensor:
 
 text_sensor:
 
-  - platform: homeassistant
-    name: "Lichess Stream"
-    id: lichess_stream
-    entity_id: sensor.ha_lichess_last_move
-    attribute: response
-    internal: False
+  # used just to define out-sensor for ha to be set as ha-input sensor
+  - platform: template
+    name: "Lichess Last Move (out)"
+    id: lichess_last_move
+    update_interval: never
     web_server:
       sorting_group_id: sorting_group_lichess
-      sorting_weight: 3
+      sorting_weight: 7
+
   - platform: homeassistant
     name: "Lichess Last Move"
-    id: lichess_last_move
-    entity_id: sensor.ha_lichess_last_move
-    internal: False
+    id: lichess_last_move_in
+    entity_id: sensor.chessboard_lichess_last_move_out
+    internal: false
     web_server:
       sorting_group_id: sorting_group_lichess
-      sorting_weight: 4
+      sorting_weight: 6
 
-    # temporary used for better debbuging    
+  # used just to define out-sensor for ha to be set as ha-input sensor
+  - platform: template
+    name: "Lichess Last Event (out)"
+    id: lichess_last_event
+    update_interval: never
+    web_server:
+      sorting_group_id: sorting_group_lichess
+      sorting_weight: 5
+
   - platform: homeassistant
-    name: "HA Lichess game id"
-    id: ha_lichess_game_id
-    entity_id: sensor.ha_lichess_game_id
-    internal: True
-    on_value:
-      then:
-        lambda: |-
-          id(lichess_game_id).publish_state(id(ha_lichess_game_id).state);
-
+    name: "Lichess Last Event"
+    id: lichess_last_event_in
+    entity_id: sensor.chessboard_lichess_last_event_out
+    internal: false
     web_server:
       sorting_group_id: sorting_group_lichess
       sorting_weight: 4
 
   - platform: template
-    name: "lichess_game_id"
+    name: "Lichess Stream Events"
+    id: lichess_stream_events
+    update_interval: never
+    web_server:
+      sorting_group_id: sorting_group_lichess
+      sorting_weight: 5
+
+  - platform: template
+    name: "Lichess Game Id"
     id: lichess_game_id
     update_interval: never
     web_server:
@@ -1213,7 +1224,7 @@ text_sensor:
       sorting_weight: 5
 
   - platform: template
-    name: lichess_token
+    name: "Lichess Token"
     id: lichess_token
     lambda: >- 
       return id(chessboard_token_current);

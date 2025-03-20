@@ -11,7 +11,7 @@ URL_TEMPLATE = "https://lichess.org/api/board/game/stream/{}"
 
 LICHESS_TOKEN_SENSOR = 'sensor.chessboard_lichess_token'
 LICHESS_GAME_ID_SENSOR = 'sensor.chessboard_lichess_game_id'
-LICHESS_LAST_MOVE_SENSOR = 'sensor.ha_lichess_last_move'
+LICHESS_LAST_MOVE_SENSOR = 'sensor.chessboard_lichess_last_move_out'
 
 class LichessStreamBoard(hass.Hass):
 
@@ -126,16 +126,16 @@ class LichessStreamBoard(hass.Hass):
                         
                         if data: # valid json
                             reduced_data = self.reduce_response(data)
-                            # extract last move again, to set the state
-                            last_move = ""
-                            if (reduced_data.get('last') != ""):
-                                last_move = reduced_data.get('last', '')
-                            self.set_state(LICHESS_LAST_MOVE_SENSOR, state=last_move, attributes={"response": reduced_data})
+                            # let ha know about the move
+                            self.set_state(LICHESS_LAST_MOVE_SENSOR, state=reduced_data)
                             
                             # check if we have to abort the game
                             if self.check_game_over(data):
                                 self.log(f"Terminating the stream: {self.__class__._current_game_id}")
-                                # listener will overwrite the global variable here
-                                self.set_state(LICHESS_GAME_ID_SENSOR, state=IDLE_GAME_ID)
+                                # close the stream
+                                break
+            # listener will overwrite the global variable here
+            self.__class__._current_game_id = IDLE_GAME_ID
+            self.set_state(LICHESS_GAME_ID_SENSOR, state=IDLE_GAME_ID)
         else:
-            self.log(f"Waiting for new stream")
+            self.log(f"Waiting for new stream (board)")

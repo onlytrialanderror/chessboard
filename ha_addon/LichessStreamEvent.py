@@ -9,8 +9,8 @@ LICHESS_TOKEN = ''
 URL_TEMPLATE = "https://lichess.org/api/stream/event"
 
 LICHESS_TOKEN_SENSOR = 'sensor.chessboard_lichess_token'
-LICHESS_EVENT_SENSOR = 'sensor.chessboard_lichess_event'
-LICHESS_LAST_EVENT_SENSOR = 'sensor.ha_lichess_last_event'
+LICHESS_EVENT_SENSOR = 'sensor.chessboard_lichess_stream_events'
+LICHESS_LAST_EVENT_SENSOR = 'sensor.chessboard_lichess_last_event_out'
 
 class LichessStreamEvent(hass.Hass):
 
@@ -20,10 +20,13 @@ class LichessStreamEvent(hass.Hass):
     def initialize(self):
         self.log("AppDaemon LichessStreamEvent script initialized!")
         self.__class__._current_token = self.get_state(LICHESS_TOKEN_SENSOR)
-        self.__class__._stream_event = self.get_state(LICHESS_EVENT_SENSOR)
         self.log(f"Initialized Token: {self.__class__._current_token}")
         self.listen_state(self.token_changed, LICHESS_TOKEN_SENSOR)
-        self.listen_state(self.stream_event, LICHESS_EVENT_SENSOR)
+        self.listen_state(self.stream_events_trigger, LICHESS_EVENT_SENSOR)
+        if (self.get_state(LICHESS_EVENT_SENSOR) == "ON"):
+            self.__class__._stream_event = True
+        else:
+            self.__class__._stream_event = False
 
     def token_changed(self, entity, attribute, old, new, kwargs):
         if new and new != old and new != UNAVAILABLE_STATE and new != UNKNOWN_STATE:
@@ -33,9 +36,13 @@ class LichessStreamEvent(hass.Hass):
             if new is None or new == UNAVAILABLE_STATE or new == UNKNOWN_STATE: 
                 self.log("Not allowed token (event): {}".format(new))
 
-    def stream_event(self, entity, attribute, old, new, kwargs):
-        if new and new != old and new != UNAVAILABLE_STATE and new != UNKNOWN_STATE:
-            self.stream_event(self)
+    def stream_events_trigger(self, entity, attribute, old, new, kwargs):
+        if new and new == "ON":
+            self.__class__._stream_event = True
+        if new and new == "OFF":
+            self.__class__._stream_event = False
+        if (new and new != old and self.__class__._stream_event == True):
+            self.stream_event()
 
 
     def check_event_over(self, dat):
@@ -75,8 +82,8 @@ class LichessStreamEvent(hass.Hass):
                     "opponent": "{}: {}".format(dat.get('game', {}).get("opponent", {}).get("username", "player"), dat.get('game', {}).get("opponent", {}).get("rating", 0)),
                     "rated": dat.get('game', {}).get("rated", False),
                     "speed": dat.get('game', {}).get("speed", ""),
-                    "status": dat.get('game', {}).dat.get('status', {}).get("name", ""),
-                    "winner": dat.get('game', {}).get("winnder", "")
+                    "status": dat.get('game', {}).get('status', {}).get("name", ""),
+                    "winner": dat.get('game', {}).get("winner", "")
                 }
             else :
                 # challange
@@ -109,14 +116,16 @@ class LichessStreamEvent(hass.Hass):
                         
                         if data: # valid json
                             reduced_data = self.reduce_response(data)
-                            # extract last move again, to set the state
-                            last_event = reduced_data.get('type')
                             self.set_state(LICHESS_LAST_EVENT_SENSOR, state=reduced_data)
                             
                             # check if we have to abort the game
-                            if self.check_game_over(data):
-                                self.log(f"Terminating the stream: {self.__class__._current_token}")
+                            if (self.check_event_over(data)==True):
+                                self.log(f"Terminating the stream (event): {self.__class__._current_token}")
                                 self.__class__._stream_event = False
-                                self.set_state(LICHESS_EVENT_SENSOR, state=False)
+                                self.set_state(LICHESS_EVENT_SENSOR, state="OFF")
+
+
+                                # try to close the stream
+                                break
         else:
-            self.log(f"Waiting for new stream")
+            self.log(f"Waiting for new stream (event)")
