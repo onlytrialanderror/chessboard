@@ -1125,6 +1125,31 @@ select:
     web_server:
       sorting_group_id: sorting_group_lichess
       sorting_weight: 1
+  - platform: template
+    name: "Seek Color"
+    id: lichess_seek_color
+    internal: False
+    optimistic: true
+    options:
+      - "random"
+      - "white"
+      - "black"
+    initial_option: "random"
+    web_server:
+      sorting_group_id: sorting_group_lichess
+      sorting_weight: 3
+  - platform: template
+    name: "Seek Rated"
+    id: lichess_seek_rated
+    internal: False
+    optimistic: true
+    options:
+      - "rated"
+      - "not rated"
+    initial_option: "rated"
+    web_server:
+      sorting_group_id: sorting_group_lichess
+      sorting_weight: 4
 sensor:
   - platform: adc
     pin: GPIO36
@@ -1203,6 +1228,27 @@ text_sensor:
     id: lichess_last_event_in
     entity_id: sensor.chessboard_lichess_last_event_out
     internal: false
+    on_value:
+      then:
+        - lambda: |-
+            json::parse_json(body, [](JsonObject root) -> bool {
+                if (!root["type"]) {
+                  return false;
+                }
+
+                if (root["type"] == "gameStart" && root["gameId"]){
+                  id(lichess_game_id).publish_state(root["gameId"]);
+                }
+
+                if (root["type"] == "gameFinish" && root["win"]){
+                  // todo something with the winner
+                  // open the event stream
+                  id(lichess_stream_events).publish_state("OFF");
+                  id(lichess_game_id).publish_state("idle");
+                }
+                return true;
+            });
+
     web_server:
       sorting_group_id: sorting_group_lichess
       sorting_weight: 4
@@ -1224,6 +1270,14 @@ text_sensor:
       sorting_weight: 5
 
   - platform: template
+    name: "Lichess Create Seek"
+    id: lichess_create_seek
+    update_interval: never
+    web_server:
+      sorting_group_id: sorting_group_lichess
+      sorting_weight: 6
+
+  - platform: template
     name: "Lichess Token"
     id: lichess_token
     lambda: >- 
@@ -1234,13 +1288,13 @@ text_sensor:
       sorting_weight: 2
 
   - platform: template
-    name: "Hall Array Part 1"
+    name: "Hall Array Part Black"
     id: array_part_1
     web_server:
       sorting_group_id: sorting_group_sensors
       sorting_weight: 10
   - platform: template
-    name: "Hall Array Part 2"
+    name: "Hall Array Part White"
     id: array_part_2
     web_server:
       sorting_group_id: sorting_group_sensors
@@ -1520,17 +1574,19 @@ script:
           std::string* target = &part1;
 
           for (size_t i = 0; i < 64; i++) {
-            if (!target->empty()) *target += "\n";
-
             // Round to 2 decimal places
             int rounded = static_cast<int>(id(voltage_field_current)[i] * 100);
             float rounded_val = rounded / 100.0f;
 
             char buffer[6]; // Max "3.99\0"
-            snprintf(buffer, sizeof(buffer), "%.2f", rounded_val);
+            snprintf(buffer, sizeof(buffer), "%.1f", rounded_val);
+            if (rounded >= 0) {
+              *target += '+';
+            }
             *target += buffer;
+            *target += ((i + 1) % 8 == 0) ? '\n' : ' ';
 
-            if (target == &part1 && part1.length() >= 250) {
+            if (i == 31) {
               target = &part2; // Switch to second sensor
             }
           }
@@ -2707,30 +2763,30 @@ script:
 
   - id: lichess_seek_new_game
     then:
-      - http_request.post:
-          url: https://lichess.org/api/board/seek
-          headers:
-            Authorization: !lambda 'return (std::string("Bearer ") + id(chessboard_token_current)).c_str();'
-            Content-Type: application/json
-          capture_response: true
-          json: |-
+      - lambda: |-
+          // open the event stream
+          id(lichess_stream_events).publish_state("ON");
+          // Create JSON object
+          StaticJsonDocument<250> root;          
+          root["time"] = float(id(time_control_duration)) / 60.;
+          root["increment"] = id(time_control_increment);
+          root["variant"] = "standard";
+          root["color"] = id(lichess_seek_color).state;
+          if (id(lichess_seek_rated).state == "rated") {
+            root["rated"] = true;
+          } else {
             root["rated"] = false;
-            root["time"] = int(std::round(float(id(time_control_duration)) / 60.));
-            root["increment"] = id(time_control_increment);
-            root["variant"] = "standard";
+          }
+          // Convert JSON to string
+          std::string json_string;
+          serializeJson(root, json_string);
 
-          on_response:
-            then:
-              - lambda: |-
-                  if (response->status_code == 200) {
-                    ESP_LOGW("lichess", "Info: New game seeked");                     
-                  } else {
-                    ESP_LOGD("lichess", "Error: " + std::to_string(response->status_code));
-                  }
-          on_error:
-            then:
-              - lambda: |-
-                  ESP_LOGD("lichess", "Error: " + std::to_string(response->status_code));
+          delay(1000);  // Wait 1s to stream be open
+
+          // publish seek
+          id(lichess_create_seek).publish_state("{}");
+          id(lichess_create_seek).publish_state(json_string);
+
 
 
 
