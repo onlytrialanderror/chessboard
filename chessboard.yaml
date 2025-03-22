@@ -1277,6 +1277,10 @@ text_sensor:
     id: lichess_last_move_in
     entity_id: sensor.chessboard_lichess_last_move_out
     internal: false
+    on_value:
+      then:
+        - lambda: |-
+            id(lichess_handle_last_move).execute();
     web_server:
       sorting_group_id: sorting_group_lichess
       sorting_weight: 6
@@ -2842,6 +2846,17 @@ script:
             }
             root["opponentname"] = id(lichess_opponent).state;
             root["type"] = "createGame";
+
+            // the shortest seek posible is 10+0, so we set this time, if shorter time - control is choosen
+            if (id(lichess_opponent).state == "random" && id(time_control_duration) < 600 ){              
+              ESP_LOGW("Lichess", "Invalid time control. Set the clock to 10+0.");
+              auto call = id(chess_time_control).make_call();
+              call.set_option("Rapid (10+0)");
+              call.perform();              
+              root["time_m"] = 10;
+              root["time_s"] = 600;
+            }
+
             // Convert JSON to string
             std::string json_string;
             serializeJson(root, json_string);
@@ -2900,6 +2915,22 @@ script:
             id(lichess_game_id).publish_state("idle");
           }
 
+  - id: lichess_handle_last_move
+    then:
+      - lambda: |-
+          std::string json_str = id(lichess_last_move_in).state;
+
+          StaticJsonDocument<250> root;
+          deserializeJson(root, json_str);
+
+          if (root["type"].as<std::string>() == "opponentGone" && root["claimWinInSeconds"].as<bool>() == true  && root["claimWinInSeconds"].as<int>() == 0 ){
+            delay(1000);  // Wait 1s to sync
+
+            // claim victory
+            id(lichess_api_call).publish_state("{}"); 
+            id(lichess_api_call).publish_state("{\"type\": \"claim-victory\"}");
+            
+          }
 
 
 

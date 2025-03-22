@@ -12,7 +12,6 @@ URL_TEMPLATE = "https://lichess.org/api/board/game/stream/{}"
 LICHESS_TOKEN_SENSOR = 'sensor.chessboard_lichess_token'
 LICHESS_GAME_ID_SENSOR = 'sensor.chessboard_lichess_game_id'
 LICHESS_LAST_MOVE_SENSOR = 'sensor.chessboard_lichess_last_move_out'
-LICHESS_CALL_SENSOR = 'sensor.chessboard_lichess_api_call'
 
 class LichessStreamBoard(hass.Hass):
 
@@ -54,8 +53,6 @@ class LichessStreamBoard(hass.Hass):
         if (dat.get('type') == 'gameFull' and dat.get('state', {}).get('status') != 'started'):
             break_game = True
         if (dat.get('type') == 'opponentGone' and dat.get('gone') == True and dat.get('claimWinInSeconds') == 0):
-            claim_victory = '{"type": "claim-victory"}'
-            self.set_state(LICHESS_CALL_SENSOR, state=claim_victory) # try to claim the victory
             break_game = True
         if (self.__class__._current_game_id == IDLE_GAME_ID or self.__class__._current_game_id == UNAVAILABLE_STATE or self.__class__._current_game_id == UNKNOWN_STATE):
             break_game = True
