@@ -122,7 +122,7 @@ class LichessSingleRequest(hass.Hass):
 
                             self.__class__._current_body = {      
                                 "rated": json_data.get('rated', False),                      
-                                "variant": json_data.get('variant', "standard"),
+                                "variant": "standard",
                                 "color": json_data.get('color', "random"),
                                 "time": json_data.get('time_m', 15),
                                 "increment": json_data.get('increment', 0)
@@ -133,7 +133,7 @@ class LichessSingleRequest(hass.Hass):
                         else: # create a challenge
 
                             self.__class__._current_body = {                            
-                                "variant": json_data.get('variant'),
+                                "variant": "standard",
                                 "color": json_data.get('color'),
                                 "keepAliveStream": False,
                                 "clock": {
@@ -171,7 +171,7 @@ class LichessSingleRequest(hass.Hass):
                 else:
                     response = requests.post(self.__class__._current_url , json=self.__class__._current_body, headers=self.__class__._current_header)
 
-                if response.status_code == 200:
+                if (response.status_code == 200 or response.status_code == 201):
                     self.log("Succsessed api call")
                 else:
                     self.log(f"Error: {response.status_code}, Response: {response.text}")

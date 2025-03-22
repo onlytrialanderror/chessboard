@@ -545,9 +545,13 @@ globals:
     type: std::string
     initial_value: !secret chessboard_token_c
 
-  - id: is_my_lichess_turn
+  - id: lichess_is_my_turn
     type: bool
     initial_value: 'false'
+
+  - id: lichess_my_color
+    type: std::string
+    initial_value: ""
 
   - id: last_move_white
     type: std::string
@@ -1871,7 +1875,8 @@ script:
           id(valid_move) = false;
           id(moved_piece) = "";
 
-          id(is_my_lichess_turn) = false;
+          id(lichess_is_my_turn) = false;
+          id(lichess_my_color) = "";
 
           id(sync_time_control).execute();
           id(time_control_timer_black) = id(time_control_duration);
@@ -2140,8 +2145,8 @@ script:
             };
 
             // let lichess know about my move
-            if(id(is_my_lichess_turn) == true) {
-              id(is_my_lichess_turn) = false;
+            if(id(lichess_is_my_turn) == true) {
+              id(lichess_is_my_turn) = false;
               std::string move_body = "{\"type\": \"makeMove\", \"move\": \"" + id(current_move_uci) + "\"}";
               id(lichess_api_call).publish_state(move_body);              
             }
@@ -2837,7 +2842,6 @@ script:
             root["time_m"] = float(float(id(time_control_duration)) / 60.);
             root["time_s"] = int(round(float(id(time_control_duration)) / 15.)*15) ; // closes value to a multiple of 15
             root["increment"] = int(id(time_control_increment));
-            root["variant"] = "standard";
             root["color"] = id(lichess_seek_color).state;
             if (id(lichess_seek_rated).state == "rated") {
               root["rated"] = true;
@@ -2855,11 +2859,21 @@ script:
               call.perform();              
               root["time_m"] = 10;
               root["time_s"] = 600;
+              root["increment"] = 0;
             }
 
             // Convert JSON to string
             std::string json_string;
             serializeJson(root, json_string);
+
+            // just for better representation in web-server
+            std::string search = ",";
+            std::string replace = ", ";            
+            size_t pos = 0;
+            while ((pos = json_string.find(search, pos)) != std::string::npos) {
+                json_string.replace(pos, search.length(), replace);
+                pos += replace.length(); 
+            }
 
             delay(1000);  // Wait 1s to stream be open
 
@@ -2883,13 +2897,14 @@ script:
             // we check the white color
             if (root["color"].as<std::string>() == "white"){
               id(white_to_move) = true;
-              id(is_my_lichess_turn) = root["isMyTurn"].as<bool>();
-              id(game_running) = true;
+              id(lichess_is_my_turn) = root["isMyTurn"].as<bool>();
+              id(lichess_my_color) = "white";
             }
             // we check the white color
             if (root["color"].as<std::string>() == "black"){
               id(white_to_move) = false;
-              id(is_my_lichess_turn) = root["isMyTurn"].as<bool>();
+              id(lichess_is_my_turn) = root["isMyTurn"].as<bool>();
+              id(lichess_my_color) = "black";
             }
             
             // check if opponent already moved
@@ -2908,7 +2923,7 @@ script:
             // todo something with the winner
 
             id(game_running) = false;
-            id(is_my_lichess_turn) = false;
+            id(lichess_is_my_turn) = false;
             
             // close the event stream
             id(lichess_stream_events).publish_state("OFF");
@@ -2923,14 +2938,46 @@ script:
           StaticJsonDocument<250> root;
           deserializeJson(root, json_str);
 
+          // opponent gone
           if (root["type"].as<std::string>() == "opponentGone" && root["claimWinInSeconds"].as<bool>() == true  && root["claimWinInSeconds"].as<int>() == 0 ){
             delay(1000);  // Wait 1s to sync
-
             // claim victory
             id(lichess_api_call).publish_state("{}"); 
-            id(lichess_api_call).publish_state("{\"type\": \"claim-victory\"}");
-            
+            id(lichess_api_call).publish_state("{\"type\": \"claim-victory\"}");            
           }
+
+          // overwrite clock by lichess time
+          if (root["type"].as<std::string>() == "gameState"){
+            std::string wclk = root["wclk"].as<std::string>();
+            std::string bclk = root["bclk"].as<std::string>();
+
+            // set white clock
+            size_t pos = wclk.find('+'); // Find the "+" character
+            if (pos != std::string::npos) {
+                std::string first_part = wclk.substr(0, pos); // Extract first part
+                id(time_control_timer_white) = std::stoi(first_part); 
+            }
+
+            // set black clock
+            pos = bclk.find('+'); // Find the "+" character
+            if (pos != std::string::npos) {
+                std::string first_part = bclk.substr(0, pos); // Extract first part
+                id(time_control_timer_black) = std::stoi(first_part);
+            }    
+            
+            // Draw offer
+            if ( (root["wdraw"].as<int>() == 1 && id(lichess_my_color) == "black") || (root["bdraw"].as<int>() == 1 && id(lichess_my_color) == "white") ) {
+              // TODO let player know
+            }
+
+            // TakeBack offer
+            if ( (root["wback"].as<int>() == 1 && id(lichess_my_color) == "black") || (root["bback"].as<int>() == 1 && id(lichess_my_color) == "white") ) {
+              // TODO let player know
+            }
+
+          }
+
+          
 
 
 
