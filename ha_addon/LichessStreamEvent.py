@@ -22,7 +22,7 @@ class LichessStreamEvent(hass.Hass):
     def initialize(self):
         self.log("AppDaemon LichessStreamEvent script initialized!")
         self.__class__._current_token = self.get_state(LICHESS_TOKEN_SENSOR)
-        self.log(f"Initialized Token: {self.__class__._current_token}")
+        self.log(f"Initialized Token (event): {self.__class__._current_token}")
         self.listen_state(self.token_changed, LICHESS_TOKEN_SENSOR)
         self.listen_state(self.stream_events_trigger, LICHESS_EVENT_SENSOR)
         if (self.get_state(LICHESS_EVENT_SENSOR) == ON_STATE):
@@ -30,6 +30,8 @@ class LichessStreamEvent(hass.Hass):
             self.stream_event()
         else:
             self.__class__._stream_event = False
+            # we are ready to go
+            self.log(f"Waiting for new stream (event)")
 
     def token_changed(self, entity, attribute, old, new, kwargs):
         if new and new != old and new != UNAVAILABLE_STATE and new != UNKNOWN_STATE:
@@ -102,7 +104,7 @@ class LichessStreamEvent(hass.Hass):
     def stream_event(self):
         if (self.__class__._stream_event == True and self.__class__._current_token != UNAVAILABLE_STATE and self.__class__._current_token != UNKNOWN_STATE):
 
-            self.log(f"Starting the stream: {self.__class__._current_token}")
+            self.log(f"Starting the stream (event): {self.__class__._current_token}")
             headers = {
                     "Content-Type": "application/x-ndjson",
                     "Authorization": f"Bearer {self.__class__._current_token}"
@@ -123,11 +125,11 @@ class LichessStreamEvent(hass.Hass):
                             
                             # check if we have to abort the game
                             if (self.check_event_over(data)==True):
-                                self.log(f"Terminating the stream: {self.__class__._current_token}")
+                                self.log(f"Terminating the stream (event): {self.__class__._current_token}")
                                 # close the stream
                                 break
-            # reset flags
+            # reset stream for events on HA (esphome needs to do it as well)
             self.__class__._stream_event = False
             self.set_state(LICHESS_EVENT_SENSOR, state=OFF_STATE)
-        else:
+            # we are ready to go
             self.log(f"Waiting for new stream (event)")

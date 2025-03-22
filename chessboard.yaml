@@ -1146,7 +1146,7 @@ select:
     options:
       - "rated"
       - "not rated"
-    initial_option: "rated"
+    initial_option: "not rated"
     web_server:
       sorting_group_id: sorting_group_lichess
       sorting_weight: 4
@@ -1231,24 +1231,7 @@ text_sensor:
     on_value:
       then:
         - lambda: |-
-            json::parse_json(body, [](JsonObject root) -> bool {
-                if (!root["type"]) {
-                  return false;
-                }
-
-                if (root["type"] == "gameStart" && root["gameId"]){
-                  id(lichess_game_id).publish_state(root["gameId"]);
-                }
-
-                if (root["type"] == "gameFinish" && root["win"]){
-                  // todo something with the winner
-                  // open the event stream
-                  id(lichess_stream_events).publish_state("OFF");
-                  id(lichess_game_id).publish_state("idle");
-                }
-                return true;
-            });
-
+            id(lichess_handle_new_event).execute();
     web_server:
       sorting_group_id: sorting_group_lichess
       sorting_weight: 4
@@ -2786,6 +2769,28 @@ script:
           // publish seek
           id(lichess_create_seek).publish_state("{}");
           id(lichess_create_seek).publish_state(json_string);
+
+
+  - id: lichess_handle_new_event
+    then:
+      - lambda: |-
+          std::string json_str = id(lichess_last_event_in).state;
+
+          DynamicJsonDocument root(256);
+          deserializeJson(root, json_str);
+
+          if (root.containsKey("type") && root["type"].as<std::string>() == "gameStart"){
+            // we start board stream
+            id(lichess_game_id).publish_state(root["gameId"].as<std::string>());
+          }
+
+          if (root.containsKey("type") && root["type"].as<std::string>() == "gameFinish"){
+            // todo something with the winner
+            
+            // close the event stream
+            id(lichess_stream_events).publish_state("OFF");
+            id(lichess_game_id).publish_state("idle");
+          }
 
 
 

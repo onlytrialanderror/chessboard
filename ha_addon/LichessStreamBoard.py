@@ -23,7 +23,7 @@ class LichessStreamBoard(hass.Hass):
         self.__class__._current_token = self.get_state(LICHESS_TOKEN_SENSOR)
         self.__class__._current_game_id = self.get_state(LICHESS_GAME_ID_SENSOR)
         self.log(f"Initialized Game ID: {self.__class__._current_game_id}")
-        self.log(f"Initialized Token: {self.__class__._current_token}")
+        self.log(f"Initialized Token (board): {self.__class__._current_token}")
         self.listen_state(self.game_id_changed, LICHESS_GAME_ID_SENSOR)
         self.listen_state(self.token_changed, LICHESS_TOKEN_SENSOR)
 
@@ -108,7 +108,7 @@ class LichessStreamBoard(hass.Hass):
     def stream_game(self):
         if (self.__class__._current_game_id != IDLE_GAME_ID and self.__class__._current_game_id != UNAVAILABLE_STATE and self.__class__._current_game_id != UNKNOWN_STATE):
 
-            self.log(f"Starting the stream: {self.__class__._current_game_id}")
+            self.log(f"Starting the stream (board): {self.__class__._current_game_id}")
             headers = {
                     "Content-Type": "application/x-ndjson",
                     "Authorization": f"Bearer {self.__class__._current_token}",
@@ -131,7 +131,7 @@ class LichessStreamBoard(hass.Hass):
                             
                             # check if we have to abort the game
                             if self.check_game_over(data):
-                                self.log(f"Terminating the stream: {self.__class__._current_game_id}")
+                                self.log(f"Terminating the stream (board): {self.__class__._current_game_id}")
                                 # close the stream
                                 break
             # listener will overwrite the global variable here
