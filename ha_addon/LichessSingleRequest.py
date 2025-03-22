@@ -36,12 +36,15 @@ class LichessSingleRequest(hass.Hass):
         self.log("AppDaemon LichessSingleRequest script initialized!")
         self.__class__._current_token = self.get_state(LICHESS_TOKEN_SENSOR)
         self.__class__._current_game_id = self.get_state(LICHESS_GAME_ID_SENSOR)
-        self.__class__._current_call = self.get_state(LICHESS_CALL_SENSOR)
         self.log(f"Initialized Game ID: {self.__class__._current_game_id}")
         self.log(f"Initialized Token (call): {self.__class__._current_token}")
         self.listen_state(self.game_id_changed, LICHESS_GAME_ID_SENSOR)
         self.listen_state(self.token_changed, LICHESS_TOKEN_SENSOR)
         self.listen_state(self.handle_call_trigger, LICHESS_CALL_SENSOR)
+        self.__class__._current_header = {
+                                        "Content-Type": "application/json",
+                                        "Authorization": f"Bearer {self.__class__._current_token}"
+                                    }
         # we are ready to go
         self.log(f"Waiting for new api call")
 
@@ -68,7 +71,7 @@ class LichessSingleRequest(hass.Hass):
     def parse_username_string(self, input_string):
         username = input_string
         level = 0
-        if (input_string.startswith("AI_") and input_string.length() == 4):
+        if (input_string.startswith("AI_") and len(input_string) == 4):
             parts = input_string.split("_")
             if len(parts) == 2 and parts[1].isdigit():
                 username = parts[0]
@@ -87,29 +90,30 @@ class LichessSingleRequest(hass.Hass):
             if (json_data and call_type):
                 valid_game_id = self.__class__._current_game_id != IDLE_GAME_ID and self.__class__._current_game_id != UNAVAILABLE_STATE and self.__class__._current_game_id != UNKNOWN_STATE
                 valid_token   = self.__class__._current_token != EMPTY_STRING and self.__class__._current_token != UNAVAILABLE_STATE and self.__class__._current_token != UNKNOWN_STATE
-                if (valid_game_id and valid_token):
-                    self.__class__._current_call_description = call_type
-                    # make a call without body
-                    if (call_type in {'makeMove', 'abort', 'resign', 'claim-victory'}):                        
-                        if (call_type == 'makeMove'):
-                            self.__class__._current_url = URL_TEMPLATE_MOVE.format(self.__class__._current_game_id, json_data.get('move'))  
-                            self.__class__._current_call_description += " " + json_data.get('move')                          
-                        if (call_type == 'abort'):
-                            self.__class__._current_url = URL_TEMPLATE_ABORT.format(self.__class__._current_game_id)
-                        if (call_type == 'resign'):
-                            self.__class__._current_url = URL_TEMPLATE_RESIGN.format(self.__class__._current_game_id)
-                        if (call_type == 'claim-victory'):
-                            self.__class__._current_url = URL_TEMPLATE_CLAIM_VICTORY.format(self.__class__._current_game_id)
-                        self.__class__._current_body = EMPTY_CALL
+                if (valid_token):
+                    if (valid_game_id):                        
+                        # make a call without body
+                        if (call_type in {'makeMove', 'abort', 'resign', 'claim-victory'}):   
+                            self.__class__._current_call_description = call_type                                                 
+                            if (call_type == 'makeMove'):
+                                self.__class__._current_url = URL_TEMPLATE_MOVE.format(self.__class__._current_game_id, json_data.get('move'))  
+                                self.__class__._current_call_description += " " + json_data.get('move')                          
+                            if (call_type == 'abort'):
+                                self.__class__._current_url = URL_TEMPLATE_ABORT.format(self.__class__._current_game_id)
+                            if (call_type == 'resign'):
+                                self.__class__._current_url = URL_TEMPLATE_RESIGN.format(self.__class__._current_game_id)
+                            if (call_type == 'claim-victory'):
+                                self.__class__._current_url = URL_TEMPLATE_CLAIM_VICTORY.format(self.__class__._current_game_id)                            
+                            self.__class__._current_body = EMPTY_CALL
 
-                    # handle draw / tackback offers or send offers
-                    if (json_data.get('type') in {'draw', 'takeback' } and json_data.get('parameter')):
-                        if (call_type == 'draw'):
-                            self.__class__._current_url = URL_TEMPLATE_DRAW.format(self.__class__._current_game_id, json_data.get('parameter'))
-                        if (call_type == 'takeback'):
-                            self.__class__._current_url = URL_TEMPLATE_TAKEBACK.format(self.__class__._current_game_id, json_data.get('parameter'))
-                        self.__class__._current_call_description += " " + json_data.get('parameter')
-                        self.__class__._current_body = EMPTY_CALL  
+                        # handle draw / tackback offers or send offers
+                        if (json_data.get('type') in {'draw', 'takeback' } and json_data.get('parameter')):
+                            if (call_type == 'draw'):
+                                self.__class__._current_url = URL_TEMPLATE_DRAW.format(self.__class__._current_game_id, json_data.get('parameter'))
+                            if (call_type == 'takeback'):
+                                self.__class__._current_url = URL_TEMPLATE_TAKEBACK.format(self.__class__._current_game_id, json_data.get('parameter'))
+                            self.__class__._current_call_description = call_type + " " + json_data.get('parameter')
+                            self.__class__._current_body = EMPTY_CALL  
 
                     # handle challenge request
                     if (call_type == 'createGame' and json_data.get('opponentname')):
@@ -123,7 +127,7 @@ class LichessSingleRequest(hass.Hass):
                                 "time": json_data.get('time_m', 15),
                                 "increment": json_data.get('increment', 0)
                             }
-                            self.__class__._current_call_description = f"Seek new game ({ self.__class__._current_body["time"]}+{self.__class__._current_body["increment"]})"
+                            self.__class__._current_call_description = f"Seek new game ({json_data.get('time_m', 15)}+{json_data.get('increment', 0)})"
                             self.__class__._current_url = URL_TEMPLATE_SEEK
 
                         else: # create a challenge
@@ -158,6 +162,8 @@ class LichessSingleRequest(hass.Hass):
         if (self.__class__._current_url != EMPTY_STRING):
 
             self.log(f"Starting the api call: {self.__class__._current_call_description}")
+            self.log(f"Body: {self.__class__._current_body}")
+            self.log(f"URL: {self.__class__._current_url}")
 
             try:
                 if (self.__class__._current_body == EMPTY_CALL):
@@ -167,6 +173,8 @@ class LichessSingleRequest(hass.Hass):
 
                 if response.status_code == 200:
                     self.log("Succsessed api call")
+                else:
+                    self.log(f"Error: {response.status_code}, Response: {response.text}")
 
             except requests.exceptions.RequestException as e:
                 self.log(f"Error: {e}")

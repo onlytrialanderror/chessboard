@@ -549,6 +549,14 @@ globals:
     type: bool
     initial_value: 'false'
 
+  - id: last_move_white
+    type: std::string
+    initial_value: ""
+
+  - id: last_move_black
+    type: std::string
+    initial_value: ""
+
 # we updating all the time the values of hall sensors
 interval:
   - interval: $hall_sensor_intervall_game
@@ -701,7 +709,7 @@ graphical_display_menu:
       on_value:
         then:
           - lambda: |-
-              id(device_factory_reset).press()
+              id(device_factory_reset).press();
 
 # Define internal outputs
 output:
@@ -831,8 +839,8 @@ button:
         - lambda: |-
             id(lichess_create_new_game).execute();           
     web_server:
-      sorting_group_id: sorting_group_pgn
-      sorting_weight: 0
+      sorting_group_id: sorting_group_lichess
+      sorting_weight: -1
   - platform: template
     name: simulate button pause
     id: simulate_button_pause
@@ -1006,6 +1014,7 @@ binary_sensor:
       sorting_weight: 7
   - platform: template
     name: initial_position_set
+    id: initial_position_set
     internal: true
     lambda: |-
       bool init_position = true;
@@ -2128,7 +2137,7 @@ script:
 
             // let lichess know about my move
             if(id(is_my_lichess_turn) == true) {
-              id(is_my_lichess_turn) = false
+              id(is_my_lichess_turn) = false;
               std::string move_body = "{\"type\": \"makeMove\", \"move\": \"" + id(current_move_uci) + "\"}";
               id(lichess_api_call).publish_state(move_body);              
             }
@@ -2815,7 +2824,8 @@ script:
     then:
       - lambda: |-
           // not during the gave
-          if (!id(game_running) && id(initial_position_set)==true) {
+          //if (!id(game_running) && id(initial_position_set).state==true) { // currently deactivated
+          if (true) {
             // open the event stream
             id(lichess_stream_events).publish_state("ON");
             // Create JSON object
@@ -2830,7 +2840,8 @@ script:
             } else {
               root["rated"] = false;
             }
-            root["opponentname"] = id(lichess_opponent).state
+            root["opponentname"] = id(lichess_opponent).state;
+            root["type"] = "createGame";
             // Convert JSON to string
             std::string json_string;
             serializeJson(root, json_string);
@@ -2864,11 +2875,25 @@ script:
             if (root["color"].as<std::string>() == "black"){
               id(white_to_move) = false;
               id(is_my_lichess_turn) = root["isMyTurn"].as<bool>();
-            }          
+            }
+            
+            // check if opponent already moved
+            if (root["lastMove"].as<std::string>() != ""){
+              // TODO what do we do if the opponent already moved
+              // it is even possible at a new game :-?
+            }
+
+            // extract opponents name to be shown on display
+            std::string opponent = root["opponent"].as<std::string>();
+            // TODO
+            
           }
 
           if (root.containsKey("type") && root["type"].as<std::string>() == "gameFinish"){
             // todo something with the winner
+
+            id(game_running) = false;
+            id(is_my_lichess_turn) = false;
             
             // close the event stream
             id(lichess_stream_events).publish_state("OFF");
