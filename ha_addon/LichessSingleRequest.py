@@ -12,8 +12,9 @@ EMPTY_HEADER = {"Content-Type": "application/json" }
 
 LICHESS_TOKEN_SENSOR = 'sensor.chessboard_lichess_token'
 LICHESS_GAME_ID_SENSOR = 'sensor.chessboard_lichess_game_id'
-LICHESS_CALL_SENSOR = 'sensor.chessboard_lichess_call'
+LICHESS_CALL_SENSOR = 'sensor.chessboard_lichess_api_call'
 
+URL_TEMPLATE_SEEK = "https://lichess.org/api/board/seek"
 URL_TEMPLATE_MOVE = "https://lichess.org/api/board/game/{}/move/{}"
 URL_TEMPLATE_ABORT = "https://lichess.org/api/board/game/{}/abort"
 URL_TEMPLATE_RESIGN = "https://lichess.org/api/board/game/{}/resign"
@@ -21,9 +22,6 @@ URL_TEMPLATE_CLAIM_VICTORY = "https://lichess.org/api/board/game/{}/claim-victor
 URL_TEMPLATE_DRAW = "https://lichess.org/api/board/game/{}/draw/{}"
 URL_TEMPLATE_TAKEBACK = "https://lichess.org/api/board/game/{}/takeback/{}"
 URL_TEMPLATE_CHALLENGE = "https://lichess.org/api/challenge/{}"
-
-https://lichess.org/api/challenge/{challengeId}/accept
-
 
 class LichessSingleRequest(hass.Hass):
 
@@ -67,19 +65,20 @@ class LichessSingleRequest(hass.Hass):
             if new is None or new == UNAVAILABLE_STATE or new == UNKNOWN_STATE: 
                 self.log("Not allowed token (call): {}".format(new))
 
-    def parse_ai_string(self, input_string):
+    def parse_username_string(self, input_string):
         username = input_string
         level = 0
-        if input_string.startswith("AI_"):
+        if (input_string.startswith("AI_") and input_string.length() == 4):
             parts = input_string.split("_")
             if len(parts) == 2 and parts[1].isdigit():
+                username = parts[0]
                 level = int(parts[1])
-                if 1 <= level <= 8:
-                    username = parts[0]
-                    return username, level
+                if level < 1 or level > 8:
+                    level = 1 # reset level
         return username, level
 
     def handle_call_trigger(self, entity, attribute, old, new, kwargs):
+
         if (new and new != UNAVAILABLE_STATE and new != UNKNOWN_STATE and new != EMPTY_CALL):
             # Convert JSON string to Python dictionary
             json_data = json.loads(new)
@@ -113,31 +112,48 @@ class LichessSingleRequest(hass.Hass):
                         self.__class__._current_body = EMPTY_CALL  
 
                     # handle challenge request
-                    if (json_data.get('type') == 'challengeCreate' and json_data.get('username')):
+                    if (call_type == 'createGame' and json_data.get('opponentname')):
 
-                        self.__class__._current_call_description += " " + json_data.get('username')
+                        if (json_data.get('opponentname') == 'random'): # we create a seek
 
-                        username, level = self.parse_ai_string(json_data.get('username'))
-                        
-                        if (level == 0): # challege a user                            
-                            pass
-                        else: # challenge the AI
-                            pass
+                            self.__class__._current_body = {      
+                                "rated": json_data.get('rated', False),                      
+                                "variant": json_data.get('variant', "standard"),
+                                "color": json_data.get('color', "random"),
+                                "time": json_data.get('time_m', 15),
+                                "increment": json_data.get('increment', 0)
+                            }
+                            self.__class__._current_call_description = f"Seek new game ({ self.__class__._current_body["time"]}+{self.__class__._current_body["increment"]})"
+                            self.__class__._current_url = URL_TEMPLATE_SEEK
 
-                        self.__class__._current_url = URL_TEMPLATE_CHALLENGE.format(username)
-                        
-                        self.__class__._current_body = EMPTY_CALL 
+                        else: # create a challenge
 
-                    """
-                    AI_1, AI_2 , ..... AI_8
-                    create a challenge: username / ai_level
-                    accept challenge ??
-                    """
+                            self.__class__._current_body = {                            
+                                "variant": json_data.get('variant'),
+                                "color": json_data.get('color'),
+                                "keepAliveStream": False,
+                                "clock": {
+                                            "limit": json_data.get('time_s'),
+                                            "increment": json_data.get('increment')
+                                            }                            
+                            }
 
-                    # post api message                     
+                            # check if challenge to a user or AI
+                            username, level = self.parse_username_string(json_data.get('opponentname'))                        
+                            if (level == 0): # challege a user                            
+                                self.__class__._current_body["rated"] = json_data.get('rated', False)
+                            else:
+                                self.__class__._current_body["level"] = level
+                                username = "ai" # we need lowercase for the url
+                            
+                            self.__class__._current_url = URL_TEMPLATE_CHALLENGE.format(username) 
+                            self.__class__._current_call_description = f"Seek new challenge with {json_data.get('opponentname')} ({json_data.get('time_s')}+{json_data.get('increment')})"
+
+                    # post api pody                    
                     self.lichess_api_call()
+                    
 
-    # function to stream game
+    # function to post the request to lichess api
     def lichess_api_call(self):
         if (self.__class__._current_url != EMPTY_STRING):
 
@@ -150,12 +166,10 @@ class LichessSingleRequest(hass.Hass):
                     response = requests.post(self.__class__._current_url , json=self.__class__._current_body, headers=self.__class__._current_header)
 
                 if response.status_code == 200:
-                    self.log("Succsessed call")
-                else:
-                    self.log(f"Error: {response.status_code}, Response: {response.text}")
+                    self.log("Succsessed api call")
 
             except requests.exceptions.RequestException as e:
-                print(self.log(f"Error: {e}"))
+                self.log(f"Error: {e}")
             
             # reset all values
             self.__class__._current_url = EMPTY_STRING
@@ -164,3 +178,5 @@ class LichessSingleRequest(hass.Hass):
 
             # we are ready to go
             self.log(f"Waiting for new api call")
+
+

@@ -545,6 +545,10 @@ globals:
     type: std::string
     initial_value: !secret chessboard_token_c
 
+  - id: is_my_lichess_turn
+    type: bool
+    initial_value: 'false'
+
 # we updating all the time the values of hall sensors
 interval:
   - interval: $hall_sensor_intervall_game
@@ -613,12 +617,6 @@ graphical_display_menu:
       text: 'PROMOTION'
       select: pawn_promotion
     - type: command
-      text: 'RESET GAME'
-      on_value:
-        then:
-          - lambda: |-
-              // todo
-    - type: command
       text: 'TAKE BACK'
       on_value:
         then:
@@ -628,53 +626,82 @@ graphical_display_menu:
       text: 'LICHESS'
       items:
         - type: command
-          text: 'Draw offer (todo)'
+          text: 'New game'
           on_value:
             then:
               - lambda: |-
-                  // todo yes / no
+                  id(lichess_create_new_game).execute();
         - type: command
-          text: 'Takeback offer (todo)'
+          text: 'Resign'
           on_value:
             then:
               - lambda: |-
-                  // todo yes / no
+                  // force changed state, to be able to call the same request 
+                  id(lichess_api_call).publish_state("{}"); 
+                  id(lichess_api_call).publish_state("{\"type\": \"resign\"}");
         - type: command
-          text: 'Resign game (todo)'
+          text: 'Claim victory'
           on_value:
             then:
               - lambda: |-
-                  // todo
+                  // force changed state, to be able to call the same request 
+                  id(lichess_api_call).publish_state("{}"); 
+                  id(lichess_api_call).publish_state("{\"type\": \"claim-victory\"}");
         - type: command
-          text: 'Claim victory (todo)'
+          text: 'Draw (yes)'
           on_value:
             then:
               - lambda: |-
-                  // todo
+                  // force changed state, to be able to call the same request 
+                  id(lichess_api_call).publish_state("{}"); 
+                  id(lichess_api_call).publish_state("{\"type\": \"draw\", \"parameter\": \"yes\"}");
         - type: command
-          text: 'Abort game (todo)'
+          text: 'Draw (no)'
           on_value:
             then:
               - lambda: |-
-                  // todo
+                  // force changed state, to be able to call the same request 
+                  id(lichess_api_call).publish_state("{}"); 
+                  id(lichess_api_call).publish_state("{\"type\": \"draw\", \"parameter\": \"no\"}");
+        - type: command
+          text: 'Takeback (yes)'
+          on_value:
+            then:
+              - lambda: |-
+                  id(lichess_api_call).publish_state("{}"); 
+                  id(lichess_api_call).publish_state("{\"type\": \"takeback\", \"parameter\": \"yes\"}");
+        - type: command
+          text: 'Takeback (no)'
+          on_value:
+            then:
+              - lambda: |-
+                  // force changed state, to be able to call the same request 
+                  id(lichess_api_call).publish_state("{}"); 
+                  id(lichess_api_call).publish_state("{\"type\": \"takeback\", \"parameter\": \"no\"}");
+        - type: command
+          text: 'Abort game'
+          on_value:
+            then:
+              - lambda: |-
+                  // force changed state, to be able to call the same request 
+                  id(lichess_api_call).publish_state("{}"); 
+                  id(lichess_api_call).publish_state("{\"type\": \"abort\"}");
         - type: select
           immediate_edit: false
-          text: 'User (todo)'
+          text: 'User'
           select: lichess_account
-        - type: command
-          text: 'New game (todo)'
-          on_value:
-            then:
-              - lambda: |-
-                  // todo
-        - type: command
-          text: 'Challenge (todo)'
-          on_value:
-            then:
-              - lambda: |-
-                  // todo
+        - type: select
+          immediate_edit: false
+          text: 'Opponent'
+          select: lichess_opponent
         - type: back
           text: 'Back'
+    - type: command
+      text: 'Restart Board'
+      on_value:
+        then:
+          - lambda: |-
+              id(device_factory_reset).press()
 
 # Define internal outputs
 output:
@@ -797,6 +824,16 @@ button:
       sorting_group_id: sorting_group_pgn
       sorting_weight: -1
   - platform: template
+    name: New Lichess Game
+    id: lichess_new_game_button
+    on_press:
+      then:
+        - lambda: |-
+            id(lichess_create_new_game).execute();           
+    web_server:
+      sorting_group_id: sorting_group_pgn
+      sorting_weight: 0
+  - platform: template
     name: simulate button pause
     id: simulate_button_pause
     on_press:
@@ -856,8 +893,7 @@ button:
     on_press:
       then:
         - lambda: |-
-            // id(take_back).execute();   
-            id(lichess_seek_new_game).execute();           
+            id(take_back).execute();        
     web_server:
       sorting_group_id: sorting_group_simulation
       sorting_weight: 16
@@ -1126,6 +1162,28 @@ select:
       sorting_group_id: sorting_group_lichess
       sorting_weight: 1
   - platform: template
+    name: "Opponent"
+    id: lichess_opponent
+    internal: False
+    optimistic: true
+    options:
+      - !secret chessboard_opponent_a
+      - !secret chessboard_opponent_b
+      - !secret chessboard_opponent_c
+      - "random"
+      - "AI_1"
+      - "AI_2"
+      - "AI_3"
+      - "AI_4"
+      - "AI_5"
+      - "AI_6"
+      - "AI_7"
+      - "AI_8"
+    initial_option: AI_1
+    web_server:
+      sorting_group_id: sorting_group_lichess
+      sorting_weight: 2
+  - platform: template
     name: "Seek Color"
     id: lichess_seek_color
     internal: False
@@ -1253,8 +1311,8 @@ text_sensor:
       sorting_weight: 5
 
   - platform: template
-    name: "Lichess Create Seek"
-    id: lichess_create_seek
+    name: "Lichess Api Call"
+    id: lichess_api_call
     update_interval: never
     web_server:
       sorting_group_id: sorting_group_lichess
@@ -1800,6 +1858,8 @@ script:
           id(valid_move) = false;
           id(moved_piece) = "";
 
+          id(is_my_lichess_turn) = false;
+
           id(sync_time_control).execute();
           id(time_control_timer_black) = id(time_control_duration);
           id(time_control_timer_white) = id(time_control_duration);
@@ -2065,6 +2125,13 @@ script:
               id(raw_position_take_back)[i] = id(raw_position_last)[i];
               id(raw_position_last)[i] = id(raw_position_current)[i];   
             };
+
+            // let lichess know about my move
+            if(id(is_my_lichess_turn) == true) {
+              id(is_my_lichess_turn) = false
+              std::string move_body = "{\"type\": \"makeMove\", \"move\": \"" + id(current_move_uci) + "\"}";
+              id(lichess_api_call).publish_state(move_body);              
+            }
 
             // game finished ?
             if (id(last_move_pgn_additional) == "#" || id(last_move_pgn_additional) == " 1/2-1/2" ){
@@ -2744,31 +2811,36 @@ script:
           // debug: show voltage
           id(update_array_text).execute();
 
-  - id: lichess_seek_new_game
+  - id: lichess_create_new_game
     then:
       - lambda: |-
-          // open the event stream
-          id(lichess_stream_events).publish_state("ON");
-          // Create JSON object
-          StaticJsonDocument<250> root;          
-          root["time"] = float(id(time_control_duration)) / 60.;
-          root["increment"] = id(time_control_increment);
-          root["variant"] = "standard";
-          root["color"] = id(lichess_seek_color).state;
-          if (id(lichess_seek_rated).state == "rated") {
-            root["rated"] = true;
-          } else {
-            root["rated"] = false;
+          // not during the gave
+          if (!id(game_running) && id(initial_position_set)==true) {
+            // open the event stream
+            id(lichess_stream_events).publish_state("ON");
+            // Create JSON object
+            StaticJsonDocument<250> root;          
+            root["time_m"] = float(float(id(time_control_duration)) / 60.);
+            root["time_s"] = int(round(float(id(time_control_duration)) / 15.)*15) ; // closes value to a multiple of 15
+            root["increment"] = int(id(time_control_increment));
+            root["variant"] = "standard";
+            root["color"] = id(lichess_seek_color).state;
+            if (id(lichess_seek_rated).state == "rated") {
+              root["rated"] = true;
+            } else {
+              root["rated"] = false;
+            }
+            root["opponentname"] = id(lichess_opponent).state
+            // Convert JSON to string
+            std::string json_string;
+            serializeJson(root, json_string);
+
+            delay(1000);  // Wait 1s to stream be open
+
+            // force changed state, to be able to call the same request 
+            id(lichess_api_call).publish_state("{}"); 
+            id(lichess_api_call).publish_state(json_string);
           }
-          // Convert JSON to string
-          std::string json_string;
-          serializeJson(root, json_string);
-
-          delay(1000);  // Wait 1s to stream be open
-
-          // publish seek
-          id(lichess_create_seek).publish_state("{}");
-          id(lichess_create_seek).publish_state(json_string);
 
 
   - id: lichess_handle_new_event
@@ -2776,12 +2848,23 @@ script:
       - lambda: |-
           std::string json_str = id(lichess_last_event_in).state;
 
-          DynamicJsonDocument root(256);
+          StaticJsonDocument<250> root;
           deserializeJson(root, json_str);
 
           if (root.containsKey("type") && root["type"].as<std::string>() == "gameStart"){
             // we start board stream
             id(lichess_game_id).publish_state(root["gameId"].as<std::string>());
+            // we check the white color
+            if (root["color"].as<std::string>() == "white"){
+              id(white_to_move) = true;
+              id(is_my_lichess_turn) = root["isMyTurn"].as<bool>();
+              id(game_running) = true;
+            }
+            // we check the white color
+            if (root["color"].as<std::string>() == "black"){
+              id(white_to_move) = false;
+              id(is_my_lichess_turn) = root["isMyTurn"].as<bool>();
+            }          
           }
 
           if (root.containsKey("type") && root["type"].as<std::string>() == "gameFinish"){
