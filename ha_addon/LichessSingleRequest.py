@@ -161,9 +161,9 @@ class LichessSingleRequest(hass.Hass):
     def lichess_api_call(self):
         if (self.__class__._current_url != EMPTY_STRING):
 
-            self.log(f"Starting the api call: {self.__class__._current_call_description}")
-            self.log(f"Body: {self.__class__._current_body}")
+            self.log(f"Starting the api call: {self.__class__._current_call_description}")            
             self.log(f"URL: {self.__class__._current_url}")
+            self.log(f"Body: {self.__class__._current_body}")
 
             try:
                 if (self.__class__._current_body == EMPTY_CALL):
