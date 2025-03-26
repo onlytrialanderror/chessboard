@@ -82,11 +82,11 @@ time:
 
 
 substitutions:
-  n_adc_samples: '50'
+  n_adc_samples: '100'
   attenuation_value: 12db
-  hall_sensor_intervall_game: 500ms
+  hall_sensor_intervall_game: 1000ms
   hall_sensor_intervall_idle: 3s
-  delay_before_adc_reading: '7'
+  delay_before_adc_reading: '10'
 
 i2c:
   sda: GPIO21
@@ -454,28 +454,28 @@ globals:
     type: std::array<float, 64>
     initial_value: |-
       {
-        2.45, 2.45, 2.45, 2.45, 2.45, 2.45, 2.45, 2.45,
-        2.45, 2.45, 2.45, 2.45, 2.45, 2.45, 2.45, 2.45,
-        2.45, 2.45, 2.45, 2.45, 2.45, 2.45, 2.45, 2.45,
-        2.45, 2.45, 2.45, 2.45, 2.45, 2.45, 2.45, 2.45,
-        2.45, 2.45, 2.45, 2.45, 2.45, 2.45, 2.45, 2.45,
-        2.45, 2.45, 2.45, 2.45, 2.45, 2.45, 2.45, 2.45,
-        2.45, 2.45, 2.45, 2.45, 2.45, 2.45, 2.45, 2.45,
-        2.45, 2.45, 2.45, 2.45, 2.45, 2.45, 2.45, 2.45
+        2.20, 2.20, 2.20, 2.20, 2.20, 2.20, 2.20, 2.20,
+        2.20, 2.20, 2.20, 2.20, 2.20, 2.20, 2.20, 2.20,
+        2.20, 2.20, 2.20, 2.20, 2.20, 2.20, 2.20, 2.20,
+        2.20, 2.20, 2.20, 2.20, 2.20, 2.20, 2.20, 2.20,
+        2.20, 2.20, 2.20, 2.20, 2.20, 2.20, 2.20, 2.20,
+        2.20, 2.20, 2.20, 2.20, 2.20, 2.20, 2.20, 2.20,
+        2.20, 2.20, 2.20, 2.20, 2.20, 2.20, 2.20, 2.20,
+        2.20, 2.20, 2.20, 2.20, 2.20, 2.20, 2.20, 2.20
       }
 
   - id: voltage_field_detection_threshold
     type: std::array<float, 64>
     initial_value: |-
       {
-        1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
-        1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
-        1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
-        1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
-        1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
-        1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
-        1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
-        1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0
+        0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5,
+        0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5,
+        0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5,
+        0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5,
+        0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5,
+        0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5,
+        0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5,
+        0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5
       }
 
 
@@ -2953,15 +2953,15 @@ script:
             int value_4_3 = value_4_0 + 3;
 
             // read and write values into array
-            adc_values[value_4_0] = id(current_hall_sensor_1).state - id(voltage_field_offset)[value_4_0];
-            adc_values[value_4_1] = id(current_hall_sensor_2).state - id(voltage_field_offset)[value_4_1];
-            adc_values[value_4_2] = id(current_hall_sensor_3).state - id(voltage_field_offset)[value_4_2];
-            adc_values[value_4_3] = id(current_hall_sensor_4).state - id(voltage_field_offset)[value_4_3];
+            adc_values[value_4_0] = id(current_hall_sensor_1).state;
+            adc_values[value_4_1] = id(current_hall_sensor_2).state;
+            adc_values[value_4_2] = id(current_hall_sensor_3).state;
+            adc_values[value_4_3] = id(current_hall_sensor_4).state;
           }
 
           // Once all 64 values are read, update the global array
           for (int i = 0; i < 64; i++) {
-            id(voltage_field_current)[i] = adc_values[id(hall_sensor_order)[i]];
+            id(voltage_field_current)[i] = adc_values[id(hall_sensor_order)[i]] - id(voltage_field_offset)[i];
           }
 
           // debug: show voltage
@@ -3125,10 +3125,12 @@ script:
 
             if (id(white_to_move) && id(lichess_my_color) == "black"){
               id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"" + id(lichess_opponent_name) + "\", \"line_1\": \"Move: " + id(current_move_uci_lichess) + "\"}";
+              id(beep_short).execute();
             } 
             
             if (!id(white_to_move) && id(lichess_my_color) == "white"){
               id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"" + id(lichess_opponent_name) + "\", \"line_1\": " + id(current_move_uci_lichess) + "\"}";
+              id(beep_short).execute();
             } 
 
             // update chessboard clock by values from lichess
