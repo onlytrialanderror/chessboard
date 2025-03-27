@@ -88,73 +88,78 @@ class LichessSingleRequest(hass.Hass):
             call_type = json_data.get('type', None)
 
             if (json_data and call_type):
-                valid_game_id = self.__class__._current_game_id != IDLE_GAME_ID and self.__class__._current_game_id != UNAVAILABLE_STATE and self.__class__._current_game_id != UNKNOWN_STATE
-                valid_token   = self.__class__._current_token != EMPTY_STRING and self.__class__._current_token != UNAVAILABLE_STATE and self.__class__._current_token != UNKNOWN_STATE
-                if (valid_token):
-                    if (valid_game_id):                        
-                        # make a call without body
-                        if (call_type in {'makeMove', 'abort', 'resign', 'claim-victory'}):   
-                            self.__class__._current_call_description = call_type                                                 
-                            if (call_type == 'makeMove'):
-                                self.__class__._current_url = URL_TEMPLATE_MOVE.format(self.__class__._current_game_id, json_data.get('move'))  
-                                self.__class__._current_call_description += " " + json_data.get('move')                          
-                            if (call_type == 'abort'):
-                                self.__class__._current_url = URL_TEMPLATE_ABORT.format(self.__class__._current_game_id)
-                            if (call_type == 'resign'):
-                                self.__class__._current_url = URL_TEMPLATE_RESIGN.format(self.__class__._current_game_id)
-                            if (call_type == 'claim-victory'):
-                                self.__class__._current_url = URL_TEMPLATE_CLAIM_VICTORY.format(self.__class__._current_game_id)                            
-                            self.__class__._current_body = EMPTY_CALL
 
-                        # handle draw / tackback offers or send offers
-                        if (json_data.get('type') in {'draw', 'takeback' } and json_data.get('parameter')):
-                            if (call_type == 'draw'):
-                                self.__class__._current_url = URL_TEMPLATE_DRAW.format(self.__class__._current_game_id, json_data.get('parameter'))
-                            if (call_type == 'takeback'):
-                                self.__class__._current_url = URL_TEMPLATE_TAKEBACK.format(self.__class__._current_game_id, json_data.get('parameter'))
-                            self.__class__._current_call_description = call_type + " " + json_data.get('parameter')
-                            self.__class__._current_body = EMPTY_CALL  
+                if (call_type == 'overwriteToken' and json_data.get('token')):
+                    self.token_changed(None, None, self.__class__._current_token, json_data.get('token'), None)
+                else:
 
-                    # handle challenge request
-                    if (call_type == 'createGame' and json_data.get('opponentname')):
+                    valid_game_id = self.__class__._current_game_id != IDLE_GAME_ID and self.__class__._current_game_id != UNAVAILABLE_STATE and self.__class__._current_game_id != UNKNOWN_STATE
+                    valid_token   = self.__class__._current_token != EMPTY_STRING and self.__class__._current_token != UNAVAILABLE_STATE and self.__class__._current_token != UNKNOWN_STATE
+                    if (valid_token):
+                        if (valid_game_id):                        
+                            # make a call without body
+                            if (call_type in {'makeMove', 'abort', 'resign', 'claim-victory'}):   
+                                self.__class__._current_call_description = call_type                                                 
+                                if (call_type == 'makeMove'):
+                                    self.__class__._current_url = URL_TEMPLATE_MOVE.format(self.__class__._current_game_id, json_data.get('move'))  
+                                    self.__class__._current_call_description += " " + json_data.get('move')                          
+                                if (call_type == 'abort'):
+                                    self.__class__._current_url = URL_TEMPLATE_ABORT.format(self.__class__._current_game_id)
+                                if (call_type == 'resign'):
+                                    self.__class__._current_url = URL_TEMPLATE_RESIGN.format(self.__class__._current_game_id)
+                                if (call_type == 'claim-victory'):
+                                    self.__class__._current_url = URL_TEMPLATE_CLAIM_VICTORY.format(self.__class__._current_game_id)                            
+                                self.__class__._current_body = EMPTY_CALL
 
-                        if (json_data.get('opponentname') == 'random'): # we create a seek
+                            # handle draw / tackback offers or send offers
+                            if (json_data.get('type') in {'draw', 'takeback' } and json_data.get('parameter')):
+                                if (call_type == 'draw'):
+                                    self.__class__._current_url = URL_TEMPLATE_DRAW.format(self.__class__._current_game_id, json_data.get('parameter'))
+                                if (call_type == 'takeback'):
+                                    self.__class__._current_url = URL_TEMPLATE_TAKEBACK.format(self.__class__._current_game_id, json_data.get('parameter'))
+                                self.__class__._current_call_description = call_type + " " + json_data.get('parameter')
+                                self.__class__._current_body = EMPTY_CALL  
 
-                            self.__class__._current_body = {      
-                                "rated": json_data.get('rated', False),                      
-                                "variant": "standard",
-                                "color": json_data.get('color', "random"),
-                                "time": json_data.get('time_m', 15),
-                                "increment": json_data.get('increment', 0)
-                            }
-                            self.__class__._current_call_description = f"Seek new game ({json_data.get('time_m', 15)}+{json_data.get('increment', 0)})"
-                            self.__class__._current_url = URL_TEMPLATE_SEEK
+                        # handle challenge request
+                        if (call_type == 'createGame' and json_data.get('opponentname')):
 
-                        else: # create a challenge
+                            if (json_data.get('opponentname') == 'random'): # we create a seek
 
-                            self.__class__._current_body = {                            
-                                "variant": "standard",
-                                "color": json_data.get('color'),
-                                "keepAliveStream": False,
-                                "clock": {
-                                            "limit": json_data.get('time_s'),
-                                            "increment": json_data.get('increment')
-                                            }                            
-                            }
+                                self.__class__._current_body = {      
+                                    "rated": json_data.get('rated', False),                      
+                                    "variant": "standard",
+                                    "color": json_data.get('color', "random"),
+                                    "time": json_data.get('time_m', 15),
+                                    "increment": json_data.get('increment', 0)
+                                }
+                                self.__class__._current_call_description = f"Seek new game ({json_data.get('time_m', 15)}+{json_data.get('increment', 0)})"
+                                self.__class__._current_url = URL_TEMPLATE_SEEK
 
-                            # check if challenge to a user or AI
-                            username, level = self.parse_username_string(json_data.get('opponentname'))                        
-                            if (level == 0): # challege a user                            
-                                self.__class__._current_body["rated"] = json_data.get('rated', False)
-                            else:
-                                self.__class__._current_body["level"] = level
-                                username = "ai" # we need lowercase for the url
-                            
-                            self.__class__._current_url = URL_TEMPLATE_CHALLENGE.format(username) 
-                            self.__class__._current_call_description = f"Seek new challenge with {json_data.get('opponentname')} ({json_data.get('time_s')}+{json_data.get('increment')})"
+                            else: # create a challenge
 
-                    # post api pody                    
-                    self.lichess_api_call()
+                                self.__class__._current_body = {                            
+                                    "variant": "standard",
+                                    "color": json_data.get('color'),
+                                    "keepAliveStream": False,
+                                    "clock": {
+                                                "limit": json_data.get('time_s'),
+                                                "increment": json_data.get('increment')
+                                                }                            
+                                }
+
+                                # check if challenge to a user or AI
+                                username, level = self.parse_username_string(json_data.get('opponentname'))                        
+                                if (level == 0): # challege a user                            
+                                    self.__class__._current_body["rated"] = json_data.get('rated', False)
+                                else:
+                                    self.__class__._current_body["level"] = level
+                                    username = "ai" # we need lowercase for the url
+                                
+                                self.__class__._current_url = URL_TEMPLATE_CHALLENGE.format(username) 
+                                self.__class__._current_call_description = f"Seek new challenge with {json_data.get('opponentname')} ({json_data.get('time_s')}+{json_data.get('increment')})"
+
+                        # post api pody                    
+                        self.lichess_api_call()
                     
 
     # function to post the request to lichess api

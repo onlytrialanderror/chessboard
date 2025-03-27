@@ -595,7 +595,10 @@ globals:
     initial_value: !secret chessboard_token_c
   - id: chessboard_token_current
     type: std::string
-    initial_value: !secret chessboard_token_c
+    initial_value: ""
+  - id: chessboard_token_opponent
+    type: std::string
+    initial_value: ""
 
   - id: lichess_is_my_turn
     type: bool
@@ -773,6 +776,10 @@ graphical_display_menu:
           immediate_edit: false
           text: 'Opponent'
           select: lichess_opponent
+        - type: select
+          immediate_edit: False
+          text: 'Opponent at board'
+          select: lichess_opponent_at_board
         - type: back
           text: 'Back'
     - type: command
@@ -1245,17 +1252,7 @@ select:
     on_value: 
       then:
         lambda: |-
-          auto index = id(lichess_account).active_index();
-          if (index.value() == 0) {
-            id(chessboard_token_current) = id(chessboard_token_a);
-          } else if (index.value() == 1) {
-            id(chessboard_token_current) = id(chessboard_token_b);
-          } else if (index.value() == 2) {
-            id(chessboard_token_current) = id(chessboard_token_c);
-          } else {
-            id(chessboard_token_current) = id(chessboard_token_c);
-          }
-          id(lichess_token).update();
+          id(update_lichess_token).execute();
     web_server:
       sorting_group_id: sorting_group_lichess
       sorting_weight: 1
@@ -1278,6 +1275,15 @@ select:
       - "AI_7"
       - "AI_8"
     initial_option: AI_1
+    on_value: 
+      then:
+        lambda: |-
+          if ( id(lichess_opponent_at_board).state == "yes" && (x == "random" || x.rfind("AI_", 0) == 0) ) {
+            // not possible to play "on board"
+            auto call = id(lichess_opponent_at_board).make_call();
+            call.set_option("no");
+            call.perform();          
+          }
     web_server:
       sorting_group_id: sorting_group_lichess
       sorting_weight: 2
@@ -1306,6 +1312,27 @@ select:
     web_server:
       sorting_group_id: sorting_group_lichess
       sorting_weight: 4
+  - platform: template
+    name: "Opponent at board"
+    id: lichess_opponent_at_board
+    internal: False
+    optimistic: true
+    options:
+      - "yes"
+      - "no"
+    initial_option: "no"
+    on_value: 
+      then:
+        lambda: |-
+          if ( x == "yes" && (id(lichess_opponent).state == "random" || (id(lichess_opponent).state).rfind("AI_", 0) == 0) ) {
+            // not possible to play "on board"
+            auto call = id(lichess_opponent_at_board).make_call();
+            call.set_option("no");
+            call.perform();          
+          }
+    web_server:
+      sorting_group_id: sorting_group_lichess
+      sorting_weight: 5
 sensor:
   - platform: adc
     pin: GPIO36
@@ -2249,9 +2276,23 @@ script:
             // do lichess calls and updates
             if (id(lichess_game_running) ) {
               // let lichess know about my move
-              if(id(lichess_is_my_turn) == true) {
-                std::string move_body = "{\"type\": \"makeMove\", \"move\": \"" + id(current_move_uci) + "\"}";
+              std::string move_body = "{\"type\": \"makeMove\", \"move\": \"" + id(current_move_uci) + "\"}";
+              if(id(lichess_is_my_turn) == true) {   
+                // send the move to lichess           
                 id(lichess_api_call).publish_state(move_body);              
+              } else {
+                if( id(lichess_opponent_at_board).state == "yes") {
+                  // switch to oppoents token
+                  std::string token_body = "{\"type\": \"overwriteToken\", \"token\": \"" + id(lichess_token_opponent) + "\"}";
+                  id(lichess_api_call).publish_state(token_body);
+                  delay(100); // do a short delay 
+                  // make a move for the opponent
+                  id(lichess_api_call).publish_state(move_body); 
+                  delay(100); // do a short delay 
+                  // switch token back
+                  token_body = "{\"type\": \"overwriteToken\", \"token\": \"" + id(lichess_token_current) + "\"}";
+                  id(lichess_api_call).publish_state(token_body);
+                }
               }
               // toggle turns
               id(lichess_is_my_turn) = !id(lichess_is_my_turn);
@@ -2503,7 +2544,7 @@ script:
           }
 
           // we check here, if the move made and the opponents lichess move are the same
-          if (id(lichess_game_running) && !id(lichess_is_my_turn)) {
+          if (id(lichess_game_running) && !id(lichess_is_my_turn) && id(lichess_opponent_at_board).state == "no") {
             id(valid_move) = (bool)(id(current_move_uci_lichess) == id(current_move_uci));
           }
 
@@ -2511,7 +2552,7 @@ script:
           id(led_update_check_move).execute();
 
           // store valid move of the opponent
-          if (id(lichess_game_running) && !id(lichess_is_my_turn) && id(valid_move)) {
+          if (id(lichess_game_running) && !id(lichess_is_my_turn) && id(valid_move) && id(lichess_opponent_at_board).state == "no") {
             if (id(lichess_my_color) == "white") {
               id(button_black_finished).publish_state(true);
               id(button_black_finished).publish_state(false);
@@ -2970,6 +3011,34 @@ script:
     then:
       - lambda: |-
           // todo
+  - id: update_lichess_token
+    then:
+      - lambda: |-
+          // update own token
+          auto index = id(lichess_account).active_index();
+          if (index.value() == 0) {
+            id(chessboard_token_current) = id(chessboard_token_a);
+          } else if (index.value() == 1) {
+            id(chessboard_token_current) = id(chessboard_token_b);
+          } else if (index.value() == 2) {
+            id(chessboard_token_current) = id(chessboard_token_c);
+          } else {
+            id(chessboard_token_current) = id(chessboard_token_c);
+          }
+
+          // update opponents token
+          index = id(lichess_opponent).active_index();
+          if (index.value() == 0) {
+            id(chessboard_token_opponent) = id(chessboard_token_a);
+          } else if (index.value() == 1) {
+            id(chessboard_token_opponent) = id(chessboard_token_b);
+          } else if (index.value() == 2) {
+            id(chessboard_token_opponent) = id(chessboard_token_c);
+          } else {
+            id(chessboard_token_opponent) = "";
+          }
+
+          id(lichess_token).update();
 
   - id: lichess_create_new_game
     then:
@@ -2977,6 +3046,8 @@ script:
           // not during the gave
           //if (!id(game_running) && id(initial_position_set).state==true) { // currently deactivated
           if (true) {
+            // update lichess token, if not selected yet
+            id(update_lichess_token).update();
             // open the event stream
             id(lichess_stream_events).publish_state("ON");
             // Create JSON object
@@ -3124,15 +3195,16 @@ script:
               id(display_message_black) = "";
             }
 
-
-            if (id(white_to_move) && id(lichess_my_color) == "black"){
-              id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"" + id(lichess_opponent_name) + "\", \"line_1\": \"Move: " + id(current_move_uci_lichess) + "\"}";
-              id(beep_short).execute();
-            } 
-            
-            if (!id(white_to_move) && id(lichess_my_color) == "white"){
-              id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"" + id(lichess_opponent_name) + "\", \"line_1\": " + id(current_move_uci_lichess) + "\"}";
-              id(beep_short).execute();
+            if( id(lichess_opponent_at_board).state == "no") {
+              if (id(white_to_move) && id(lichess_my_color) == "black"){
+                id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"" + id(lichess_opponent_name) + "\", \"line_1\": \"Move: " + id(current_move_uci_lichess) + "\"}";
+                id(beep_short).execute();       
+              } 
+              
+              if (!id(white_to_move) && id(lichess_my_color) == "white"){
+                id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"" + id(lichess_opponent_name) + "\", \"line_1\": " + id(current_move_uci_lichess) + "\"}";
+                id(beep_short).execute();
+              }
             } 
 
             // update chessboard clock by values from lichess
