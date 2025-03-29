@@ -107,15 +107,6 @@ tca9548a:
       - bus_id: i2c_mux_b_buttons
         channel: 2
 
-  - address: 0x77 # (high, high, high)
-    id: i2c_mux_w
-    i2c_id: i2c0
-    channels:
-      - bus_id: i2c_mux_w_display
-        channel: 7
-      - bus_id: i2c_mux_w_buttons
-        channel: 2
-
 pcf8574:
   - id: 'pcf8574_b'
     address: 0x20
@@ -123,7 +114,7 @@ pcf8574:
     pcf8575: false
   - id: 'pcf8574_w'
     address: 0x20
-    i2c_id: i2c_mux_w_buttons
+    i2c_id: i2c0
     pcf8575: false
 
 display:
@@ -134,7 +125,7 @@ display:
     flip_y: False
     flip_x: False
     address: 0x3C
-    i2c_id: i2c_mux_w_display
+    i2c_id: i2c0
     lambda: |-
       const auto display_width = it.get_width();
       const auto display_height = it.get_height();
@@ -353,14 +344,14 @@ globals:
     type: std::array<int, 64>
     initial_value: |-
       {
-        21, 17,  9, 13,  8, 28, 60, 44,
-         5,  1, 25, 29, 12, 56, 24, 40,
-        41, 37, 45, 49, 52, 32,  0, 16,
-        57, 53, 61, 33, 48,  4, 36, 20,
-        42, 14, 10, 38, 11, 31, 63, 59,
-        34,  2,  6, 46, 27, 47, 15, 43,
-        22, 50, 54, 26, 55, 35,  3,  7,
-        30, 62, 58, 18, 39, 19, 51, 23
+        23,  7, 11, 27, 10, 30, 62  58,
+        19,  3, 14, 31, 26, 46, 14, 42,
+        43, 51, 59, 39, 54, 34, 2,  6,
+        47, 55, 63, 35, 38, 18, 50, 21,
+        41, 25, 9,  49, 8,  28, 60, 44,
+        33,  1, 17, 57, 12, 56, 24, 40,
+        21, 37, 53, 13, 52, 32,  0, 16,
+        29, 61, 45,  5, 48,  4, 36, 20
       }
 
   # Variables for FEN
@@ -454,14 +445,14 @@ globals:
     type: std::array<float, 64>
     initial_value: |-
       {
-        2.25, 2.36, 2.33, 2.30, 2.25, 2.33, 2.27, 2.20,
-        2.31, 2.26, 2.34, 2.30, 2.29, 2.25, 2.25, 2.24,
-        2.34, 2.30, 2.26, 2.28, 2.26, 2.30, 2.30, 2.29,
-        2.30, 2.29, 2.36, 2.38, 2.20, 2.23, 2.21, 2.30,
-        2.25, 2.24, 2.38, 2.29, 2.20, 2.25, 2.26, 2.33,
-        2.31, 2.30, 2.24, 2.33, 2.36, 2.28, 2.34, 2.29,
-        2.32, 2.28, 2.28, 2.35, 2.37, 2.38, 2.28, 2.27,
-        2.26, 2.27, 2.35, 2.34, 2.31, 2.28, 2.35, 2.28
+        0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00,
+        0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00,
+        0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00,
+        0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00,
+        0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00,
+        0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00,
+        0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00,
+        0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00
       }
 
   - id: voltage_field_detection_threshold
@@ -650,6 +641,7 @@ interval:
   - interval: 1000ms
     then:
       - script.execute: update_timer
+      - script.execute: check_opponent_at_board_select
 
 # Declare a LCD menu
 graphical_display_menu:
@@ -793,7 +785,7 @@ graphical_display_menu:
 output:
   # outputs for analog multiplexer
   - platform: gpio
-    pin: GPIO33
+    pin: GPIO14
     id: output_s1
   - platform: gpio
     pin: GPIO25
@@ -804,8 +796,17 @@ output:
   - platform: gpio
     pin: GPIO27
     id: output_s4
+# beep
+  - platform: gpio
+    id: beep_switch
+    pin:
+      number: 4
+      mode:
+        output: true
+      inverted: false
 
 switch:
+
 # LED color to move
   - platform: gpio
     id: led_white_to_move
@@ -1083,8 +1084,10 @@ binary_sensor:
       sorting_weight: 5
   - platform: gpio
     pin:
-      number: GPIO4
-      mode: INPUT_PULLUP
+      pcf8574: pcf8574_w
+      number: 6
+      mode:
+        input: true
       inverted: true
     name: "Down"
     id: button_down
@@ -1275,15 +1278,6 @@ select:
       - "AI_7"
       - "AI_8"
     initial_option: AI_1
-    on_value: 
-      then:
-        lambda: |-
-          if ( id(lichess_opponent_at_board).state == "yes" && (x == "random" || x.rfind("AI_", 0) == 0) ) {
-            // not possible to play "on board"
-            auto call = id(lichess_opponent_at_board).make_call();
-            call.set_option("no");
-            call.perform();          
-          }
     web_server:
       sorting_group_id: sorting_group_lichess
       sorting_weight: 2
@@ -1321,21 +1315,12 @@ select:
       - "yes"
       - "no"
     initial_option: "no"
-    on_value: 
-      then:
-        lambda: |-
-          if ( x == "yes" && (id(lichess_opponent).state == "random" || (id(lichess_opponent).state).rfind("AI_", 0) == 0) ) {
-            // not possible to play "on board"
-            auto call = id(lichess_opponent_at_board).make_call();
-            call.set_option("no");
-            call.perform();          
-          }
     web_server:
       sorting_group_id: sorting_group_lichess
-      sorting_weight: 5
+      sorting_weight: 6
 sensor:
   - platform: adc
-    pin: GPIO36
+    pin: GPIO34
     name: current_hall_sensor_1
     id: current_hall_sensor_1
     internal: true
@@ -1343,7 +1328,7 @@ sensor:
     samples: $adc_n_sampels
     update_interval: never
   - platform: adc
-    pin: GPIO39
+    pin: GPIO35
     name: current_hall_sensor_2
     id: current_hall_sensor_2
     internal: true
@@ -1351,7 +1336,7 @@ sensor:
     samples: $adc_n_sampels
     update_interval: never
   - platform: adc
-    pin: GPIO34
+    pin: GPIO36
     name: current_hall_sensor_3
     id: current_hall_sensor_3
     internal: true
@@ -1359,7 +1344,7 @@ sensor:
     samples: $adc_n_sampels
     update_interval: never
   - platform: adc
-    pin: GPIO35
+    pin: GPIO39
     name: current_hall_sensor_4
     id: current_hall_sensor_4
     internal: true
@@ -1427,7 +1412,7 @@ text_sensor:
     update_interval: never
     web_server:
       sorting_group_id: sorting_group_lichess
-      sorting_weight: 5
+      sorting_weight: 7
 
   - platform: template
     name: "Lichess Api Call"
@@ -1450,14 +1435,14 @@ text_sensor:
   - platform: template
     name: "Hall Array Part Black"
     id: array_part_1
-    internal: True
+    internal: false
     web_server:
       sorting_group_id: sorting_group_sensors
       sorting_weight: 10
   - platform: template
     name: "Hall Array Part White"
     id: array_part_2
-    internal: True
+    internal: false
     web_server:
       sorting_group_id: sorting_group_sensors
       sorting_weight: 11
@@ -2283,14 +2268,14 @@ script:
               } else {
                 if( id(lichess_opponent_at_board).state == "yes") {
                   // switch to oppoents token
-                  std::string token_body = "{\"type\": \"overwriteToken\", \"token\": \"" + id(lichess_token_opponent) + "\"}";
+                  std::string token_body = "{\"type\": \"overwriteToken\", \"token\": \"" + id(chessboard_token_opponent) + "\"}";
                   id(lichess_api_call).publish_state(token_body);
                   delay(100); // do a short delay 
                   // make a move for the opponent
                   id(lichess_api_call).publish_state(move_body); 
                   delay(100); // do a short delay 
                   // switch token back
-                  token_body = "{\"type\": \"overwriteToken\", \"token\": \"" + id(lichess_token_current) + "\"}";
+                  token_body = "{\"type\": \"overwriteToken\", \"token\": \"" + id(chessboard_token_current) + "\"}";
                   id(lichess_api_call).publish_state(token_body);
                 }
               }
@@ -3001,16 +2986,29 @@ script:
           }
 
           // debug: show voltage
-          // id(update_array_text).execute();
+          id(update_array_text).execute();
   - id: beep_short
     then:
       - lambda: |-
-          // todo
+          id(beep_switch).turn_on();
+          sleep(100);
+          id(beep_switch).turn_off();
 
   - id: beep_long
     then:
       - lambda: |-
-          // todo
+          id(beep_switch).turn_on();
+          sleep(250);
+          id(beep_switch).turn_off();
+  - id: check_opponent_at_board_select
+    then:
+      - lambda: |- 
+          if ( id(lichess_opponent_at_board).state == "yes" && (id(lichess_opponent).state == "random" || (id(lichess_opponent).state).compare(0, 3, "AI_") == 0) ) {
+            // not possible to play "on board"
+            auto call = id(lichess_opponent_at_board).make_call();
+            call.set_option("no");
+            call.perform();          
+          }
   - id: update_lichess_token
     then:
       - lambda: |-
@@ -3047,7 +3045,7 @@ script:
           //if (!id(game_running) && id(initial_position_set).state==true) { // currently deactivated
           if (true) {
             // update lichess token, if not selected yet
-            id(update_lichess_token).update();
+            id(update_lichess_token).execute();
             // open the event stream
             id(lichess_stream_events).publish_state("ON");
             // Create JSON object
@@ -3103,10 +3101,7 @@ script:
           std::string json_str = id(lichess_last_event_in).state;
 
           StaticJsonDocument<250> root;
-          DeserializationError error = deserializeJson(root, json_str);
-          if (error) {
-              ESP_LOGE("Lichess", "JSON parsing failed: %s", error.c_str());
-          }
+          deserializeJson(root, json_str);
 
           if (root.containsKey("type") && root["type"].as<std::string>() == "gameStart"){
 
@@ -3170,10 +3165,7 @@ script:
           std::string json_str = id(lichess_last_move_in).state;
 
           StaticJsonDocument<250> root;
-          DeserializationError error = deserializeJson(root, json_str);
-          if (error) {
-              ESP_LOGE("Lichess", "JSON parsing failed: %s", error.c_str());
-          }
+          deserializeJson(root, json_str);
 
           // opponent gone
           if (root["type"].as<std::string>() == "opponentGone" && root["gone"].as<bool>() == true  && root["claimWinInSeconds"].as<int>() == 0 ){
