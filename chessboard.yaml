@@ -344,15 +344,48 @@ globals:
     type: std::array<int, 64>
     initial_value: |-
       {
-        23,  7, 11, 27, 10, 30, 62  58,
-        19,  3, 14, 31, 26, 46, 14, 42,
+        23,  7, 11, 27, 10, 30, 62, 58,
+        19,  3, 15, 31, 26, 46, 14, 42,
         43, 51, 59, 39, 54, 34, 2,  6,
-        47, 55, 63, 35, 38, 18, 50, 21,
+        47, 55, 63, 35, 38, 18, 50, 22,
         41, 25, 9,  49, 8,  28, 60, 44,
         33,  1, 17, 57, 12, 56, 24, 40,
         21, 37, 53, 13, 52, 32,  0, 16,
         29, 61, 45,  5, 48,  4, 36, 20
       }
+
+  # Variables for voltage-field
+  - id: voltage_field_offset
+    type: std::array<float, 64>
+    initial_value: |-
+      {
+        2.40, 2.54, 2.50, 2.46, 2.43, 2.53, 2.42, 2.38,
+        2.48, 2.45, 2.50, 2.44, 2.48, 2.44, 2.43, 2.43,
+        2.52, 2.47, 2.42, 2.43, 2.45, 2.51, 2.45, 2.47,
+        2.46, 2.44, 2.53, 2.55, 2.35, 2.41, 2.39, 2.50, 
+        2.40, 2.39, 2.55, 2.46, 2.38, 2.41, 2.43, 2.49,
+        2.48, 2.46, 2.40, 2.50, 2.52, 2.42, 2.51, 2.45,
+        2.50, 2.44, 2.45, 2.53, 2.54, 2.55, 2.46, 2.47,
+        2.42, 2.45, 2.53, 2.51, 2.47, 2.43, 2.53, 2.42
+      }
+
+  - id: voltage_field_detection_threshold
+    type: std::array<float, 64>
+    initial_value: |-
+      {
+        0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15,
+        0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15,
+        0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15,
+        0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15,
+        0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15,
+        0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15,
+        0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15,
+        0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15
+      }
+
+  - id: voltage_field_drift
+    type: float
+    initial_value: '0.00'
 
   # Variables for FEN
   - id: fen_black
@@ -439,36 +472,6 @@ globals:
   - id: raw_position_differences
     type: std::array<int, 64>
     initial_value: '{0}'
-
-  # Variables for voltage-field
-  - id: voltage_field_offset
-    type: std::array<float, 64>
-    initial_value: |-
-      {
-        0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00,
-        0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00,
-        0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00,
-        0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00,
-        0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00,
-        0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00,
-        0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00,
-        0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00
-      }
-
-  - id: voltage_field_detection_threshold
-    type: std::array<float, 64>
-    initial_value: |-
-      {
-        0.20, 0.20, 0.20, 0.20, 0.20, 0.20, 0.20, 0.20,
-        0.20, 0.20, 0.20, 0.20, 0.20, 0.20, 0.20, 0.20,
-        0.20, 0.20, 0.20, 0.20, 0.20, 0.20, 0.20, 0.20,
-        0.20, 0.20, 0.20, 0.20, 0.20, 0.20, 0.20, 0.20,
-        0.20, 0.20, 0.20, 0.20, 0.20, 0.20, 0.20, 0.20,
-        0.20, 0.20, 0.20, 0.20, 0.20, 0.20, 0.20, 0.20,
-        0.20, 0.20, 0.20, 0.20, 0.20, 0.20, 0.20, 0.20,
-        0.20, 0.20, 0.20, 0.20, 0.20, 0.20, 0.20, 0.20
-      }
-
 
 
   - id: voltage_field_current
@@ -2906,6 +2909,11 @@ script:
           // Define a array of size 64 to hold positions
           std::array<int, 64> pos_values;
 
+          // We want to calculate mean voltage drift from the values without pieces
+          const float n_empty_fields_init = 0.0;
+          float n_empty_fields = n_empty_fields_init;
+          float sum_voltage_drift = 0.0;
+
           // Read all 64 hall sensor values
           for (int value = 0; value < 64; value++) {
 
@@ -2914,10 +2922,20 @@ script:
 
             // Simplified sign and position detection
             int sign = (curr_field > 0) ? 1 : (curr_field < 0) ? -1 : 0;
-            int curr_position = (fabsf(curr_field) > id(voltage_field_detection_threshold)[value]) ? 1 : 0;
+            int field_occupied =  (fabsf(curr_field) > id(voltage_field_detection_threshold)[value]) ? 1 : 0;
 
+            if (field_occupied == 0) {
+              // we have to substract the drift, to get uncorrected value
+              sum_voltage_drift += curr_field + id(voltage_field_drift);
+              n_empty_fields += 1.00;
+            }
             // set position -1, 0 or 1
-            pos_values[value] = curr_position * sign;
+            pos_values[value] = field_occupied * sign;
+          }
+
+          // calc mean deviation
+          if (n_empty_fields > n_empty_fields_init) {
+            id(voltage_field_drift) = sum_voltage_drift / n_empty_fields;
           }
 
           // Once all 64 values are read, update the global array
@@ -2982,7 +3000,7 @@ script:
 
           // Once all 64 values are read, update the global array
           for (int i = 0; i < 64; i++) {
-            id(voltage_field_current)[i] = adc_values[id(hall_sensor_order)[i]] - id(voltage_field_offset)[i];
+            id(voltage_field_current)[i] = adc_values[id(hall_sensor_order)[i]] - id(voltage_field_offset)[i] - id(voltage_field_drift);
           }
 
           // debug: show voltage
