@@ -2426,7 +2426,7 @@ script:
             if (castling_part.length() > 0 ) {
               raw_fen += " " +  castling_part;
             } else {
-              raw_fen += " - -";
+              raw_fen += " -";
             }            
 
             // en passant
@@ -2620,6 +2620,42 @@ script:
           id(current_move_to) = to;
           id(current_move_type) = "MOVE";
 
+          // if pawn move by 2 fields (16 indexes), we have to check en-passant for FEN
+          if ( std::abs(from - to) == 16 && (id(moved_piece) == "P" || id(moved_piece) == "p" ))
+          {
+            std::vector<int> idx_to_check;
+            if (id(white_to_move)) { // white
+              if (from != 48) { // left diagonal (not a2 -> a4)
+                idx_to_check.push_back(to + 7);
+              } 
+              if (from != 55) { // right diagonal (not h2 -> h4)
+                idx_to_check.push_back(from - 7);
+              }
+              for (int i = 0; i < idx_to_check.size(); i++) {
+                // check if black pawns
+                if (id(fen_position_last)[idx_to_check[i]] == "p") {
+                  id(fen_enpassant_index) = from - 8;
+                  break;
+                }
+              }
+            } else { // black
+              if (from != 8) { // left diagonal (not a7 -> a5)
+                idx_to_check.push_back(from + 7);
+              } 
+              if (from != 15) { // right diagonal (not h7 -> h5)
+                idx_to_check.push_back(to - 7);
+              }
+              for (int i = 0; i < idx_to_check.size(); i++) {
+                // check if black pawns
+                if (id(fen_position_last)[idx_to_check[i]] == "P") {
+                  id(fen_enpassant_index) = from + 8;
+                  break;
+                }
+              }
+            }
+          }
+
+
           // prepare uci notation
           id(update_uci_notation).execute();
           // check if move is legal
@@ -2776,8 +2812,7 @@ script:
           // update global variables
           id(moved_piece) = id(fen_position_last)[from];
           id(current_move_from) = from;
-          id(current_move_to) = to;
-          id(fen_enpassant_index) = from_opponent;
+          id(current_move_to) = to;          
           id(current_move_type) = "ENPASSANT";
 
           // prepare uci notation
@@ -2837,7 +2872,7 @@ script:
           }
 
           //en passant field
-          if (id(current_move_type) == "ENPASSANT") {
+          if (id(fen_enpassant_index) > 0) {
             id(fen_position_current)[69] = id(chess_field_names)[id(fen_enpassant_index)];
           } else {
             id(fen_position_current)[69] = "-";
