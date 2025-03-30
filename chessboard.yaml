@@ -938,6 +938,21 @@ binary_sensor:
             if (id(game_running) && id(white_to_move) ) {
               // if our turn, we store the move and let opponent play
                 id(store_move).execute();                
+            } else if (!id(game_running) && id(white_to_move) && !id(lichess_game_running) && id(halfmove_counter) == 0) { 
+                // we have to check if we made a valid move from initial position
+                id(move_analyser).execute();
+                // if valid move, start the clock and store the move
+                if (id(valid_move)) {
+                  // if the move made by white, we start the clock
+                  id(store_move).execute();
+                  id(game_running) = true;
+                  // the game can be also started by the pause button
+                  id(led_update_move_over).execute();
+                  // show timer
+                  id(oled_white_acitve_page) = 1;
+                  id(oled_black_acitve_page) = 1;
+                  id(redraw_displays).execute();
+                }
             }
     internal: true
   - platform: gpio
@@ -2407,7 +2422,12 @@ script:
             raw_fen += " " + id(fen_position_last)[64];
 
             // castling rights
-            raw_fen += " " + id(fen_position_last)[65] + id(fen_position_last)[66] + id(fen_position_last)[67] + id(fen_position_last)[68];
+            std::string castling_part = id(fen_position_last)[65] + id(fen_position_last)[66] + id(fen_position_last)[67] + id(fen_position_last)[68];
+            if (castling_part.length() > 0 ) {
+              raw_fen += " " +  castling_part;
+            } else {
+              raw_fen += " - -";
+            }            
 
             // en passant
             raw_fen += " " + id(fen_position_last)[69];
@@ -2555,10 +2575,6 @@ script:
             }
             if (!id(white_to_move) && id(oled_black_acitve_page) == 2) {
               id(oled_black_acitve_page) = 1;
-            }
-            // if the move made by white, we start the clock
-            if (!id(game_running) && id(halfmove_counter) == 0) {
-              id(game_running) = true;
             }
           }
 
@@ -2794,27 +2810,27 @@ script:
             if (id(white_to_move) && (id(fen_position_current)[65] == "K" || id(fen_position_current)[65] == "Q") ) { // white
               // king
               if (id(moved_piece) == "K"){
-                id(fen_position_current)[65] = "-";
-                id(fen_position_current)[66] = "-";
+                id(fen_position_current)[65] = "";
+                id(fen_position_current)[66] = "";
               } else { // rook
                   // short
                   if (id(current_move_from) == 63) {
-                    id(fen_position_current)[65] = "-";
+                    id(fen_position_current)[65] = "";
                   } else { // long
-                    id(fen_position_current)[66] = "-";
+                    id(fen_position_current)[66] = "";
                   }
               }
             } else if (id(fen_position_current)[67] == "k" || id(fen_position_current)[68] == "q") {
               // king
               if (id(moved_piece) == "k"){
-                id(fen_position_current)[67] = "-";
-                id(fen_position_current)[68] = "-";
+                id(fen_position_current)[67] = "";
+                id(fen_position_current)[68] = "";
               } else { // rook
                   // short
                   if (id(current_move_from) == 7) {
-                    id(fen_position_current)[67] = "-";
+                    id(fen_position_current)[67] = "";
                   } else { // long
-                    id(fen_position_current)[68] = "-";
+                    id(fen_position_current)[68] = "";
                   }
               }
             }
@@ -3140,6 +3156,11 @@ script:
             // force changed state, to be able to call the same request 
             id(lichess_api_call).publish_state("{}"); 
             id(lichess_api_call).publish_state(json_string);
+          } else {
+                id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"Not initial position\"}";
+                id(oled_white_acitve_page) = 2;
+                id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"Not initial position\"}";
+                id(oled_black_acitve_page) = 2;            
           }
 
 
