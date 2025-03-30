@@ -11,8 +11,10 @@ esphome:
     - priority: 400
       then:
       - script.execute: reset_all_values 
-    
-
+    - priority: 800
+      then:
+        - lambda: |-
+            id(redraw_displays).execute();
 
 esp32:
   board: esp32dev
@@ -82,19 +84,19 @@ time:
 
 
 substitutions:
-  adc_n_sampels: '25'
+  adc_n_sampels: '3'
   attenuation_value: 12dB
-  hall_sensor_intervall_game: 400ms
+  hall_sensor_intervall_game: 200ms
   hall_sensor_intervall_idle: 1s
-  delay_before_adc_reading: '15'
+  delay_before_adc_reading: '5'
 
 i2c:
   sda: GPIO21
   scl: GPIO22
   id: i2c0
-  scan: true
-  frequency: 100kHz 
-  # max frequency of pcf8574 is 100kHz 
+  scan: false
+  frequency: 200kHz 
+  # max frequency of pcf8574 is 100kHz, we try higher frequencies for faster display update
   
 
 tca9548a:
@@ -107,13 +109,20 @@ tca9548a:
       - bus_id: i2c_mux_b_buttons
         channel: 2
 
+  - address: 0x77
+    id: i2c_mux_w
+    i2c_id: i2c0
+    channels:
+      - bus_id: i2c_mux_w_display
+        channel: 7
+
 pcf8574:
   - id: 'pcf8574_b'
     address: 0x20
     i2c_id: i2c_mux_b_buttons
     pcf8575: false
   - id: 'pcf8574_w'
-    address: 0x20
+    address: 0x27
     i2c_id: i2c0
     pcf8575: false
 
@@ -125,7 +134,8 @@ display:
     flip_y: False
     flip_x: False
     address: 0x3C
-    i2c_id: i2c0
+    i2c_id: i2c_mux_w_display
+    #update_interval: never
     lambda: |-
       const auto display_width = it.get_width();
       const auto display_height = it.get_height();
@@ -171,6 +181,7 @@ display:
     model: "SSD1306 128x32"
     address: 0x3C
     i2c_id: i2c_mux_b_display
+    #update_interval: never
     lambda: |-
       const auto display_width = it.get_width();
       const auto display_height = it.get_height();
@@ -373,14 +384,14 @@ globals:
     type: std::array<float, 64>
     initial_value: |-
       {
-        0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15,
-        0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15,
-        0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15,
-        0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15,
-        0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15,
-        0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15,
-        0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15,
-        0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15
+        0.30, 0.30, 0.30, 0.30, 0.30, 0.30, 0.30, 0.30,
+        0.30, 0.30, 0.30, 0.30, 0.30, 0.30, 0.30, 0.30,
+        0.30, 0.30, 0.30, 0.30, 0.30, 0.30, 0.30, 0.30,
+        0.30, 0.30, 0.30, 0.30, 0.30, 0.30, 0.30, 0.30,
+        0.30, 0.30, 0.30, 0.30, 0.30, 0.30, 0.30, 0.30,
+        0.30, 0.30, 0.30, 0.30, 0.30, 0.30, 0.30, 0.30,
+        0.30, 0.30, 0.30, 0.30, 0.30, 0.30, 0.30, 0.30,
+        0.30, 0.30, 0.30, 0.30, 0.30, 0.30, 0.30, 0.30
       }
 
   - id: voltage_field_drift
@@ -506,6 +517,18 @@ globals:
     type: bool
     initial_value: 'false'
 
+  - id: lichess_is_my_turn
+    type: bool
+    initial_value: 'false'
+
+  - id: lichess_is_my_color_white
+    type: bool
+    initial_value: 'true'
+
+  - id: lichess_opponent_name
+    type: std::string
+    initial_value: '""'
+
   - id: moved_piece
     type: std::string
     initial_value: ''  
@@ -594,18 +617,6 @@ globals:
     type: std::string
     initial_value: ""
 
-  - id: lichess_is_my_turn
-    type: bool
-    initial_value: 'false'
-
-  - id: lichess_my_color
-    type: std::string
-    initial_value: '""'
-
-  - id: lichess_opponent_name
-    type: std::string
-    initial_value: '""'
-
   - id: last_move_white
     type: std::string
     initial_value: '""'
@@ -616,11 +627,11 @@ globals:
 
   - id: display_message_white
     type: std::string
-    initial_value: '"{\"n_lines\": 2, \"line_0\": \"White player\", \"line_1\": \"Rapid (15+10)\"}"'
+    initial_value: '""'
 
   - id: display_message_black
     type: std::string
-    initial_value: '"{\"n_lines\": 2, \"line_0\": \"Black player\", \"line_1\": \"Rapid (15+10)\"}"'
+    initial_value: '""'
 
 # we updating all the time the values of hall sensors
 interval:
@@ -664,6 +675,7 @@ graphical_display_menu:
           // reset display messages, if any
           id(display_message_black) = "";
           id(display_message_white) = "";
+          id(redraw_displays).execute();
         } 
   on_leave:
     then:
@@ -677,14 +689,8 @@ graphical_display_menu:
   on_redraw:
     then:
       - component.update: oled_white
-      #- component.update: oled_black
+      - component.update: oled_black
   items:
-    - type: command
-      text: 'PGN SEND'
-      on_value:
-        then:
-          - lambda: |-
-              id(send_telegram_message).execute();
     - type: select
       immediate_edit: false
       text: 'TIMER'
@@ -693,12 +699,6 @@ graphical_display_menu:
       immediate_edit: false
       text: 'PROMOTION'
       select: pawn_promotion
-    - type: command
-      text: 'TAKE BACK'
-      on_value:
-        then:
-          - lambda: |-
-              id(take_back).execute();
     - type: menu
       text: 'LICHESS'
       items:
@@ -778,6 +778,18 @@ graphical_display_menu:
         - type: back
           text: 'Back'
     - type: command
+      text: 'PGN SEND'
+      on_value:
+        then:
+          - lambda: |-
+              id(send_telegram_message).execute();
+    - type: command
+      text: 'TAKE BACK'
+      on_value:
+        then:
+          - lambda: |-
+              id(take_back).execute();
+    - type: command
       text: 'Restart Board'
       on_value:
         then:
@@ -817,13 +829,11 @@ switch:
     name: White to move
     pin:
       pcf8574: pcf8574_w
-      number: 2
+      number: 5
       mode:
         output: true
       inverted: true
-    web_server:
-      sorting_group_id: sorting_group_simulation
-      sorting_weight: 1
+    internal: true
 
   - platform: gpio
     id: led_black_to_move
@@ -835,9 +845,7 @@ switch:
       mode:
         output: true
       inverted: true
-    web_server:
-      sorting_group_id: sorting_group_simulation
-      sorting_weight: 3
+    internal: true
 
   - platform: gpio
     id: led_white_nonvalid_move
@@ -845,13 +853,11 @@ switch:
     name: White (non valid move)
     pin:
       pcf8574: pcf8574_w
-      number: 0
+      number: 7
       mode:
         output: true
       inverted: true
-    web_server:
-      sorting_group_id: sorting_group_simulation
-      sorting_weight: 5
+    internal: true
 
   - platform: gpio
     id: led_white_valid_move
@@ -859,13 +865,11 @@ switch:
     name: White (valid move)
     pin:
       pcf8574: pcf8574_w
-      number: 1
+      number: 6
       mode:
         output: true
       inverted: true
-    web_server:
-      sorting_group_id: sorting_group_simulation
-      sorting_weight: 2
+    internal: true
 
   - platform: gpio
     id: led_black_nonvalid_move
@@ -877,9 +881,7 @@ switch:
       mode:
         output: true
       inverted: true
-    web_server:
-      sorting_group_id: sorting_group_simulation
-      sorting_weight: 6
+    internal: true
 
   - platform: gpio
     id: led_black_valid_move
@@ -891,9 +893,7 @@ switch:
       mode:
         output: true
       inverted: true
-    web_server:
-      sorting_group_id: sorting_group_simulation
-      sorting_weight: 4
+    internal: true
 
 button:
   - platform: factory_reset
@@ -920,84 +920,15 @@ button:
       then:
         - lambda: |-
             id(lichess_create_new_game).execute();
-            id(simulate_cancel).press();
-            id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"waiting for new game ...\", \"line_1\": \"" + id(chess_time_control).state + "\"}";
-            id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"waiting for new game ...\", \"line_1\": \"" + id(chess_time_control).state + "\"}";           
-    web_server:
-      sorting_group_id: sorting_group_lichess
-      sorting_weight: -1
-  - platform: template
-    name: simulate button pause
-    id: simulate_button_pause
-    on_press:
-      then:
-        - lambda: |-
-            id(game_running) = !id(game_running);
-            id(led_update_move_over).execute(); 
-            if (id(halfmove_counter) == 0) {
-              // let displays show the time control
-              id(display_message_white) = "";
-              id(display_message_black) = "";
-            }           
-    web_server:
-      sorting_group_id: sorting_group_simulation
-      sorting_weight: 10
-  - platform: template
-    name: simulate_up
-    id: simulate_up
-    on_press:
-      then:
-        - display_menu.up: my_menu
-    web_server:
-      sorting_group_id: sorting_group_simulation
-      sorting_weight: 12
-  - platform: template
-    name: simulate_down
-    id: simulate_down
-    on_press:
-      then:
-        - display_menu.down: my_menu
-    web_server:
-      sorting_group_id: sorting_group_simulation
-      sorting_weight: 13
-  - platform: template
-    name: simulate_set
-    id: simulate_set
-    on_press:
-      then:
-        - if:
-              condition:
-                display_menu.is_active: my_menu
-              then:
-                - display_menu.enter: my_menu
-              else:
-                - display_menu.show:  my_menu
-    web_server:
-      sorting_group_id: sorting_group_simulation
-      sorting_weight: 14
-  - platform: template
-    name: simulate_cancel
-    id: simulate_cancel
-    on_press:
-      then:
         - display_menu.show_main:   my_menu
         - display_menu.hide:  my_menu 
         - lambda: |-
-            id(display_message_black) = "";
-            id(display_message_white) = "";    
+            id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"waiting for new game ...\", \"line_1\": \"" + id(chess_time_control).state + "\"}";
+            id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"waiting for new game ...\", \"line_1\": \"" + id(chess_time_control).state + "\"}"; 
+            id(redraw_displays).execute();          
     web_server:
-      sorting_group_id: sorting_group_simulation
-      sorting_weight: 15
-  - platform: template
-    name: simulate_take_back
-    id: simulate_take_back
-    on_press:
-      then:
-        - lambda: |-
-            id(take_back).execute();        
-    web_server:
-      sorting_group_id: sorting_group_simulation
-      sorting_weight: 16
+      sorting_group_id: sorting_group_lichess
+      sorting_weight: -1
 
 
 binary_sensor:
@@ -1006,7 +937,7 @@ binary_sensor:
     id: button_white_finished
     pin:
       pcf8574: pcf8574_w
-      number: 3
+      number: 4
       mode:
         input: true
       inverted: true
@@ -1018,9 +949,7 @@ binary_sensor:
               // if our turn, we store the move and let opponent play
                 id(store_move).execute();                
             }
-    web_server:
-      sorting_group_id: sorting_group_sensors
-      sorting_weight: 1
+    internal: true
   - platform: gpio
     pin:
       pcf8574: pcf8574_b
@@ -1036,7 +965,7 @@ binary_sensor:
             // only during the gave
             if (id(game_running)) {
               // if our turn, we store the move and let opponent play
-              if (id(!white_to_move))
+              if (!id(white_to_move))
               {
                 id(store_move).execute();
               }
@@ -1045,68 +974,74 @@ binary_sensor:
               id(game_running) = true;
               // the game can be also started by the pause button
               id(led_update_move_over).execute();
+              // show timer
+              id(display_message_black) = "";
+              id(display_message_white) = "";
+              id(redraw_displays).execute();
             }  
-
-    web_server:
-      sorting_group_id: sorting_group_sensors
-      sorting_weight: 2
-  - platform: gpio
-    pin:
-      number: GPIO5
-      mode: INPUT_PULLUP
-      inverted: true
-    name: "Pause"
-    id: button_pause
-    on_press:
-      then:
-        - lambda: |-
-            id(game_running) = !id(game_running);
-            id(led_update_move_over).execute();
-    web_server:
-      sorting_group_id: sorting_group_sensors
-      sorting_weight: 3
-  - platform: gpio
-    pin:
-      number: GPIO17
-      mode: INPUT_PULLUP
-      inverted: true
-    name: "Back"
-    id: button_back
-    web_server:
-      sorting_group_id: sorting_group_sensors
-      sorting_weight: 4
-  - platform: gpio
-    pin:
-      number: GPIO16
-      mode: INPUT_PULLUP
-      inverted: true
-    name: "Up"
-    id: button_up
-    web_server:
-      sorting_group_id: sorting_group_sensors
-      sorting_weight: 5
+    internal: true
   - platform: gpio
     pin:
       pcf8574: pcf8574_w
-      number: 6
+      number: 0
+      mode:
+        input: true
+      inverted: true
+    name: "Back"
+    id: button_back
+    internal: true
+    on_press:
+      then:
+        - display_menu.show_main:   my_menu
+        - display_menu.hide:  my_menu 
+  - platform: gpio
+    pin:
+      pcf8574: pcf8574_w
+      number: 2
+      mode:
+        input: true
+      inverted: true
+    name: "Up"
+    id: button_up
+    on_press:
+      then:
+        - display_menu.up: my_menu
+    internal: true
+  - platform: gpio
+    pin:
+      pcf8574: pcf8574_w
+      number: 1
       mode:
         input: true
       inverted: true
     name: "Down"
     id: button_down
-    web_server:
-      sorting_group_id: sorting_group_sensors
-      sorting_weight: 6
+    on_press:
+      then:
+        - display_menu.down: my_menu
+    internal: true
   - platform: gpio
     pin:
-      number: GPIO0
-      mode: INPUT_PULLUP
+      pcf8574: pcf8574_w
+      number: 3
+      mode:
+        input: true
       inverted: true
     name: "Set"
     id: button_set
-    web_server:
-      sorting_group_id: sorting_group_sensors
-      sorting_weight: 7
+    on_press:
+      then:
+        - if:
+              condition:
+                display_menu.is_active: my_menu
+              then:
+                - lambda: |-
+                    id(game_running) = !id(game_running);
+                    id(led_update_move_over).execute(); 
+                - display_menu.enter: my_menu
+              else:
+                - display_menu.show:  my_menu
+    internal: true
   - platform: template
     name: initial_position_set
     id: initial_position_set
@@ -1124,11 +1059,12 @@ binary_sensor:
     on_press:
       then:
         - lambda: |-
-            if (id(halfmove_counter) > 0) {
-              id(send_telegram_message).execute();
-            }
-            
+            if (id(halfmove_counter) > 0 ) {
+              if (id(telegram_notification).state == "yes") {
+                id(send_telegram_message).execute();
+              }            
             id(reset_all_values).execute();
+            }
             // notfiy -> ready for new game
 
 select:
@@ -1206,13 +1142,14 @@ select:
             }
 
             // overwrite display message, if we are in init state
-            if (id(display_message_white).find("white player") != std::string::npos) {
-              id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"white player\", \"line_1\": \"" + x + "\"}";
+            if (id(display_message_white).find("White player") != std::string::npos) {
+              id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"White player\", \"line_1\": \"" + x + "\"}";
             }
 
-            if (id(display_message_black).find("black player") != std::string::npos) {
-              id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"black player\", \"line_1\": \"" + x + "\"}";
+            if (id(display_message_black).find("Black player") != std::string::npos) {
+              id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"Black player\", \"line_1\": \"" + x + "\"}";
             }
+            id(redraw_displays).execute();
     web_server:
       sorting_group_id: sorting_group_settings
       sorting_weight: 1
@@ -1245,6 +1182,17 @@ select:
     web_server:
       sorting_group_id: sorting_group_settings
       sorting_weight: 2
+  - platform: template
+    name: "Telegram notification"
+    id: telegram_notification
+    optimistic: true
+    options:
+      - "yes"
+      - "no"
+    initial_option: "no"
+    web_server:
+      sorting_group_id: sorting_group_settings
+      sorting_weight: 3
   - platform: template
     name: "Account"
     id: lichess_account
@@ -1887,6 +1835,8 @@ script:
               }
             }
           }
+          id(oled_white).update();
+          id(oled_black).update();
 
   - id: send_telegram_message
     then:
@@ -1929,7 +1879,7 @@ script:
           std::string pgn_header = "[Event \"Chessboard Game\"]\n";
           pgn_header += "[Date \"" + year + "." + month_prefix  + month + "." + day_prefix  + day  + "\"]\n";
           if (id(lichess_game_running)) {
-            if (id(lichess_my_color) == "white") {
+            if (id(lichess_is_my_color_white)) { 
               pgn_header += "[White \"Chessboard-Player\"]\n";
               pgn_header += "[Black \"" + id(lichess_opponent_name) + "\"]\n";              
             } else {
@@ -1974,8 +1924,12 @@ script:
           id(valid_move) = false;
           id(moved_piece) = "";
 
+          id(last_move_white) = "";
+          id(last_move_black) = "";
+
           id(lichess_is_my_turn) = false;
-          id(lichess_my_color) = "";
+          id(lichess_is_my_color_white) = true;
+          id(lichess_game_running) = false;
 
           id(sync_time_control).execute();
           id(time_control_timer_black) = id(time_control_duration);
@@ -1989,9 +1943,23 @@ script:
 
           id(lichess_last_move).publish_state(std::string(""));
           id(lichess_game_id).publish_state(std::string("idle"));
-          id(lichess_token).update();
-          id(lichess_game_running) = false;
+          id(update_lichess_token).execute();
+          
           id(current_move_uci_lichess) = "";
+
+          id(update_display_message).execute();
+
+  - id: update_display_message
+    then:
+      - lambda: |-
+          id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"Black player\", \"line_1\": \"" + id(chess_time_control).state + "\"}";
+          id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"White player\", \"line_1\": \"" + id(chess_time_control).state + "\"}";
+          id(redraw_displays).execute();
+  - id: redraw_displays
+    then:
+      - lambda: |-
+          //id(oled_white).update();
+          //id(oled_black).update();
 
   - id: update_pgn_history
     then:
@@ -2147,6 +2115,8 @@ script:
             id(display_message_white) = "DRAW";
           }
 
+          id(redraw_displays).execute();
+
   - id: led_update_check_move
     then:
       - lambda: |-
@@ -2289,6 +2259,7 @@ script:
             // reset display messages, if any
             id(display_message_black) = "";
             id(display_message_white) = "";
+            id(redraw_displays).execute();
 
             // update last move
             if (id(white_to_move)) {
@@ -2511,6 +2482,11 @@ script:
             counter_changes += (int)((cur_pos_abs > 0) ? 1 : 0);
           }
 
+          // we have to reset FEN, to allow move correction
+          for (int i = 0; i < 72; i++) {
+            id(fen_position_current)[i] = id(fen_position_last)[i];
+          };
+
           // MOVE
           if (sum_abs == 2 && sum == 0 && counter_changes == 2 ) {
             id(perform_move).execute();
@@ -2541,7 +2517,7 @@ script:
 
           // store valid move of the opponent
           if (id(lichess_game_running) && !id(lichess_is_my_turn) && id(valid_move) && id(lichess_opponent_at_board).state == "no") {
-            if (id(lichess_my_color) == "white") {
+            if (id(lichess_is_my_color_white)) {
               id(button_black_finished).publish_state(true);
               id(button_black_finished).publish_state(false);
             } else {
@@ -3060,8 +3036,7 @@ script:
     then:
       - lambda: |-
           // not during the gave
-          //if (!id(game_running) && id(initial_position_set).state==true) { // currently deactivated
-          if (true) {
+          if (!id(game_running) && id(initial_position_set).state) {
             // update lichess token, if not selected yet
             id(update_lichess_token).execute();
             // open the event stream
@@ -3121,10 +3096,11 @@ script:
           StaticJsonDocument<250> root;
           deserializeJson(root, json_str);
 
-          if (root.containsKey("type") && root["type"].as<std::string>() == "gameStart"){
+          if (root.containsKey("type") && root.containsKey("color") && root.containsKey("isMyTurn") && root["type"].as<std::string>() == "gameStart"){
 
             // rise flag we are in lichess game
             id(lichess_game_running) = true;
+            id(game_running) = true;
 
             // extract opponents name to be shown on display
             id(lichess_opponent_name) = root["opponent"].as<std::string>();
@@ -3133,10 +3109,10 @@ script:
             // we start board stream
             id(lichess_game_id).publish_state(root["gameId"].as<std::string>());
             // we check the white color
-            if (root["color"].as<std::string>() == "white"){
+            if ( root["color"].as<std::string>() == "white"){
               id(white_to_move) = true;
               id(lichess_is_my_turn) = root["isMyTurn"].as<bool>();
-              id(lichess_my_color) = "white";
+              id(lichess_is_my_color_white) = true;
               id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"" + me + "\", \"line_1\": \"" + id(chess_time_control).state + "\"}";
               id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"" + id(lichess_opponent_name) + "\", \"line_1\": \"" + id(chess_time_control).state + "\"}";
             }
@@ -3144,10 +3120,12 @@ script:
             if (root["color"].as<std::string>() == "black"){
               id(white_to_move) = false;
               id(lichess_is_my_turn) = root["isMyTurn"].as<bool>();
-              id(lichess_my_color) = "black";
+              id(lichess_is_my_color_white) = false;
               id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"" + id(lichess_opponent_name) + "\", \"line_1\": \"" + id(chess_time_control).state + "\"}";
               id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"" + me + "\", \"line_1\": \"" + id(chess_time_control).state + "\"}";
-            }        
+            }  
+            
+            id(redraw_displays).execute(); 
           }
 
           if (root.containsKey("type") && root["type"].as<std::string>() == "gameFinish"){
@@ -3169,13 +3147,14 @@ script:
             id(inform_game_over).execute();
 
             id(game_running) = false;
-            id(lichess_game_running) = false;
             id(lichess_is_my_turn) = false;
             
             // close the event stream
             id(lichess_stream_events).publish_state("OFF");
             id(lichess_game_id).publish_state("idle");
           }
+
+          
 
   - id: lichess_handle_last_move
     then:
@@ -3206,17 +3185,17 @@ script:
             }
 
             if( id(lichess_opponent_at_board).state == "no") {
-              if (id(white_to_move) && id(lichess_my_color) == "black"){
+              if (id(white_to_move) && !id(lichess_is_my_color_white)){
                 id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"" + id(lichess_opponent_name) + "\", \"line_1\": \"Move: " + id(current_move_uci_lichess) + "\"}";
                 id(beep_short).execute();       
               } 
               
-              if (!id(white_to_move) && id(lichess_my_color) == "white"){
+              if (!id(white_to_move) && id(lichess_is_my_color_white)){
                 id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"" + id(lichess_opponent_name) + "\", \"line_1\": " + id(current_move_uci_lichess) + "\"}";
                 id(beep_short).execute();
               }
             } 
-
+            
             // update chessboard clock by values from lichess
             std::string wclk = root["wclk"].as<std::string>();
             std::string bclk = root["bclk"].as<std::string>();
@@ -3236,8 +3215,8 @@ script:
             }    
             
             // Draw offer
-            if ( (root["wdraw"].as<int>() == 1 && id(lichess_my_color) == "black") || (root["bdraw"].as<int>() == 1 && id(lichess_my_color) == "white") ) {
-              if (id(lichess_my_color) == "black") {
+            if ( (root["wdraw"].as<int>() == 1 && !id(lichess_is_my_color_white)) || (root["bdraw"].as<int>() == 1 && id(lichess_is_my_color_white)) ) {
+              if (!id(lichess_is_my_color_white)) {
                 id(display_message_black) = "{\"n_lines\": 1, \"line_0\": \"DRAW?\"}";
               } else {
                 id(display_message_white) = "{\"n_lines\": 1, \"line_0\": \"DRAW?\"}";
@@ -3246,18 +3225,14 @@ script:
             }
 
             // TakeBack offer
-            if ( (root["wback"].as<int>() == 1 && id(lichess_my_color) == "black") || (root["bback"].as<int>() == 1 && id(lichess_my_color) == "white") ) {
-              if (id(lichess_my_color) == "black") {
+            if ( (root["wback"].as<int>() == 1 && !id(lichess_is_my_color_white)) || (root["bback"].as<int>() == 1 && id(lichess_is_my_color_white)) ) {
+              if (!id(lichess_is_my_color_white)) {
                 id(display_message_black) = "{\"n_lines\": 1, \"line_0\": \"Takeback?\"}";
               } else {
                 id(display_message_white) = "{\"n_lines\": 1, \"line_0\": \"Takeback?\"}";
               }
               id(beep_short).execute();   
-            }
+            }            
           }
 
-          
-
-
-
-
+          id(redraw_displays).execute();
