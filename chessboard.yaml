@@ -1424,6 +1424,16 @@ text_sensor:
     lambda: |-
       return id(fen_position_last_string);
   - platform: template
+    name: UCI
+    id: current_move_uci_sensor
+    internal: False
+    update_interval: never
+    web_server:
+      sorting_group_id: sorting_group_sensors
+      sorting_weight: 13
+    lambda: |-
+      return id(current_move_uci);      
+  - platform: template
     name: "Timer (white)"
     id: timer_white
     lambda: |-
@@ -2391,6 +2401,7 @@ script:
           }
           
           id(current_move_uci) = uci_move;
+          id(current_move_uci_sensor).update();
 
   - id: fen_position_last_arr_to_string
     then:
@@ -2616,40 +2627,48 @@ script:
 
           // update global variables
           id(moved_piece) = id(fen_position_last)[from];
-          id(current_move_from) = from;
-          id(current_move_to) = to;
-          id(current_move_type) = "MOVE";
 
-          // if pawn move by 2 fields (16 indexes), we have to check en-passant for FEN
-          if ( std::abs(from - to) == 16 && (id(moved_piece) == "P" || id(moved_piece) == "p" ))
-          {
-            std::vector<int> idx_to_check;
-            if (id(white_to_move)) { // white
-              if (from != 48) { // left diagonal (not a2 -> a4)
-                idx_to_check.push_back(to + 7);
-              } 
-              if (from != 55) { // right diagonal (not h2 -> h4)
-                idx_to_check.push_back(from - 7);
-              }
-              for (int i = 0; i < idx_to_check.size(); i++) {
-                // check if black pawns
-                if (id(fen_position_last)[idx_to_check[i]] == "p") {
-                  id(fen_enpassant_index) = from - 8;
-                  break;
+          // for the case of en passant, we have to exclude taking of "empty square" from "move"
+          // otherwise the move will be checked as valid, although the opponent pawn is still on the board
+          bool take_enpassant = (id(moved_piece) == "P" || id(moved_piece) == "p" ) && (std::abs(from - to) == 7 || std::abs(from - to) == 9);
+
+          // skip, till the opponent pawn is removed from board and we recognize the "enpassant - move"
+          if (!take_enpassant) { 
+            id(current_move_from) = from;
+            id(current_move_to) = to;
+            id(current_move_type) = "MOVE";
+
+            // if pawn move by 2 fields (16 indexes), we have to check en-passant for FEN
+            if ( std::abs(from - to) == 16 && (id(moved_piece) == "P" || id(moved_piece) == "p" ))
+            {
+              std::vector<int> idx_to_check;
+              if (id(white_to_move)) { // white
+                if (from != 48) { // left diagonal (not a2 -> a4)
+                  idx_to_check.push_back(to - 1);
+                } 
+                if (from != 55) { // right diagonal (not h2 -> h4)
+                  idx_to_check.push_back(to + 1);
                 }
-              }
-            } else { // black
-              if (from != 8) { // left diagonal (not a7 -> a5)
-                idx_to_check.push_back(from + 7);
-              } 
-              if (from != 15) { // right diagonal (not h7 -> h5)
-                idx_to_check.push_back(to - 7);
-              }
-              for (int i = 0; i < idx_to_check.size(); i++) {
-                // check if black pawns
-                if (id(fen_position_last)[idx_to_check[i]] == "P") {
-                  id(fen_enpassant_index) = from + 8;
-                  break;
+                for (int i = 0; i < idx_to_check.size(); i++) {
+                  // check if black pawns
+                  if (id(fen_position_last)[idx_to_check[i]] == "p") {
+                    id(fen_enpassant_index) = from - 8;
+                    break;
+                  }
+                }
+              } else { // black
+                if (from != 8) { // left diagonal (not a7 -> a5)
+                  idx_to_check.push_back(to - 1);
+                } 
+                if (from != 15) { // right diagonal (not h7 -> h5)
+                  idx_to_check.push_back(to + 1);
+                }
+                for (int i = 0; i < idx_to_check.size(); i++) {
+                  // check if black pawns
+                  if (id(fen_position_last)[idx_to_check[i]] == "P") {
+                    id(fen_enpassant_index) = from + 8;
+                    break;
+                  }
                 }
               }
             }
