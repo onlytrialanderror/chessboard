@@ -11,7 +11,7 @@ esphome:
     - priority: 400
       then:
       - script.execute: reset_all_values 
-    - priority: 800
+    - priority: 700
       then:
         - lambda: |-
             id(redraw_displays).execute();
@@ -125,101 +125,6 @@ pcf8574:
     address: 0x27
     i2c_id: i2c0
     pcf8575: false
-
-display:
-
-  - platform: ssd1306_i2c
-    id: oled_white
-    model: "SSD1306 128x32"
-    flip_y: False
-    flip_x: False
-    address: 0x3C
-    i2c_id: i2c_mux_w_display
-    #update_interval: never
-    lambda: |-
-      const auto display_width = it.get_width();
-      const auto display_height = it.get_height();
-
-      if (id(my_menu).is_active()) {
-        it.menu(0, 0, id(my_menu), display_width, display_height);
-      } else {
-        std::string json_str = id(display_message_white);
-        if (json_str == "") {
-          std::string time_to_show_w = id(timer_white).state + "|";
-          it.printf(0, 0, id(roboto_30), time_to_show_w.c_str());
-
-          std::string time_to_show_b = id(timer_black).state;
-          it.printf(85, 0, id(roboto_12), time_to_show_b.c_str());
-
-          std::string move_to_show = id(last_move_black);
-          it.printf(85, 18, id(roboto_12), move_to_show.c_str());
-        } else {          
-          
-          StaticJsonDocument<100> root;
-          deserializeJson(root, json_str);
-
-          if (root.containsKey("n_lines")) {
-            if (root["n_lines"].as<int>() == 2) {
-              std::string line_0 = root["line_0"].as<std::string>();
-              std::string line_1 = root["line_1"].as<std::string>();
-              it.printf(0, 0,  id(roboto_12), line_0.c_str());
-              it.printf(0, 18, id(roboto_12), line_1.c_str());
-            }
-            if (root["n_lines"].as<int>() == 1) {
-              std::string line_0 = root["line_0"].as<std::string>();
-              it.printf(0, 0, id(roboto_24), line_0.c_str());              
-            }
-          }
-
-        }
-      }
-
-  - platform: ssd1306_i2c
-    id: oled_black
-    flip_y: False
-    flip_x: False
-    model: "SSD1306 128x32"
-    address: 0x3C
-    i2c_id: i2c_mux_b_display
-    #update_interval: never
-    lambda: |-
-      const auto display_width = it.get_width();
-      const auto display_height = it.get_height();
-
-      if (id(my_menu).is_active()) {
-        it.menu(0, 0, id(my_menu), display_width, display_height);
-      } else {
-        std::string json_str = id(display_message_black);
-        if (json_str == "") {
-          std::string time_to_show_b = id(timer_black).state + "|";
-          it.printf(0, 0, id(roboto_30), time_to_show_b.c_str());
-
-          std::string time_to_show_w = id(timer_white).state;
-          it.printf(85, 0, id(roboto_12), time_to_show_w.c_str());
-
-          std::string move_to_show = id(last_move_white);
-          it.printf(85, 18, id(roboto_12), move_to_show.c_str());
-        } else {
-          
-          StaticJsonDocument<100> root;
-          deserializeJson(root, json_str);
-
-          if (root.containsKey("n_lines")) {
-            if (root["n_lines"].as<int>() == 2) {
-              std::string line_0 = root["line_0"].as<std::string>();
-              std::string line_1 = root["line_1"].as<std::string>();
-              it.printf(0, 0,  id(roboto_12), line_0.c_str());
-              it.printf(0, 18, id(roboto_12), line_1.c_str());
-            }
-            if (root["n_lines"].as<int>() == 1) {
-              std::string line_0 = root["line_0"].as<std::string>();
-              it.printf(0, 0, id(roboto_24), line_0.c_str());              
-            }
-          }
-
-        }
-      }
-
 
 font:
   - file: "gfonts://Roboto"
@@ -633,6 +538,16 @@ globals:
     type: std::string
     initial_value: '""'
 
+  # 0 - menu, 1 - clock, 2 - message
+  - id: oled_white_acitve_page
+    type: int
+    initial_value: '2'
+
+  - id: oled_black_acitve_page
+    type: int
+    initial_value: '2'
+
+
 # we updating all the time the values of hall sensors
 interval:
   - interval: $hall_sensor_intervall_game
@@ -657,6 +572,101 @@ interval:
       - script.execute: update_timer
       - script.execute: check_opponent_at_board_select
 
+display:
+  - platform: ssd1306_i2c
+    id: oled_white
+    model: "SSD1306 128x32"
+    flip_y: False
+    flip_x: False
+    address: 0x3C
+    i2c_id: i2c_mux_w_display
+    update_interval: 60s
+    lambda: |-
+      // 0 - menu, 1 - clock, 2 - message
+      if (id(oled_white_acitve_page) == 1) { // clock
+
+          std::string time_to_show_w = id(timer_white).state + "|";
+          it.printf(0, 0, id(roboto_30), time_to_show_w.c_str());
+
+          std::string time_to_show_b = id(timer_black).state;
+          it.printf(85, 0, id(roboto_12), time_to_show_b.c_str());
+
+          std::string move_to_show = id(last_move_black);
+          it.printf(85, 18, id(roboto_12), move_to_show.c_str());
+
+      } else if (id(oled_white_acitve_page) == 0) { // menu
+
+          const auto display_width = it.get_width();
+          const auto display_height = it.get_height();
+          it.menu(0, 0, id(my_menu), display_width, display_height);
+
+        } else {  // message
+
+          std::string json_str = id(display_message_white);
+          StaticJsonDocument<100> root;
+          deserializeJson(root, json_str);
+
+          if (root.containsKey("n_lines")) {
+            if (root["n_lines"].as<int>() == 2) {
+              std::string line_0 = root["line_0"].as<std::string>();
+              std::string line_1 = root["line_1"].as<std::string>();
+              it.printf(0, 0,  id(roboto_12), line_0.c_str());
+              it.printf(0, 18, id(roboto_12), line_1.c_str());
+            }
+            if (root["n_lines"].as<int>() == 1) {
+              std::string line_0 = root["line_0"].as<std::string>();
+              it.printf(0, 0, id(roboto_24), line_0.c_str());              
+            }
+          }
+        }
+
+  - platform: ssd1306_i2c
+    id: oled_black
+    flip_y: False
+    flip_x: False
+    model: "SSD1306 128x32"
+    address: 0x3C
+    i2c_id: i2c_mux_b_display
+    update_interval: 60s
+    lambda: |-
+      // 0 - menu, 1 - clock, 2 - message
+      if (id(oled_black_acitve_page) == 1) {  // clock
+
+          std::string time_to_show_b = id(timer_black).state + "|";
+          it.printf(0, 0, id(roboto_30), time_to_show_b.c_str());
+
+          std::string time_to_show_w = id(timer_white).state;
+          it.printf(85, 0, id(roboto_12), time_to_show_w.c_str());
+
+          std::string move_to_show = id(last_move_white);
+          it.printf(85, 18, id(roboto_12), move_to_show.c_str());
+
+      } else if (id(oled_black_acitve_page) == 0) { // menu
+
+          const auto display_width = it.get_width();
+          const auto display_height = it.get_height();
+          it.menu(0, 0, id(my_menu), display_width, display_height);
+
+        } else { // message
+
+          std::string json_str = id(display_message_black);          
+          StaticJsonDocument<100> root;
+          deserializeJson(root, json_str);
+
+          if (root.containsKey("n_lines")) {
+            if (root["n_lines"].as<int>() == 2) {
+              std::string line_0 = root["line_0"].as<std::string>();
+              std::string line_1 = root["line_1"].as<std::string>();
+              it.printf(0, 0,  id(roboto_12), line_0.c_str());
+              it.printf(0, 18, id(roboto_12), line_1.c_str());
+            }
+            if (root["n_lines"].as<int>() == 1) {
+              std::string line_0 = root["line_0"].as<std::string>();
+              it.printf(0, 0, id(roboto_24), line_0.c_str());              
+            }
+          }
+        }
+
 # Declare a LCD menu
 graphical_display_menu:
   id: my_menu
@@ -664,32 +674,10 @@ graphical_display_menu:
   font: roboto_10
   active: false
   mode: rotary
-  on_enter:
-    then:
-      lambda: |-
-        if (id(halfmove_counter) > 0) {
-          // stop the clock during a game
-          id(game_running) = false;
-          // the game can be also started by the pause button
-          id(led_update_move_over).execute();
-          // reset display messages, if any
-          id(display_message_black) = "";
-          id(display_message_white) = "";
-          id(redraw_displays).execute();
-        } 
-  on_leave:
-    then:
-      lambda: |-
-        if (id(halfmove_counter) > 0) {
-          // start the clock during a game
-          id(game_running) = true;
-          // the game can be also started by the pause button
-          id(led_update_move_over).execute();
-        } 
   on_redraw:
     then:
-      - component.update: oled_white
-      - component.update: oled_black
+      - lambda: |-
+          id(redraw_displays).execute();
   items:
     - type: select
       immediate_edit: false
@@ -925,6 +913,8 @@ button:
         - lambda: |-
             id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"waiting for new game ...\", \"line_1\": \"" + id(chess_time_control).state + "\"}";
             id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"waiting for new game ...\", \"line_1\": \"" + id(chess_time_control).state + "\"}"; 
+            id(oled_white_acitve_page) = 2;
+            id(oled_black_acitve_page) = 2;
             id(redraw_displays).execute();          
     web_server:
       sorting_group_id: sorting_group_lichess
@@ -975,8 +965,8 @@ binary_sensor:
               // the game can be also started by the pause button
               id(led_update_move_over).execute();
               // show timer
-              id(display_message_black) = "";
-              id(display_message_white) = "";
+              id(oled_white_acitve_page) = 1;
+              id(oled_black_acitve_page) = 1;
               id(redraw_displays).execute();
             }  
     internal: true
@@ -994,10 +984,23 @@ binary_sensor:
       then:
         - display_menu.show_main:   my_menu
         - display_menu.hide:  my_menu 
+        - lambda: |-
+            if (id(halfmove_counter) > 0) {
+              // start the clock during a game
+              id(game_running) = true;
+              // the game can be also started by the pause button
+              id(led_update_move_over).execute();
+              id(oled_white_acitve_page) = 1;
+              id(oled_black_acitve_page) = 1;
+            } else {
+              id(oled_white_acitve_page) = 2;
+              id(oled_black_acitve_page) = 2;
+            }
+
   - platform: gpio
     pin:
       pcf8574: pcf8574_w
-      number: 2
+      number: 1
       mode:
         input: true
       inverted: true
@@ -1010,7 +1013,7 @@ binary_sensor:
   - platform: gpio
     pin:
       pcf8574: pcf8574_w
-      number: 1
+      number: 2
       mode:
         input: true
       inverted: true
@@ -1035,12 +1038,14 @@ binary_sensor:
               condition:
                 display_menu.is_active: my_menu
               then:
-                - lambda: |-
-                    id(game_running) = !id(game_running);
-                    id(led_update_move_over).execute(); 
                 - display_menu.enter: my_menu
               else:
                 - display_menu.show:  my_menu
+                - lambda: |-
+                    id(game_running) = !id(game_running);
+                    id(led_update_move_over).execute(); 
+                    id(oled_white_acitve_page) = 0;
+                    id(oled_black_acitve_page) = 0;
     internal: true
   - platform: template
     name: initial_position_set
@@ -1142,13 +1147,9 @@ select:
             }
 
             // overwrite display message, if we are in init state
-            if (id(display_message_white).find("White player") != std::string::npos) {
-              id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"White player\", \"line_1\": \"" + x + "\"}";
-            }
-
-            if (id(display_message_black).find("Black player") != std::string::npos) {
-              id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"Black player\", \"line_1\": \"" + x + "\"}";
-            }
+            id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"White player\", \"line_1\": \"" + x + "\"}";
+            id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"Black player\", \"line_1\": \"" + x + "\"}";
+            // we dont need to activate the message screen here, just overwrite values
             id(redraw_displays).execute();
     web_server:
       sorting_group_id: sorting_group_settings
@@ -1233,7 +1234,7 @@ select:
       sorting_group_id: sorting_group_lichess
       sorting_weight: 2
   - platform: template
-    name: "Seek Color"
+    name: "Color"
     id: lichess_seek_color
     internal: False
     optimistic: true
@@ -1246,7 +1247,7 @@ select:
       sorting_group_id: sorting_group_lichess
       sorting_weight: 3
   - platform: template
-    name: "Seek Rated"
+    name: "Rated"
     id: lichess_seek_rated
     internal: False
     optimistic: true
@@ -1398,6 +1399,16 @@ text_sensor:
       sorting_group_id: sorting_group_sensors
       sorting_weight: 11
   - platform: template
+    name: FEN
+    id: fen_position_last_string_sensor
+    internal: False
+    update_interval: never
+    web_server:
+      sorting_group_id: sorting_group_sensors
+      sorting_weight: 12
+    lambda: |-
+      return id(fen_position_last_string);
+  - platform: template
     name: "Timer (white)"
     id: timer_white
     lambda: |-
@@ -1409,6 +1420,10 @@ text_sensor:
         return {buffer};
       } else {
         std::string e = "--:--";
+        if (id(game_running)) {
+          id(game_running) = false;
+          id(last_move_pgn_additional) = " 0-1";
+        }
         return e;
       }
     web_server:
@@ -1426,6 +1441,10 @@ text_sensor:
         return {buffer};
       } else {
         std::string e = "--:--";
+        if (id(game_running)) {
+          id(game_running) = false;
+          id(last_move_pgn_additional) = " 1-0";
+        }
         return e;
       }
     web_server:
@@ -1947,19 +1966,21 @@ script:
           
           id(current_move_uci_lichess) = "";
 
-          id(update_display_message).execute();
+          id(reset_display_message).execute();
 
-  - id: update_display_message
+  - id: reset_display_message
     then:
       - lambda: |-
           id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"Black player\", \"line_1\": \"" + id(chess_time_control).state + "\"}";
           id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"White player\", \"line_1\": \"" + id(chess_time_control).state + "\"}";
+          id(oled_white_acitve_page) = 2;
+          id(oled_black_acitve_page) = 2;
           id(redraw_displays).execute();
+
   - id: redraw_displays
     then:
-      - lambda: |-
-          //id(oled_white).update();
-          //id(oled_black).update();
+      - component.update: oled_white
+      - component.update: oled_black
 
   - id: update_pgn_history
     then:
@@ -2097,23 +2118,26 @@ script:
           if (white_won) { 
             id(led_white_valid_move).turn_on(); // green
             id(led_black_nonvalid_move).turn_on(); // red
-            id(display_message_black) = "LOST";
-            id(display_message_white) = "WINNER";
+            id(display_message_black) = "{\"n_lines\": 1, \"line_0\": \"LOST\"}";
+            id(display_message_white) = "{\"n_lines\": 1, \"line_0\": \"WINNER\"}";
           }
 
           if (black_won) {
-              id(led_black_valid_move).turn_on(); // green
-              id(led_white_nonvalid_move).turn_on(); // red
-              id(display_message_black) = "WINNER";
-              id(display_message_white) = "LOST";
+             id(led_black_valid_move).turn_on(); // green
+            id(led_white_nonvalid_move).turn_on(); // red
+            id(display_message_black) = "{\"n_lines\": 1, \"line_0\": \"WINNER\"}";
+            id(display_message_white) = "{\"n_lines\": 1, \"line_0\": \"LOST\"}";
           }
 
           if (draw) {
             id(led_white_to_move).turn_on(); // blue
             id(led_black_to_move).turn_on(); // blue
-            id(display_message_black) = "DRAW";
-            id(display_message_white) = "DRAW";
+            id(display_message_black) = "{\"n_lines\": 1, \"line_0\": \"DRAW\"}";
+            id(display_message_white) = "{\"n_lines\": 1, \"line_0\": \"DRAW\"}";
           }
+
+          id(oled_white_acitve_page) = 2;
+          id(oled_black_acitve_page) = 2;
 
           id(redraw_displays).execute();
 
@@ -2256,9 +2280,9 @@ script:
               id(lichess_is_my_turn) = !id(lichess_is_my_turn);
             }
 
-            // reset display messages, if any
-            id(display_message_black) = "";
-            id(display_message_white) = "";
+            // show clock
+            id(oled_white_acitve_page) = 1;
+            id(oled_black_acitve_page) = 1;
             id(redraw_displays).execute();
 
             // update last move
@@ -2269,7 +2293,7 @@ script:
             }
 
             // game finished on board ?
-            if (id(last_move_pgn_additional) == "#" || id(last_move_pgn_additional) == " 1/2-1/2" ){
+            if (id(last_move_pgn_additional) == "#" || id(last_move_pgn_additional) == " 1/2-1/2" || id(last_move_pgn_additional) == " 0-1" || id(last_move_pgn_additional) == " 1-0"){
               id(game_running) = false;
               // game over
               id(inform_game_over).execute();
@@ -2395,6 +2419,7 @@ script:
             raw_fen += " " + id(fen_position_last)[71];
 
             id(fen_position_last_string) = raw_fen;
+            id(fen_position_last_string_sensor).update();
 
   - id: check_chess_rules
     then:
@@ -2408,30 +2433,46 @@ script:
           chess_validator::get_table_state( id(fen_position_last_string).c_str() , &table_state );
           chess_validator::INVALID_REASON invalid = chess_validator::is_move_invalid( &table_state , id(current_move_from), id(current_move_to) );
           if( invalid ){
-              std::string fen_string = ", FEN = " + id(fen_position_last_string) + ", MOVE: " + id(current_move_uci);              
+              std::string fen_string = ", FEN = " + id(fen_position_last_string) + ", MOVE: " + id(current_move_uci);
+              std::string invalid_reason = "";              
               switch(invalid){
                   case chess_validator::INVALID_FEN_STRING:
                       ESP_LOGW("Validator", "Invalid move... reason: INVALID_FEN_STRING %s",  fen_string.c_str() );
+                      invalid_reason = "INVALID_FEN_STRING";
                       break;
                   case chess_validator::NOT_PLAYER_TURN:
                       ESP_LOGW("Validator", "Invalid move... reason: NOT_PLAYER_TURN %s",  fen_string.c_str() );
+                      invalid_reason = "NOT_PLAYER_TURN";
                       break;
                   case chess_validator::NO_UNIT:
                       ESP_LOGW("Validator", "Invalid move... reason: NO_UNIT %s",  fen_string.c_str() );
+                      invalid_reason = "NO_UNIT";
                       break;
                   case chess_validator::SAME_PLACE:
                       ESP_LOGW("Validator", "Invalid move... reason: SAME_PLACE %s",  fen_string.c_str() );
+                      invalid_reason = "SAME_PLACE";
                       break;
                   case chess_validator::CAPTURING_SAME_COLOR:
                       ESP_LOGW("Validator", "Invalid move... reason: CAPTURING_SAME_COLOR %s",  fen_string.c_str() );
+                      invalid_reason = "CAPTURING_SAME_COLOR";
                       break;
                   case chess_validator::INVALID_UNIT_MOVE:
                       ESP_LOGW("Validator", "Invalid move... reason: INVALID_UNIT_MOVE %s",  fen_string.c_str() );
+                      invalid_reason = "INVALID_UNIT_MOVE";
                       break;
                   case chess_validator::KING_IN_CHECK:
                       ESP_LOGW("Validator", "Invalid move... reason: KING_IN_CHECK %s",  fen_string.c_str() );
+                      invalid_reason = "KING_IN_CHECK";
                       break;
               }
+              if (id(white_to_move)) {
+                id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"" + invalid_reason + "\"}";
+                id(oled_white_acitve_page) = 2;
+              } else {
+                id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"" + invalid_reason + "\"}";
+                id(oled_black_acitve_page) = 2;
+              }
+              id(redraw_displays).execute();
           } else {
 
               // apply current move and check if any checks, mates, draws (we use here UCI due to missing promotion parameter)
@@ -2505,6 +2546,20 @@ script:
           // EN PASSANT
           if (sum_abs == 3 && sum == 1 && counter_changes == 3 ) {
             id(perform_enpassant).execute();
+          }
+
+          // if we had some messages, clear them at valid move 
+          if (!id(lichess_game_running) && id(valid_move)) {
+            if (id(white_to_move) && id(oled_white_acitve_page) == 2) {
+              id(oled_white_acitve_page) = 1;
+            }
+            if (!id(white_to_move) && id(oled_black_acitve_page) == 2) {
+              id(oled_black_acitve_page) = 1;
+            }
+            // if the move made by white, we start the clock
+            if (!id(game_running) && id(halfmove_counter) == 0) {
+              id(game_running) = true;
+            }
           }
 
           // we check here, if the move made and the opponents lichess move are the same
@@ -2735,8 +2790,8 @@ script:
           id(fen_position_current)[64] = (id(white_to_move) ? "b" : "w");
 
           // update castling part
-          if (std::string("KRkr").find(id(moved_piece)) != std::string::npos){
-            if (id(white_to_move)) { // white
+          if (std::string("KRkr").find(id(moved_piece)) != std::string::npos){ // Kind or rook move
+            if (id(white_to_move) && (id(fen_position_current)[65] == "K" || id(fen_position_current)[65] == "Q") ) { // white
               // king
               if (id(moved_piece) == "K"){
                 id(fen_position_current)[65] = "-";
@@ -2749,7 +2804,7 @@ script:
                     id(fen_position_current)[66] = "-";
                   }
               }
-            } else {
+            } else if (id(fen_position_current)[67] == "k" || id(fen_position_current)[68] == "q") {
               // king
               if (id(moved_piece) == "k"){
                 id(fen_position_current)[67] = "-";
@@ -3125,6 +3180,8 @@ script:
               id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"" + me + "\", \"line_1\": \"" + id(chess_time_control).state + "\"}";
             }  
             
+            id(oled_white_acitve_page) = 2;
+            id(oled_black_acitve_page) = 2;
             id(redraw_displays).execute(); 
           }
 
@@ -3178,20 +3235,16 @@ script:
             // let the player know about the last move of opponent
             id(current_move_uci_lichess) = root["last"].as<std::string>();
 
-            if (id(halfmove_counter) > 1) {
-              // at any gameState reset previous display messages
-              id(display_message_white) = "";
-              id(display_message_black) = "";
-            }
-
             if( id(lichess_opponent_at_board).state == "no") {
               if (id(white_to_move) && !id(lichess_is_my_color_white)){
-                id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"" + id(lichess_opponent_name) + "\", \"line_1\": \"Move: " + id(current_move_uci_lichess) + "\"}";
+                id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"" + id(lichess_opponent_name) + "\", \"line_1\": \"Move: " + id(current_move_uci_lichess) + "\"}";                
+                id(oled_black_acitve_page) = 2;
                 id(beep_short).execute();       
               } 
               
               if (!id(white_to_move) && id(lichess_is_my_color_white)){
                 id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"" + id(lichess_opponent_name) + "\", \"line_1\": " + id(current_move_uci_lichess) + "\"}";
+                id(oled_white_acitve_page) = 2;
                 id(beep_short).execute();
               }
             } 
@@ -3218,8 +3271,10 @@ script:
             if ( (root["wdraw"].as<int>() == 1 && !id(lichess_is_my_color_white)) || (root["bdraw"].as<int>() == 1 && id(lichess_is_my_color_white)) ) {
               if (!id(lichess_is_my_color_white)) {
                 id(display_message_black) = "{\"n_lines\": 1, \"line_0\": \"DRAW?\"}";
+                id(oled_black_acitve_page) = 2;
               } else {
                 id(display_message_white) = "{\"n_lines\": 1, \"line_0\": \"DRAW?\"}";
+                id(oled_white_acitve_page) = 2;
               } 
               id(beep_short).execute();             
             }
@@ -3228,8 +3283,10 @@ script:
             if ( (root["wback"].as<int>() == 1 && !id(lichess_is_my_color_white)) || (root["bback"].as<int>() == 1 && id(lichess_is_my_color_white)) ) {
               if (!id(lichess_is_my_color_white)) {
                 id(display_message_black) = "{\"n_lines\": 1, \"line_0\": \"Takeback?\"}";
+                id(oled_black_acitve_page) = 2;
               } else {
                 id(display_message_white) = "{\"n_lines\": 1, \"line_0\": \"Takeback?\"}";
+                id(oled_white_acitve_page) = 2;
               }
               id(beep_short).execute();   
             }            
