@@ -163,6 +163,20 @@ globals:
         "a1", "b1", "c1", "d1", "e1", "f1", "g1", "h1"
       }
 
+  - id: chess_field_indexes
+    type: std::map<std::string, int>
+    initial_value: |-
+      {
+        {"a8", 0}, {"b8", 1}, {"c8", 2}, {"d8", 3}, {"e8", 4}, {"f8", 5}, {"g8", 6}, {"h8", 7},
+        {"a7", 8}, {"b7", 9}, {"c7", 10}, {"d7", 11}, {"e7", 12}, {"f7", 13}, {"g7", 14}, {"h7", 15},
+        {"a6", 16}, {"b6", 17}, {"c6", 18}, {"d6", 19}, {"e6", 20}, {"f6", 21}, {"g6", 22}, {"h6", 23},
+        {"a5", 24}, {"b5", 25}, {"c5", 26}, {"d5", 27}, {"e5", 28}, {"f5", 29}, {"g5", 30}, {"h5", 31},
+        {"a4", 32}, {"b4", 33}, {"c4", 34}, {"d4", 35}, {"e4", 36}, {"f4", 37}, {"g4", 38}, {"h4", 39},
+        {"a3", 40}, {"b3", 41}, {"c3", 42}, {"d3", 43}, {"e3", 44}, {"f3", 45}, {"g3", 46}, {"h3", 47},
+        {"a2", 48}, {"b2", 49}, {"c2", 50}, {"d2", 51}, {"e2", 52}, {"f2", 53}, {"g2", 54}, {"h2", 55},
+        {"a1", 56}, {"b1", 57}, {"c1", 58}, {"d1", 59}, {"e1", 60}, {"f1", 61}, {"g1", 62}, {"h1", 63}
+      }
+
   - id: chess_symbols
     type: std::map<char, std::string>
     initial_value: |- 
@@ -340,7 +354,11 @@ globals:
 
   - id: fen_position_last_string
     type: std::string
-    initial_value: '"rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"'
+    initial_value: '""'
+
+  - id: fen_position_new_string
+    type: std::string
+    initial_value: '""'
 
   - id: fen_position_current
     type: std::array<std::string, 72>
@@ -415,6 +433,14 @@ globals:
     initial_value: 'true'
 
   - id: game_running
+    type: bool
+    initial_value: 'false'
+
+  - id: move_to_store_flag
+    type: bool
+    initial_value: 'false'
+
+  - id: changed_position
     type: bool
     initial_value: 'false'
 
@@ -550,17 +576,13 @@ interval:
     then:
       - lambda: |-
           if (id(game_running)) {
-            id(update_all_hall_sensors).execute();
-            id(update_raw_position_current).execute();
-            id(compare_raw_position).execute();
+            id(main).execute();
           }
   - interval: $hall_sensor_intervall_idle
     then:
       - lambda: |-
           if (!id(game_running)) {
-            id(update_all_hall_sensors).execute();
-            id(update_raw_position_current).execute();
-            id(compare_raw_position).execute();
+            id(main).execute();
             id(lichess_game_id).update();
           }
   - interval: 1000ms
@@ -691,7 +713,7 @@ graphical_display_menu:
           on_value:
             then:
               - lambda: |-
-                  id(lichess_new_game_button).press();
+                  id(lichess_create_new_game).execute();
         - type: command
           text: 'Resign'
           on_value:
@@ -773,6 +795,12 @@ graphical_display_menu:
         then:
           - lambda: |-
               id(take_back).execute();
+    - type: command
+      text: 'Reset game'
+      on_value:
+        then:
+          - lambda: |-
+              id(reset_all_values).execute();
     - type: command
       text: 'Restart Board'
       on_value:
@@ -904,14 +932,6 @@ button:
       then:
         - lambda: |-
             id(lichess_create_new_game).execute();
-        - display_menu.show_main:   my_menu
-        - display_menu.hide:  my_menu 
-        - lambda: |-
-            id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"waiting for new game ...\", \"line_1\": \"" + id(chess_time_control).state + "\"}";
-            id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"waiting for new game ...\", \"line_1\": \"" + id(chess_time_control).state + "\"}"; 
-            id(oled_white_acitve_page) = 2;
-            id(oled_black_acitve_page) = 2;
-            id(redraw_displays).execute();          
     web_server:
       sorting_group_id: sorting_group_lichess
       sorting_weight: -1
@@ -1167,7 +1187,7 @@ select:
     options:
       - "yes"
       - "no"
-    initial_option: "no"
+    initial_option: "yes"
     web_server:
       sorting_group_id: sorting_group_settings
       sorting_weight: 3
@@ -1386,6 +1406,16 @@ text_sensor:
     lambda: |-
       return id(fen_position_last_string);
   - platform: template
+    name: FEN
+    id: fen_position_new_string_sensor
+    internal: False
+    update_interval: never
+    web_server:
+      sorting_group_id: sorting_group_sensors
+      sorting_weight: 13
+    lambda: |-
+      return id(fen_position_new_string);
+  - platform: template
     name: Debugger
     id: debugger_sensor
     internal: False
@@ -1400,7 +1430,7 @@ text_sensor:
     update_interval: never
     web_server:
       sorting_group_id: sorting_group_sensors
-      sorting_weight: 13
+      sorting_weight: 15
     lambda: |-
       return id(current_move_uci);      
   - platform: template
@@ -1669,6 +1699,40 @@ text_sensor:
       sorting_weight: 8
 
 script:
+
+  - id: main
+    mode: single
+    then:
+      - lambda: |-
+          // measure execution time
+          int tic = millis();  // Start time
+
+          // read hall sensors
+          id(update_all_hall_sensors).execute();
+          int toc = millis() - tic;
+          ESP_LOGW("TIMER", "Execution Time (hall): %d ms", toc);
+          // transform voltage to position flags (-1, 0, 1)
+          id(update_raw_position_current).execute();
+          // check, if we have new position in comparison to the previous
+          id(compare_raw_position).execute();
+          // if any changes in position
+          if (id(changed_position)) {
+            // calculate differences in position, to be able to calculate the move
+            id(calculate_position_differences).execute();
+            // transform position - differences to a move (coordinate from - to)
+            id(move_validator).execute(); // update from, to, uci, valid_flag, new_fen
+            // we check, if we should store the move (i.e. button pressed, or lichess-move is applied)
+            id(store_move).execute();
+            // update led's
+            id(led_update_valid_move).execute();
+          } else {
+            // same position, we check if we have to reset the led
+            id(led_update_move_over).execute();
+          }
+          // to deactivate after debuging phase
+          toc = millis() - tic;
+          ESP_LOGW("TIMER", "Execution Time (loop): %d ms", toc);
+       
   - id: button_black_finished_script
     mode: queued
     then: 
@@ -1678,7 +1742,10 @@ script:
             // if our turn, we store the move and let opponent play
             if (!id(white_to_move))
             {
-              id(store_move).execute();
+              id(move_to_store_flag) = true;
+              if (id(valid_move)) {
+                id(led_black_turn_off).execute();
+              }
             }
           } else if (id(halfmove_counter) == 0) {
             // at the begin of the game black can start the clock by button
@@ -1697,14 +1764,17 @@ script:
             // only during the gave
             if (id(game_running) && id(white_to_move) ) {
               // if our turn, we store the move and let opponent play
-                id(store_move).execute();                
+                id(move_to_store_flag) = true;   
+                if (id(valid_move)) {
+                  id(led_white_turn_off).execute();
+                }            
             } else if (!id(game_running) && id(white_to_move) && !id(lichess_game_running) && id(halfmove_counter) == 0) { 
                 // we have to check if we made a valid move from initial position
-                id(move_analyser).execute();
+                id(move_to_store_flag) = true; 
                 // if valid move, start the clock and store the move
                 if (id(valid_move)) {
                   // if the move made by white, we start the clock
-                  id(store_move).execute();
+                  id(move_to_store_flag) = true;
                   id(game_running) = true;
                   // the game can be also started by the pause button
                   id(led_update_move_over).execute();
@@ -1873,7 +1943,6 @@ script:
                   id(fen_position_chessboard) += "\n" + border_line;
                 }               
                 line_representation = "|";
-
               } 
             }
 
@@ -1976,6 +2045,7 @@ script:
           id(white_to_move) = true;
           id(led_update_move_over).execute();
           id(game_running) = false;
+          id(move_to_store_flag) = false;
           
           id(halfmove_counter) = 0;
           id(halfmove_or_capture_counter) = 0;
@@ -2095,9 +2165,12 @@ script:
             id(fen_position_last)[i] = curr_value;   
             id(fen_position_current)[i] = curr_value;          
           };
+          id(fen_position_last_string) = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+          id(fen_position_new_string) = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
           id(update_chess_board).execute();
           id(fen_position_chessboard) = "";
-          id(fen_position_last_arr_to_string).execute();
+          id(fen_position_last_string_sensor).update();
+          id(fen_position_new_string_sensor).update();
 
   - id: reset_raw_position
     then:
@@ -2117,64 +2190,34 @@ script:
             id(voltage_field_current)[i] = curr_value;   
           };
 
-  - id: led_update_move_over
-    then:
-      - lambda: |-
-          if (id(white_to_move)) { 
-            if (!id(led_white_to_move).state && id(game_running)) {
-              id(led_white_to_move).turn_on();
-            }
-            if (id(led_black_to_move).state || !id(game_running)) {
-              id(led_black_to_move).turn_off();
-            }
-          } else { // black
-            if (!id(led_black_to_move).state && id(game_running)) {
-              id(led_black_to_move).turn_on();
-            }
-            if (id(led_white_to_move).state || !id(game_running)) {
-              id(led_white_to_move).turn_off();
-            }
-          }
-          if (id(led_black_nonvalid_move).state) {
-            id(led_black_nonvalid_move).turn_off();
-          }
-          if (id(led_black_valid_move).state) {
-            id(led_black_valid_move).turn_off();
-          }
-          if (id(led_white_nonvalid_move).state) {
-            id(led_white_nonvalid_move).turn_off();
-          }
-          if (id(led_white_valid_move).state) {
-            id(led_white_valid_move).turn_off();
-          }
 
   - id: inform_game_over
     then:
       - lambda: |-
           // turn all led's off
-          id(led_turn_all_off).execute();
+          id(led_all_turn_off).execute();
 
           bool white_won = (bool)(id(last_move_pgn_additional) == " 1-0" || (id(last_move_pgn_additional) == "#" && id(white_to_move)));
           bool black_won = (bool)(id(last_move_pgn_additional) == " 0-1" || (id(last_move_pgn_additional) == "#" && !id(white_to_move)));
           bool draw = (bool)(id(last_move_pgn_additional) == " 1/2-1/2");
 
           if (white_won) { 
-            id(led_white_valid_move).turn_on(); // green
-            id(led_black_nonvalid_move).turn_on(); // red
+            id(led_white_green).execute(); // green
+            id(led_black_red).execute(); // red            
             id(display_message_black) = "{\"n_lines\": 1, \"line_0\": \"LOST\"}";
             id(display_message_white) = "{\"n_lines\": 1, \"line_0\": \"WINNER\"}";
           }
 
           if (black_won) {
-             id(led_black_valid_move).turn_on(); // green
-            id(led_white_nonvalid_move).turn_on(); // red
+            id(led_black_green).execute(); // green
+            id(led_white_red).execute(); // red       
             id(display_message_black) = "{\"n_lines\": 1, \"line_0\": \"WINNER\"}";
             id(display_message_white) = "{\"n_lines\": 1, \"line_0\": \"LOST\"}";
           }
 
           if (draw) {
-            id(led_white_to_move).turn_on(); // blue
-            id(led_black_to_move).turn_on(); // blue
+            id(led_black_blue).execute(); // blue
+            id(led_white_blue).execute(); // blue 
             id(display_message_black) = "{\"n_lines\": 1, \"line_0\": \"DRAW\"}";
             id(display_message_white) = "{\"n_lines\": 1, \"line_0\": \"DRAW\"}";
           }
@@ -2183,55 +2226,8 @@ script:
           id(oled_black_acitve_page) = 2;
 
           id(redraw_displays).execute();
+          delay(1000);
 
-  - id: led_update_check_move
-    then:
-      - lambda: |-
-          // if no valid move found, rise flag
-          if (id(valid_move)) {
-            // update leds
-            if (id(white_to_move)) {
-              id(led_white_nonvalid_move).turn_off();
-              id(led_white_valid_move).turn_on();
-              id(led_white_to_move).turn_off();
-            } else {
-              id(led_black_nonvalid_move).turn_off();
-              id(led_black_valid_move).turn_on();  
-              id(led_black_to_move).turn_off();            
-            }
-          } else {
-            if (id(white_to_move)) {
-              id(led_white_nonvalid_move).turn_on();
-              id(led_white_valid_move).turn_off();
-              id(led_white_to_move).turn_off();
-            } else {
-              id(led_black_nonvalid_move).turn_on();
-              id(led_black_valid_move).turn_off();
-              id(led_black_to_move).turn_off();                
-            }
-          }
-
-  - id: led_turn_all_off
-    then:
-      - lambda: |-
-          if (id(led_white_to_move).state) {
-            id(led_white_to_move).turn_off();
-          }
-          if (id(led_black_to_move).state) {
-            id(led_black_to_move).turn_off();
-          }
-          if (id(led_black_nonvalid_move).state) {
-            id(led_black_nonvalid_move).turn_off();
-          }
-          if (id(led_black_valid_move).state) {
-            id(led_black_valid_move).turn_off();
-          }
-          if (id(led_white_nonvalid_move).state) {
-            id(led_white_nonvalid_move).turn_off();
-          }
-          if (id(led_white_valid_move).state) {
-            id(led_white_valid_move).turn_off();
-          }             
 
   - id: sync_time_control
     then:
@@ -2268,10 +2264,8 @@ script:
     mode: queued
     then:
       - lambda: |-
-          // get current png move
-          id(move_analyser).execute();
           // store move if valid only
-          if (id(valid_move)) {
+          if (id(move_to_store_flag) && id(valid_move)) {
             // store previous pgn history
             id(pgn_history_take_back) = id(pgn_history);
 
@@ -2312,7 +2306,7 @@ script:
             }
 
             // game finished on board ?
-            if (id(last_move_pgn_additional) == "#" || id(last_move_pgn_additional) == " 1/2-1/2" || id(last_move_pgn_additional) == " 0-1" || id(last_move_pgn_additional) == " 1-0"){
+            if (id(last_move_pgn_additional) == "#" || id(last_move_pgn_additional).length() > 1){
               id(game_running) = false;
               // game over
               id(inform_game_over).execute();
@@ -2334,6 +2328,8 @@ script:
               // reset led for next move
               id(led_update_move_over).execute();   
             }
+
+            id(move_to_store_flag) = false;
           }
 
   - id: update_number_of_queens
@@ -2459,9 +2455,11 @@ script:
           bool valid_check = false;
           id(last_move_pgn_additional) = "";
 
+          std::string new_fen = id(fen_position_last_string);
+
           // we use validator by https://github.com/rilpires/chess_fen_validator/blob/master/chess_validator.h
           chess_validator::TableState table_state;
-          chess_validator::get_table_state( id(fen_position_last_string).c_str() , &table_state );
+          chess_validator::get_table_state( new_fen.c_str() , &table_state );
           chess_validator::INVALID_REASON invalid = chess_validator::is_move_invalid( &table_state , id(current_move_from), id(current_move_to) );
           if( invalid ){
               std::string fen_string = ", FEN = " + id(fen_position_last_string) + ", MOVE: " + id(current_move_uci);
@@ -2509,6 +2507,7 @@ script:
 
               // apply current move and check if any checks, mates, draws (we use here UCI due to missing promotion parameter)
               chess_validator::TableState new_table_state = chess_validator::apply_move( &table_state , id(current_move_uci).c_str() );
+              new_fen = chess_validator::to_fen_string(new_table_state);
 
               // king in check ?
               if (chess_validator::is_king_in_check(&new_table_state, new_table_state.next_color_to_play)) {
@@ -2530,15 +2529,12 @@ script:
 
           // reset flag if not valid
           id(valid_move) = valid_check;
+          id(fen_position_new_string) = new_fen;
+          id(fen_position_new_string_sensor).update();
 
-  - id: move_analyser
-    mode: queued 
+  - id: calculate_position_differences
     then:
       - lambda: |-
-          // reset flag
-          id(valid_move) = false;
-          id(fen_enpassant_index) = -1;
-
           // loop over all 64 current and last positions and store differences to global variable
           int s = (id(white_to_move))? 1 : -1;
           for (int value = 0; value < 64; value++) {
@@ -2547,14 +2543,27 @@ script:
 
           int sum = 0; // holds the sum of all differences
           int sum_abs = 0; // holds the sum of all abs differences
-          int counter_changes = 0; // holds the number of changed fields
+          int n_changes = 0; // holds the number of changed fields
 
           for (int value = 0; value < 64; value++) {
             sum += id(raw_position_differences)[value];
             int cur_pos_abs = abs(id(raw_position_differences)[value]);
             sum_abs += cur_pos_abs;
-            counter_changes += (int)((cur_pos_abs > 0) ? 1 : 0);
+            n_changes += (int)((cur_pos_abs > 0) ? 1 : 0);
           }
+
+          id(differences_sum) = sum;
+          id(differences_sum_abs) = sum_abs;
+          id(differences_n_changes) = n_changes;
+
+
+  - id: move_validator
+    mode: queued 
+    then:
+      - lambda: |-
+          // reset flag
+          id(valid_move) = false;
+          id(fen_enpassant_index) = -1;
 
           // we have to reset FEN, to allow move correction
           for (int i = 0; i < 72; i++) {
@@ -2562,25 +2571,42 @@ script:
           };
 
           // MOVE
-          if (sum_abs == 2 && sum == 0 && counter_changes == 2 ) {
-            id(perform_move).execute();
+          if (id(differences_sum_abs) == 2 && id(differences_sum) == 0 && id(differences_n_changes) == 2 ) {
+            id(validate_move).execute();
           }
 
           // TAKE
-          if (sum_abs == 3 && sum == 1 && counter_changes == 2 ) {
-            id(perform_take).execute();
+          if (id(differences_sum_abs) == 3 && id(differences_sum) == 1 && id(differences_n_changes) == 2 ) {
+            id(validate_take).execute();
           }
 
           // CASTLING
-          if (sum_abs == 4 && sum == 0 && counter_changes == 4 && (id(raw_position_differences)[60] == -1 || id(raw_position_differences)[4] == -1) ) {
-            id(perform_castling).execute();
+          if (id(differences_sum_abs) == 4 && id(differences_sum) == 0 && id(differences_n_changes) == 4 && (id(raw_position_differences)[60] == -1 || id(raw_position_differences)[4] == -1) ) {
+            id(validate_castling).execute();
           }
 
           // EN PASSANT
-          if (sum_abs == 3 && sum == 1 && counter_changes == 3 ) {
-            id(perform_enpassant).execute();
+          if (id(differences_sum_abs) == 3 && id(differences_sum) == 1 && id(differences_n_changes) == 3 ) {
+            id(validate_enpassant).execute();
           }
 
+          // LICHESS
+          if (id(lichess_game_running) && id(lichess_opponent_at_board).state == "no" && (id(white_to_move) && !id(lichess_is_my_color_white) || !id(white_to_move) && id(lichess_is_my_color_white))) {
+            // we check here, if the move made and the opponents lichess move are the same, and press "finished-button" for the opponent
+            id(valid_move) = id(valid_move) && (id(current_move_uci_lichess) == id(current_move_uci));
+            if (id(valid_move)) { 
+              if (id(lichess_is_my_color_white)) {
+                id(button_black_finished_script).execute();
+              } else {
+                id(button_white_finished_script).execute();             
+              }
+            }
+          }
+
+    - id: lichess_clear_display
+      mode: queued 
+      then:
+        - lambda: |-
           // if we had some messages in a non-lichess game, clear them at valid move 
           if (!id(lichess_game_running) && id(valid_move)) {
             if (id(white_to_move) && id(oled_white_acitve_page) == 2) {
@@ -2590,23 +2616,9 @@ script:
               id(oled_black_acitve_page) = 1;
             }
           }
+ 
 
-          // we check here, if the move made and the opponents lichess move are the same, and press "finished-button" for the opponent
-          if (id(lichess_game_running)  && id(lichess_opponent_at_board).state == "no" && (id(white_to_move) && !id(lichess_is_my_color_white) || !id(white_to_move) && id(lichess_is_my_color_white))) {
-            id(valid_move) = (bool)(id(current_move_uci_lichess) == id(current_move_uci));
-            if (id(valid_move)) { // we deactivate auto-move accept
-              delay(400);
-              if (id(lichess_is_my_color_white)) {
-                id(button_black_finished_script).execute();
-              } else {
-                id(button_white_finished_script).execute();             
-              }
-            }
-          }
-          // update led's
-          id(led_update_check_move).execute();
-
-  - id: perform_move
+  - id: validate_move
     then:
       - lambda: |-
           int from = 0;
@@ -2695,7 +2707,7 @@ script:
             id(update_pgn).execute(); 
           }
 
-  - id: perform_take
+  - id: validate_take
     then:
       - lambda: |-
           int from = 0;
@@ -2735,7 +2747,7 @@ script:
             id(update_pgn).execute();
           }
 
-  - id: perform_castling
+  - id: validate_castling
     then:
       - lambda: |-
           int from_k = 0;
@@ -2804,7 +2816,7 @@ script:
             id(update_pgn).execute(); 
           }
         
-  - id: perform_enpassant
+  - id: validate_enpassant
     then:
       - lambda: |-
           int from = 0;
@@ -2993,28 +3005,20 @@ script:
   - id: compare_raw_position
     then:
       - lambda: |-
-          bool changed_position = false;
+          id(changed_position) = false;
           for (int i = 0; i < 64; i++) {
             if (id(raw_position_current)[i]  != id(raw_position_last)[i])
             {
-              changed_position = true;
+              id(changed_position) = true;
               break;
             }
           }
-          if (changed_position) {
-            id(move_analyser).execute();
-          } else {
-            // same position, we check if we have to reset the led
-            id(led_update_move_over).execute();
-          }
+
 
   - id: update_raw_position_current
     mode: queued
     then:
       - lambda: |-
-          // Define a array of size 64 to hold positions
-          std::array<int, 64> pos_values;
-
           // We want to calculate mean voltage drift from the values without pieces
           const float n_empty_fields_init = 0.0;
           float n_empty_fields = n_empty_fields_init;
@@ -3036,17 +3040,12 @@ script:
               n_empty_fields += 1.00;
             }
             // set position -1, 0 or 1
-            pos_values[value] = field_occupied * sign;
+            id(raw_position_current)[value] = field_occupied * sign;
           }
 
           // calc mean deviation
           if (n_empty_fields > n_empty_fields_init) {
             id(voltage_field_drift) = sum_voltage_drift / n_empty_fields;
-          }
-
-          // Once all 64 values are read, update the global array
-          for (int value = 0; value < 64; value++) {
-            id(raw_position_current)[value] = pos_values[value];
           }
 
 
@@ -3112,6 +3111,7 @@ script:
 
           // debug: show voltage
           id(update_array_text).execute();
+
   - id: beep_short
     then:
       - lambda: |-
@@ -3243,13 +3243,17 @@ script:
             // force changed state, to be able to call the same request 
             id(lichess_api_call).publish_state("{}"); 
             id(lichess_api_call).publish_state(json_string);
+
+            id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"waiting for new game ...\", \"line_1\": \"" + id(chess_time_control).state + "\"}";
+            id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"waiting for new game ...\", \"line_1\": \"" + id(chess_time_control).state + "\"}"; 
           } else {
-                id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"Not initial position\"}";
-                id(oled_white_acitve_page) = 2;
-                id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"Not initial position\"}";
-                id(oled_black_acitve_page) = 2;  
-                id(redraw_displays).execute();          
+            id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"Not initial position\"}";            
+            id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"Not initial position\"}";                    
           }
+
+          id(oled_white_acitve_page) = 2;
+          id(oled_black_acitve_page) = 2;  
+          id(redraw_displays).execute();  
 
 
   - id: lichess_handle_new_event
@@ -3345,6 +3349,17 @@ script:
             
             // let the player know about the last move of opponent
             std::string last_move = root["last"].as<std::string>();
+            std::string from = last_move.substr(0, 2);
+            std::string to = last_move.substr(2, 2);
+            
+            std::string moved_piece = id(fen_position_last)[id(chess_field_indexes)[from]];
+            std::transform(moved_piece.begin(), moved_piece.end(), moved_piece.begin(), ::toupper);
+
+            if (moved_piece == "P") {
+              moved_piece = "";
+            } else {
+              moved_piece += ":";
+            }
 
             // get number of moves
             int n = root["n"].as<int>();
@@ -3356,18 +3371,19 @@ script:
             if (!is_my_turn) { // we want the opponents move
               if( id(lichess_opponent_at_board).state == "no") {
                 if (!id(lichess_is_my_color_white)){ // opponent is white and its turn
-                  id(display_message_black) = "{\"n_lines\": 1, \"line_0\": \"Move: " + last_move + "\"}";                
+                  id(display_message_black) = "{\"n_lines\": 1, \"line_0\": \"" + moved_piece +  last_move + "\"}";                
                   id(oled_black_acitve_page) = 2;
                   id(beep_short).execute();       
                 } 
                 
                 if (id(lichess_is_my_color_white)){  // opponent is black and its turn
-                  id(display_message_white) = "{\"n_lines\": 1, \"line_0\":  \"Move: " + last_move + "\"}";
+                  id(display_message_white) = "{\"n_lines\": 1, \"line_0\":  \""+ moved_piece  + last_move + "\"}";
                   id(oled_white_acitve_page) = 2;
                   id(beep_short).execute();
                 }
               } 
             }
+
             id(current_move_uci_lichess) = last_move;
 
             // if my turn, show the clock
@@ -3425,3 +3441,170 @@ script:
           }
 
           id(redraw_displays).execute();
+
+
+  - id: led_update_move_over
+    then:
+      - lambda: |-
+          if (id(white_to_move)) { 
+            if (id(game_running)) {
+              id(led_white_blue).execute();
+            }
+            if (!id(game_running)) {
+              id(led_black_turn_off).execute();
+            }
+          } else { // black
+            if (id(game_running)) {
+              id(led_black_blue).execute();
+            }
+            if (!id(game_running)) {
+              id(led_white_turn_off).execute();
+            }
+          }
+          
+  - id: led_update_valid_move
+    then:
+      - lambda: |-
+          // if no valid move found, rise flag
+          if (id(valid_move)) {
+            // update leds
+            if (id(white_to_move)) {
+              id(led_white_green).execute();
+            } else {
+              id(led_black_green).execute();           
+            }
+          } else {
+            if (id(white_to_move)) {
+              id(led_white_red).execute();
+            } else {
+              id(led_black_red).execute();               
+            }
+          }
+
+  - id: led_white_red
+    then: 
+      - lambda: |-
+          // r
+          if (!id(led_white_nonvalid_move).state) {
+            id(led_white_nonvalid_move).turn_on();
+          }
+          // g
+          if (id(led_white_valid_move).state) {
+            id(led_white_valid_move).turn_off();
+          } 
+          // b
+          if (id(led_white_to_move).state) {
+            id(led_white_to_move).turn_off();
+          }
+ 
+  - id: led_white_green
+    then: 
+      - lambda: |-
+          // r
+          if (id(led_white_nonvalid_move).state) {
+            id(led_white_nonvalid_move).turn_off();
+          }
+          // g
+          if (!id(led_white_valid_move).state) {
+            id(led_white_valid_move).turn_on();
+          } 
+          // b
+          if (id(led_white_to_move).state) {
+            id(led_white_to_move).turn_off();
+          }
+
+  - id: led_white_blue
+    then: 
+      - lambda: |-
+          // r
+          if (id(led_white_nonvalid_move).state) {
+            id(led_white_nonvalid_move).turn_off();
+          }
+          // g
+          if (id(led_white_valid_move).state) {
+            id(led_white_valid_move).turn_off();
+          } 
+          // b
+          if (!id(led_white_to_move).state) {
+            id(led_white_to_move).turn_on();
+          }
+
+  - id: led_black_red
+    then: 
+      - lambda: |-
+          // r
+          if (!id(led_black_nonvalid_move).state) {
+            id(led_black_nonvalid_move).turn_on();
+          }
+          // g
+          if (id(led_black_valid_move).state) {
+            id(led_black_valid_move).turn_off();
+          } 
+          // b
+          if (id(led_black_to_move).state) {
+            id(led_black_to_move).turn_off();
+          }
+ 
+  - id: led_black_green
+    then: 
+      - lambda: |-
+          // r
+          if (id(led_black_nonvalid_move).state) {
+            id(led_black_nonvalid_move).turn_off();
+          }
+          // g
+          if (!id(led_black_valid_move).state) {
+            id(led_black_valid_move).turn_on();
+          } 
+          // b
+          if (id(led_black_to_move).state) {
+            id(led_black_to_move).turn_off();
+          }
+
+  - id: led_black_blue
+    then: 
+      - lambda: |-
+          // r
+          if (id(led_black_nonvalid_move).state) {
+            id(led_black_nonvalid_move).turn_off();
+          }
+          // g
+          if (id(led_black_valid_move).state) {
+            id(led_black_valid_move).turn_off();
+          } 
+          // b
+          if (!id(led_black_to_move).state) {
+            id(led_black_to_move).turn_on();
+          }
+
+  - id: led_all_turn_off
+    then:
+      - lambda: |-
+          id(led_black_white_off).execute();
+          id(led_black_turn_off).execute(); 
+
+  - id: led_black_white_off
+    then:
+      - lambda: |-
+          if (id(led_white_to_move).state) {
+            id(led_white_to_move).turn_off();
+          }
+          if (id(led_white_nonvalid_move).state) {
+            id(led_white_nonvalid_move).turn_off();
+          }
+          if (id(led_white_valid_move).state) {
+            id(led_white_valid_move).turn_off();
+          } 
+          
+  - id: led_black_turn_off
+    then:
+      - lambda: |-
+          if (id(led_black_to_move).state) {
+            id(led_black_to_move).turn_off();
+          }
+          if (id(led_black_nonvalid_move).state) {
+            id(led_black_nonvalid_move).turn_off();
+          }
+          if (id(led_black_valid_move).state) {
+            id(led_black_valid_move).turn_off();
+          }
