@@ -74,6 +74,7 @@ class LichessStreamBoard(hass.Hass):
                 "bdraw": int(dat.get("bdraw", False)),
                 "wback": int(dat.get("wtakeback", False)),
                 "bback": int(dat.get("btakeback", False)),
+                "n": int(len(dat.get("moves", "").split())) if dat.get("moves") else -1,
                 "last": dat.get("moves", "").split()[-1] if dat.get("moves") else ""
             } 
         else :
@@ -127,7 +128,7 @@ class LichessStreamBoard(hass.Hass):
                         data = json.loads(line)
                         
                         if data: # valid json
-                            reduced_data = self.reduce_response(data)
+                            reduced_data = json.dumps(self.reduce_response(data))
                             # let ha know about the move
                             self.set_state(LICHESS_LAST_MOVE_SENSOR, state=reduced_data)
                             

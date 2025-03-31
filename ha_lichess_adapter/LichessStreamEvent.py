@@ -118,7 +118,7 @@ class LichessStreamEvent(hass.Hass):
                         data = json.loads(line)
                         
                         if data: # valid json
-                            reduced_data = self.reduce_response(data)
+                            reduced_data = json.dumps(self.reduce_response(data))
                             self.set_state(LICHESS_LAST_EVENT_SENSOR, state=reduced_data)
                             
                             # check if we have to abort the game

@@ -84,11 +84,11 @@ time:
 
 
 substitutions:
-  adc_n_sampels: '3'
-  attenuation_value: 12dB
-  hall_sensor_intervall_game: 200ms
+  adc_n_sampels: '3' 
+  attenuation_value: auto
+  hall_sensor_intervall_game: 300ms
   hall_sensor_intervall_idle: 1s
-  delay_before_adc_reading: '5'
+  delay_before_adc_reading: '8'
 
 i2c:
   sda: GPIO21
@@ -289,14 +289,14 @@ globals:
     type: std::array<float, 64>
     initial_value: |-
       {
-        0.30, 0.30, 0.30, 0.30, 0.30, 0.30, 0.30, 0.30,
-        0.30, 0.30, 0.30, 0.30, 0.30, 0.30, 0.30, 0.30,
-        0.30, 0.30, 0.30, 0.30, 0.30, 0.30, 0.30, 0.30,
-        0.30, 0.30, 0.30, 0.30, 0.30, 0.30, 0.30, 0.30,
-        0.30, 0.30, 0.30, 0.30, 0.30, 0.30, 0.30, 0.30,
-        0.30, 0.30, 0.30, 0.30, 0.30, 0.30, 0.30, 0.30,
-        0.30, 0.30, 0.30, 0.30, 0.30, 0.30, 0.30, 0.30,
-        0.30, 0.30, 0.30, 0.30, 0.30, 0.30, 0.30, 0.30
+        0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25,
+        0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25,
+        0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25,
+        0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25,
+        0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25,
+        0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25,
+        0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25,
+        0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25
       }
 
   - id: voltage_field_drift
@@ -419,10 +419,6 @@ globals:
     initial_value: 'false'
 
   - id: lichess_game_running
-    type: bool
-    initial_value: 'false'
-
-  - id: lichess_is_my_turn
     type: bool
     initial_value: 'false'
 
@@ -603,7 +599,7 @@ display:
         } else {  // message
 
           std::string json_str = id(display_message_white);
-          StaticJsonDocument<100> root;
+          StaticJsonDocument<200> root;
           deserializeJson(root, json_str);
 
           if (root.containsKey("n_lines")) {
@@ -650,7 +646,7 @@ display:
         } else { // message
 
           std::string json_str = id(display_message_black);          
-          StaticJsonDocument<100> root;
+          StaticJsonDocument<200> root;
           deserializeJson(root, json_str);
 
           if (root.containsKey("n_lines")) {
@@ -934,26 +930,7 @@ binary_sensor:
     on_press:
       then:
         - lambda: |-
-            // only during the gave
-            if (id(game_running) && id(white_to_move) ) {
-              // if our turn, we store the move and let opponent play
-                id(store_move).execute();                
-            } else if (!id(game_running) && id(white_to_move) && !id(lichess_game_running) && id(halfmove_counter) == 0) { 
-                // we have to check if we made a valid move from initial position
-                id(move_analyser).execute();
-                // if valid move, start the clock and store the move
-                if (id(valid_move)) {
-                  // if the move made by white, we start the clock
-                  id(store_move).execute();
-                  id(game_running) = true;
-                  // the game can be also started by the pause button
-                  id(led_update_move_over).execute();
-                  // show timer
-                  id(oled_white_acitve_page) = 1;
-                  id(oled_black_acitve_page) = 1;
-                  id(redraw_displays).execute();
-                }
-            }
+            id(button_white_finished_script).execute();
     internal: true
   - platform: gpio
     pin:
@@ -967,23 +944,7 @@ binary_sensor:
     on_press:
       then:
         - lambda: |-
-            // only during the gave
-            if (id(game_running)) {
-              // if our turn, we store the move and let opponent play
-              if (!id(white_to_move))
-              {
-                id(store_move).execute();
-              }
-            } else if (id(halfmove_counter) == 0) {
-              // at the begin of the game black can start the clock by button
-              id(game_running) = true;
-              // the game can be also started by the pause button
-              id(led_update_move_over).execute();
-              // show timer
-              id(oled_white_acitve_page) = 1;
-              id(oled_black_acitve_page) = 1;
-              id(redraw_displays).execute();
-            }  
+            id(button_black_finished_script).execute();
     internal: true
   - platform: gpio
     pin:
@@ -1084,6 +1045,7 @@ binary_sensor:
                 id(send_telegram_message).execute();
               }            
             id(reset_all_values).execute();
+            id(redraw_displays).execute();
             }
             // notfiy -> ready for new game
 
@@ -1292,7 +1254,7 @@ sensor:
     id: current_hall_sensor_1
     internal: true
     attenuation: $attenuation_value
-    samples: $adc_n_sampels
+   # samples: $adc_n_sampels
     update_interval: never
   - platform: adc
     pin: GPIO35
@@ -1300,7 +1262,7 @@ sensor:
     id: current_hall_sensor_2
     internal: true
     attenuation: $attenuation_value
-    samples: $adc_n_sampels
+   # samples: $adc_n_sampels
     update_interval: never
   - platform: adc
     pin: GPIO36
@@ -1308,7 +1270,7 @@ sensor:
     id: current_hall_sensor_3
     internal: true
     attenuation: $attenuation_value
-    samples: $adc_n_sampels
+   # samples: $adc_n_sampels
     update_interval: never
   - platform: adc
     pin: GPIO39
@@ -1316,7 +1278,7 @@ sensor:
     id: current_hall_sensor_4
     internal: true
     attenuation: $attenuation_value
-    samples: $adc_n_sampels
+   # samples: $adc_n_sampels
     update_interval: never
 
 text_sensor:
@@ -1423,6 +1385,14 @@ text_sensor:
       sorting_weight: 12
     lambda: |-
       return id(fen_position_last_string);
+  - platform: template
+    name: Debugger
+    id: debugger_sensor
+    internal: False
+    update_interval: never
+    web_server:
+      sorting_group_id: sorting_group_sensors
+      sorting_weight: 14
   - platform: template
     name: UCI
     id: current_move_uci_sensor
@@ -1699,6 +1669,51 @@ text_sensor:
       sorting_weight: 8
 
 script:
+  - id: button_black_finished_script
+    mode: queued
+    then: 
+      - lambda: |-
+          // only during the gave
+          if (id(game_running)) {
+            // if our turn, we store the move and let opponent play
+            if (!id(white_to_move))
+            {
+              id(store_move).execute();
+            }
+          } else if (id(halfmove_counter) == 0) {
+            // at the begin of the game black can start the clock by button
+            id(game_running) = true;
+            // the game can be also started by the pause button
+            id(led_update_move_over).execute();
+            // show timer
+            id(oled_white_acitve_page) = 1;
+            id(oled_black_acitve_page) = 1;
+            id(redraw_displays).execute();
+          } 
+  - id: button_white_finished_script
+    mode: queued
+    then: 
+      - lambda: |-
+            // only during the gave
+            if (id(game_running) && id(white_to_move) ) {
+              // if our turn, we store the move and let opponent play
+                id(store_move).execute();                
+            } else if (!id(game_running) && id(white_to_move) && !id(lichess_game_running) && id(halfmove_counter) == 0) { 
+                // we have to check if we made a valid move from initial position
+                id(move_analyser).execute();
+                // if valid move, start the clock and store the move
+                if (id(valid_move)) {
+                  // if the move made by white, we start the clock
+                  id(store_move).execute();
+                  id(game_running) = true;
+                  // the game can be also started by the pause button
+                  id(led_update_move_over).execute();
+                  // show timer
+                  id(oled_white_acitve_page) = 1;
+                  id(oled_black_acitve_page) = 1;
+                  id(redraw_displays).execute();
+                }
+            }
   - id: update_array_text
     mode: queued
     then:
@@ -1805,6 +1820,7 @@ script:
           }
 
   - id: update_chess_board
+    mode: queued
     then:
       - lambda: |-
             //  init some variables
@@ -1862,6 +1878,7 @@ script:
             }
 
   - id: update_timer
+    mode: queued
     then:
       - lambda: |-
           if ( id(game_running) ) // we are in the game or no pause pressed
@@ -1904,6 +1921,7 @@ script:
                 return id(pgn_full);
 
   - id: create_full_pgn
+    mode: queued
     then:
       - lambda: |-
           auto time = id(sntp_time).now();
@@ -1971,7 +1989,6 @@ script:
           id(last_move_white) = "";
           id(last_move_black) = "";
 
-          id(lichess_is_my_turn) = false;
           id(lichess_is_my_color_white) = true;
           id(lichess_game_running) = false;
 
@@ -1989,7 +2006,7 @@ script:
           id(lichess_game_id).publish_state(std::string("idle"));
           id(update_lichess_token).execute();
           
-          id(current_move_uci_lichess) = "";
+          id(current_move_uci_lichess) = "-";
 
           id(reset_display_message).execute();
 
@@ -2008,6 +2025,7 @@ script:
       - component.update: oled_black
 
   - id: update_pgn_history
+    mode: queued
     then:
       - lambda: |-
           // add current pgn to history
@@ -2247,6 +2265,7 @@ script:
           call.perform();
 
   - id: store_move
+    mode: queued
     then:
       - lambda: |-
           // get current png move
@@ -2280,31 +2299,6 @@ script:
               id(raw_position_last)[i] = id(raw_position_current)[i];   
             };
 
-            // do lichess calls and updates
-            if (id(lichess_game_running) ) {
-              // let lichess know about my move
-              std::string move_body = "{\"type\": \"makeMove\", \"move\": \"" + id(current_move_uci) + "\"}";
-              if(id(lichess_is_my_turn) == true) {   
-                // send the move to lichess           
-                id(lichess_api_call).publish_state(move_body);              
-              } else {
-                if( id(lichess_opponent_at_board).state == "yes") {
-                  // switch to oppoents token
-                  std::string token_body = "{\"type\": \"overwriteToken\", \"token\": \"" + id(chessboard_token_opponent) + "\"}";
-                  id(lichess_api_call).publish_state(token_body);
-                  delay(100); // do a short delay 
-                  // make a move for the opponent
-                  id(lichess_api_call).publish_state(move_body); 
-                  delay(100); // do a short delay 
-                  // switch token back
-                  token_body = "{\"type\": \"overwriteToken\", \"token\": \"" + id(chessboard_token_current) + "\"}";
-                  id(lichess_api_call).publish_state(token_body);
-                }
-              }
-              // toggle turns
-              id(lichess_is_my_turn) = !id(lichess_is_my_turn);
-            }
-
             // show clock
             id(oled_white_acitve_page) = 1;
             id(oled_black_acitve_page) = 1;
@@ -2322,13 +2316,15 @@ script:
               id(game_running) = false;
               // game over
               id(inform_game_over).execute();
-            } else {              
-              // update timer
-              id(time_control_add_increment).execute();
+            } else { 
+              // make lichess move
+              id(lichess_make_move).execute();
               // toggle white_to_move
-              id(white_to_move) = !id(white_to_move);
+              id(white_to_move) = !id(white_to_move);               
               // increase coutner of halfmoves
               id(halfmove_counter) += 1;
+              // update timer
+              id(time_control_add_increment).execute();              
               // there is no moved piece
               id(moved_piece) = "";
               // reset valid move
@@ -2365,10 +2361,12 @@ script:
   - id: time_control_add_increment
     then:
       - lambda: |-
-          if (id(white_to_move)){
-            id(time_control_timer_white) += id(time_control_increment);
-          } else {
-            id(time_control_timer_black) += id(time_control_increment);
+          if (!id(lichess_game_running)) {
+            if (id(white_to_move)){
+              id(time_control_timer_white) += id(time_control_increment);
+            } else {
+              id(time_control_timer_black) += id(time_control_increment);
+            }
           }
 
   - id: update_uci_notation
@@ -2404,6 +2402,7 @@ script:
           id(current_move_uci_sensor).update();
 
   - id: fen_position_last_arr_to_string
+    mode: queued
     then:
       - lambda: |-
             // transform array to fen-string
@@ -2453,6 +2452,7 @@ script:
             id(fen_position_last_string_sensor).update();
 
   - id: check_chess_rules
+    mode: queued
     then:
       - lambda: |-
           // define flag          
@@ -2477,11 +2477,9 @@ script:
                       break;
                   case chess_validator::NO_UNIT:
                       ESP_LOGW("Validator", "Invalid move... reason: NO_UNIT %s",  fen_string.c_str() );
-                      invalid_reason = "NO_UNIT";
                       break;
                   case chess_validator::SAME_PLACE:
                       ESP_LOGW("Validator", "Invalid move... reason: SAME_PLACE %s",  fen_string.c_str() );
-                      invalid_reason = "SAME_PLACE";
                       break;
                   case chess_validator::CAPTURING_SAME_COLOR:
                       ESP_LOGW("Validator", "Invalid move... reason: CAPTURING_SAME_COLOR %s",  fen_string.c_str() );
@@ -2496,14 +2494,17 @@ script:
                       invalid_reason = "KING_IN_CHECK";
                       break;
               }
-              if (id(white_to_move)) {
-                id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"" + invalid_reason + "\"}";
-                id(oled_white_acitve_page) = 2;
-              } else {
-                id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"" + invalid_reason + "\"}";
-                id(oled_black_acitve_page) = 2;
+              if (invalid_reason != "") {
+                if (id(white_to_move)) {
+                  id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"" + invalid_reason + "\"}";
+                  id(oled_white_acitve_page) = 2;
+                } else {
+                  id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"" + invalid_reason + "\"}";
+                  id(oled_black_acitve_page) = 2;
+                }
+                id(redraw_displays).execute();
               }
-              id(redraw_displays).execute();
+
           } else {
 
               // apply current move and check if any checks, mates, draws (we use here UCI due to missing promotion parameter)
@@ -2531,6 +2532,7 @@ script:
           id(valid_move) = valid_check;
 
   - id: move_analyser
+    mode: queued 
     then:
       - lambda: |-
           // reset flag
@@ -2579,7 +2581,7 @@ script:
             id(perform_enpassant).execute();
           }
 
-          // if we had some messages, clear them at valid move 
+          // if we had some messages in a non-lichess game, clear them at valid move 
           if (!id(lichess_game_running) && id(valid_move)) {
             if (id(white_to_move) && id(oled_white_acitve_page) == 2) {
               id(oled_white_acitve_page) = 1;
@@ -2589,24 +2591,20 @@ script:
             }
           }
 
-          // we check here, if the move made and the opponents lichess move are the same
-          if (id(lichess_game_running) && !id(lichess_is_my_turn) && id(lichess_opponent_at_board).state == "no") {
+          // we check here, if the move made and the opponents lichess move are the same, and press "finished-button" for the opponent
+          if (id(lichess_game_running)  && id(lichess_opponent_at_board).state == "no" && (id(white_to_move) && !id(lichess_is_my_color_white) || !id(white_to_move) && id(lichess_is_my_color_white))) {
             id(valid_move) = (bool)(id(current_move_uci_lichess) == id(current_move_uci));
-          }
-
-          // update led's
-          id(led_update_check_move).execute();
-
-          // store valid move of the opponent
-          if (id(lichess_game_running) && !id(lichess_is_my_turn) && id(valid_move) && id(lichess_opponent_at_board).state == "no") {
-            if (id(lichess_is_my_color_white)) {
-              id(button_black_finished).publish_state(true);
-              id(button_black_finished).publish_state(false);
-            } else {
-              id(button_white_finished).publish_state(true);
-              id(button_white_finished).publish_state(false);              
+            if (id(valid_move)) { // we deactivate auto-move accept
+              delay(400);
+              if (id(lichess_is_my_color_white)) {
+                id(button_black_finished_script).execute();
+              } else {
+                id(button_white_finished_script).execute();             
+              }
             }
           }
+          // update led's
+          id(led_update_check_move).execute();
 
   - id: perform_move
     then:
@@ -2629,17 +2627,22 @@ script:
           id(moved_piece) = id(fen_position_last)[from];
 
           // for the case of en passant, we have to exclude taking of "empty square" from "move"
+          // algought, we have to wait, till the rook also moved at casteling
           // otherwise the move will be checked as valid, although the opponent pawn is still on the board
-          bool take_enpassant = (id(moved_piece) == "P" || id(moved_piece) == "p" ) && (std::abs(from - to) == 7 || std::abs(from - to) == 9);
+          bool pawn_move = (id(moved_piece) == "P" || id(moved_piece) == "p" );
+          bool king_move = (id(moved_piece) == "K" || id(moved_piece) == "k" );
+          bool take_enpassant = pawn_move  && (std::abs(from - to) == 7 || std::abs(from - to) == 9);
+          bool king_castling = king_move && std::abs(from - to) == 2;
 
           // skip, till the opponent pawn is removed from board and we recognize the "enpassant - move"
-          if (!take_enpassant) { 
+          if (!take_enpassant && !king_castling) { 
+
             id(current_move_from) = from;
             id(current_move_to) = to;
             id(current_move_type) = "MOVE";
 
             // if pawn move by 2 fields (16 indexes), we have to check en-passant for FEN
-            if ( std::abs(from - to) == 16 && (id(moved_piece) == "P" || id(moved_piece) == "p" ))
+            if ( std::abs(from - to) == 16 && pawn_move)
             {
               std::vector<int> idx_to_check;
               if (id(white_to_move)) { // white
@@ -2673,7 +2676,6 @@ script:
               }
             }
           }
-
 
           // prepare uci notation
           id(update_uci_notation).execute();
@@ -2854,6 +2856,7 @@ script:
           }     
 
   - id: update_fen_additional_fields
+    mode: queued
     then:
       - lambda: |-
           // update who to move
@@ -2907,6 +2910,7 @@ script:
           id(fen_position_current)[71] = id(white_to_move) ? std::to_string((int)(id(halfmove_counter) / 2.) + 1) : std::to_string((int)(id(halfmove_counter) / 2.) + 2);
 
   - id: update_pgn
+    mode: queued
     then:
       - lambda: |-
             // create pgn notation (internal)
@@ -3005,6 +3009,7 @@ script:
           }
 
   - id: update_raw_position_current
+    mode: queued
     then:
       - lambda: |-
           // Define a array of size 64 to hold positions
@@ -3046,6 +3051,7 @@ script:
 
 
   - id: update_all_hall_sensors
+    mode: queued
     then:
       - lambda: |-
           // Define a array of size 64 to hold the ADC values
@@ -3110,14 +3116,14 @@ script:
     then:
       - lambda: |-
           id(beep_switch).turn_on();
-          sleep(100);
+          delay(50);
           id(beep_switch).turn_off();
 
   - id: beep_long
     then:
       - lambda: |-
           id(beep_switch).turn_on();
-          sleep(250);
+          delay(200);
           id(beep_switch).turn_off();
   - id: check_opponent_at_board_select
     then:
@@ -3128,6 +3134,32 @@ script:
             call.set_option("no");
             call.perform();          
           }
+
+  - id: lichess_make_move
+    then:
+      - lambda: |-                                  
+          // do lichess calls and updates 
+          if (id(lichess_game_running) ) {
+              // let lichess know about my move
+              std::string move_body = "{\"type\": \"makeMove\", \"move\": \"" + id(current_move_uci) + "\"}";
+              if( (id(white_to_move) && id(lichess_is_my_color_white)) || (!id(white_to_move) && !id(lichess_is_my_color_white))) {   
+              // send the move to lichess           
+              id(lichess_api_call).publish_state(move_body);              
+            } else {
+              if( id(lichess_opponent_at_board).state == "yes") {
+                // switch to oppoents token
+                std::string token_body = "{\"type\": \"overwriteToken\", \"token\": \"" + id(chessboard_token_opponent) + "\"}";
+                id(lichess_api_call).publish_state(token_body);
+                delay(100); // do a short delay 
+                // make a move for the opponent
+                id(lichess_api_call).publish_state(move_body); 
+                delay(100); // do a short delay 
+                // switch token back
+                token_body = "{\"type\": \"overwriteToken\", \"token\": \"" + id(chessboard_token_current) + "\"}";
+                id(lichess_api_call).publish_state(token_body);                    
+              }
+            }                
+          }  
   - id: update_lichess_token
     then:
       - lambda: |-
@@ -3158,6 +3190,7 @@ script:
           id(lichess_token).update();
 
   - id: lichess_create_new_game
+    mode: single
     then:
       - lambda: |-
           // not during the gave
@@ -3214,46 +3247,49 @@ script:
                 id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"Not initial position\"}";
                 id(oled_white_acitve_page) = 2;
                 id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"Not initial position\"}";
-                id(oled_black_acitve_page) = 2;            
+                id(oled_black_acitve_page) = 2;  
+                id(redraw_displays).execute();          
           }
 
 
   - id: lichess_handle_new_event
+    mode: queued
     then:
       - lambda: |-
           std::string json_str = id(lichess_last_event_in).state;
 
-          StaticJsonDocument<250> root;
+          StaticJsonDocument<255> root;
           deserializeJson(root, json_str);
 
-          if (root.containsKey("type") && root.containsKey("color") && root.containsKey("isMyTurn") && root["type"].as<std::string>() == "gameStart"){
+          if (root.containsKey("type") && root.containsKey("color") && root["type"].as<std::string>() == "gameStart"){
 
             // rise flag we are in lichess game
             id(lichess_game_running) = true;
             id(game_running) = true;
+            id(white_to_move) = true;
 
             // extract opponents name to be shown on display
-            id(lichess_opponent_name) = root["opponent"].as<std::string>();
+            std::string opponent =  root["opponent"].as<std::string>();
             std::string me = id(lichess_account).state;
+            std::string game_id = root["gameId"].as<std::string>();
 
             // we start board stream
-            id(lichess_game_id).publish_state(root["gameId"].as<std::string>());
+            id(lichess_game_id).publish_state(game_id);
+
             // we check the white color
-            if ( root["color"].as<std::string>() == "white"){
-              id(white_to_move) = true;
-              id(lichess_is_my_turn) = root["isMyTurn"].as<bool>();
+            if ( root["color"].as<std::string>() == "white"){ 
               id(lichess_is_my_color_white) = true;
               id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"" + me + "\", \"line_1\": \"" + id(chess_time_control).state + "\"}";
-              id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"" + id(lichess_opponent_name) + "\", \"line_1\": \"" + id(chess_time_control).state + "\"}";
+              id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"" + opponent + "\", \"line_1\": \"" + id(chess_time_control).state + "\"}";
             }
             // we check the white color
             if (root["color"].as<std::string>() == "black"){
-              id(white_to_move) = false;
-              id(lichess_is_my_turn) = root["isMyTurn"].as<bool>();
               id(lichess_is_my_color_white) = false;
-              id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"" + id(lichess_opponent_name) + "\", \"line_1\": \"" + id(chess_time_control).state + "\"}";
+              id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"" + opponent + "\", \"line_1\": \"" + id(chess_time_control).state + "\"}";
               id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"" + me + "\", \"line_1\": \"" + id(chess_time_control).state + "\"}";
-            }  
+            }
+
+            id(lichess_opponent_name) = opponent;           
             
             id(oled_white_acitve_page) = 2;
             id(oled_black_acitve_page) = 2;
@@ -3279,7 +3315,6 @@ script:
             id(inform_game_over).execute();
 
             id(game_running) = false;
-            id(lichess_is_my_turn) = false;
             
             // close the event stream
             id(lichess_stream_events).publish_state("OFF");
@@ -3289,11 +3324,12 @@ script:
           
 
   - id: lichess_handle_last_move
+    mode: queued
     then:
       - lambda: |-
           std::string json_str = id(lichess_last_move_in).state;
 
-          StaticJsonDocument<250> root;
+          StaticJsonDocument<300> root;
           deserializeJson(root, json_str);
 
           // opponent gone
@@ -3308,21 +3344,40 @@ script:
           if (root["type"].as<std::string>() == "gameState"){
             
             // let the player know about the last move of opponent
-            id(current_move_uci_lichess) = root["last"].as<std::string>();
+            std::string last_move = root["last"].as<std::string>();
 
-            if( id(lichess_opponent_at_board).state == "no") {
-              if (id(white_to_move) && !id(lichess_is_my_color_white)){
-                id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"" + id(lichess_opponent_name) + "\", \"line_1\": \"Move: " + id(current_move_uci_lichess) + "\"}";                
-                id(oled_black_acitve_page) = 2;
-                id(beep_short).execute();       
+            // get number of moves
+            int n = root["n"].as<int>();
+
+           
+            bool is_my_turn = (bool)( (n % 2) == int(id(lichess_is_my_color_white)));
+            id(debugger_sensor).publish_state("n: " + std::to_string(n) + ", c: " + std::to_string(id(halfmove_counter)) + ", my_turn: " + std::to_string(is_my_turn) + ", white_to_move: " + std::to_string(id(white_to_move)) + ", uci: " + id(current_move_uci) + ", uci_lichess: " + last_move);
+
+            if (!is_my_turn) { // we want the opponents move
+              if( id(lichess_opponent_at_board).state == "no") {
+                if (!id(lichess_is_my_color_white)){ // opponent is white and its turn
+                  id(display_message_black) = "{\"n_lines\": 1, \"line_0\": \"Move: " + last_move + "\"}";                
+                  id(oled_black_acitve_page) = 2;
+                  id(beep_short).execute();       
+                } 
+                
+                if (id(lichess_is_my_color_white)){  // opponent is black and its turn
+                  id(display_message_white) = "{\"n_lines\": 1, \"line_0\":  \"Move: " + last_move + "\"}";
+                  id(oled_white_acitve_page) = 2;
+                  id(beep_short).execute();
+                }
               } 
-              
-              if (!id(white_to_move) && id(lichess_is_my_color_white)){
-                id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"" + id(lichess_opponent_name) + "\", \"line_1\": " + id(current_move_uci_lichess) + "\"}";
-                id(oled_white_acitve_page) = 2;
-                id(beep_short).execute();
-              }
+            }
+            id(current_move_uci_lichess) = last_move;
+
+            // if my turn, show the clock
+            if (id(white_to_move) && id(lichess_is_my_color_white)){ // I'm white and my turn
+              id(oled_white_acitve_page) = 1;
             } 
+            
+            if (!id(white_to_move) && !id(lichess_is_my_color_white)){  // I'm black and my turn
+              id(oled_black_acitve_page) = 1;
+            }
             
             // update chessboard clock by values from lichess
             std::string wclk = root["wclk"].as<std::string>();
@@ -3333,6 +3388,7 @@ script:
             if (pos != std::string::npos) {
                 std::string first_part = wclk.substr(0, pos); // Extract first part
                 id(time_control_timer_white) = std::stoi(first_part); 
+                id(timer_white).update();
             }
 
             // set black clock
@@ -3340,8 +3396,9 @@ script:
             if (pos != std::string::npos) {
                 std::string first_part = bclk.substr(0, pos); // Extract first part
                 id(time_control_timer_black) = std::stoi(first_part);
-            }    
-            
+                id(timer_black).update();
+            }   
+           
             // Draw offer
             if ( (root["wdraw"].as<int>() == 1 && !id(lichess_is_my_color_white)) || (root["bdraw"].as<int>() == 1 && id(lichess_is_my_color_white)) ) {
               if (!id(lichess_is_my_color_white)) {
@@ -3351,7 +3408,7 @@ script:
                 id(display_message_white) = "{\"n_lines\": 1, \"line_0\": \"DRAW?\"}";
                 id(oled_white_acitve_page) = 2;
               } 
-              id(beep_short).execute();             
+              id(beep_long).execute();             
             }
 
             // TakeBack offer
@@ -3363,8 +3420,8 @@ script:
                 id(display_message_white) = "{\"n_lines\": 1, \"line_0\": \"Takeback?\"}";
                 id(oled_white_acitve_page) = 2;
               }
-              id(beep_short).execute();   
-            }            
+              id(beep_long).execute();   
+            }                        
           }
 
           id(redraw_displays).execute();
