@@ -1777,10 +1777,9 @@ script:
             // if our turn, we store the move and let opponent play
             if (!id(white_to_move))
             {
-              if (id(valid_move)) {
-                id(led_black_turn_off).execute();
-              }              
-              id(move_to_store_flag) = true;              
+              if (id(valid_move)) {                
+                id(move_to_store_flag) = true;
+              }    
             }
           } else if (id(halfmove_counter) == 0) {
             // at the begin of the game black can start the clock by button
@@ -1798,22 +1797,15 @@ script:
             if (id(game_running) && id(white_to_move) ) {
               // if our turn, we store the move and let opponent play
               if (id(valid_move)) {
-                id(led_white_turn_off).execute();
-              }
-              id(move_to_store_flag) = true;   
-            } else if (!id(game_running) && id(white_to_move) && !id(lichess_game_running) && id(halfmove_counter) == 0) { 
-                // we have to check if we made a valid move from initial position
                 id(move_to_store_flag) = true; 
-                // if valid move, start the clock and store the move
-                if (id(valid_move)) {
-                  // if the move made by white, we start the clock
-                  id(move_to_store_flag) = true;
-                  id(game_running) = true;
-                  // the game can be also started by the pause button
-                  id(led_update_color_to_move).execute();
-                  // show timer
-                  id(oled_show_page_clock).execute();
-                }
+              }
+            } else if (!id(game_running) && id(white_to_move) && !id(lichess_game_running) && id(halfmove_counter) == 0 && id(initial_position_set).state) { 
+                // if initial position, white can also start the the clock
+                id(game_running) = true;
+                // update LEDs
+                id(led_update_color_to_move).execute();
+                // show timer
+                id(oled_show_page_clock).execute();
             }
   - id: update_array_text
     mode: restart
@@ -2337,6 +2329,8 @@ script:
       - lambda: |-
           // store move if valid only
           if (id(move_to_store_flag) && id(valid_move) && id(game_running)) {
+            // turn off the LED ... we are storing ....
+            id(led_all_turn_off).execute();
             // store previous pgn history
             id(pgn_history_take_back) = id(pgn_history);
 
@@ -2380,7 +2374,7 @@ script:
               id(inform_game_over).execute();
               // do some post game operations
               id(post_game_operation).execute();
-              } else { 
+            } else { 
               // make lichess move
               id(lichess_make_move).execute();
               // toggle white_to_move
@@ -3180,8 +3174,10 @@ script:
 
             // all outputs are set
 
-            delay($delay_before_adc_reading);  // let the multiplexer select the sensor to be read
-            // (update in the same order as switched channels)
+            // let the multiplexer select the sensor to be read
+            delay($delay_before_adc_reading);  
+
+            // let the ADC reads the sampels
             id(current_hall_sensor_1).update(); // update adc value
             id(current_hall_sensor_2).update(); // update adc value
             id(current_hall_sensor_3).update(); // update adc value
@@ -3205,8 +3201,7 @@ script:
           }
 
           if(id(debug_mode)) {
-            // debug: show voltage field
-            id(update_array_text).execute();
+            // id(update_array_text).execute();
           }
 
 
