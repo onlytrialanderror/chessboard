@@ -23,7 +23,7 @@ esp32:
 
 # Enable logging
 logger:
-  level: WARN
+  level: ERROR
 
 api:
   reboot_timeout: 0s
@@ -85,9 +85,9 @@ time:
 
 substitutions:
   # shorter delay and high amount of samples works best
-  adc_n_sampels: '50' 
+  adc_n_sampels: '40' 
   attenuation_value: 12dB
-  hall_sensor_intervall_game: 500ms 
+  hall_sensor_intervall_game: 300ms 
   hall_sensor_intervall_idle: 1s
   delay_before_adc_reading: '2'
 
@@ -459,7 +459,11 @@ globals:
 
   - id: moved_piece
     type: std::string
-    initial_value: ''  
+    initial_value: '"0"'  
+
+  - id: target_piece
+    type: std::string
+    initial_value: '"0"' 
 
   - id: halfmove_counter
     type: int
@@ -471,15 +475,19 @@ globals:
 
   - id: last_move_pgn_take_back
     type: std::string
-    initial_value: ''
+    initial_value: '""'
 
   - id: last_move_pgn
     type: std::string
-    initial_value: ''
+    initial_value: '""'
 
   - id: last_move_pgn_additional
     type: std::string
-    initial_value: ''
+    initial_value: '""'
+
+  - id: game_result
+    type: std::string
+    initial_value: '""'
 
   - id: current_move_from
     type: int
@@ -491,15 +499,15 @@ globals:
 
   - id: current_move_type
     type: std::string
-    initial_value: ''
+    initial_value: '""'
 
   - id: current_move_uci
     type: std::string
-    initial_value: ''
+    initial_value: '""'
 
   - id: current_move_uci_lichess
     type: std::string
-    initial_value: ''
+    initial_value: '""'
 
   - id: time_control_duration
     type: int
@@ -586,6 +594,14 @@ globals:
     type: int
     initial_value: '0'
 
+  - id: differences_n_black_pieces
+    type: int
+    initial_value: '0'
+
+  - id: differences_n_white_pieces
+    type: int
+    initial_value: '0'
+
   - id: initial_position_set_black
     type: bool
     initial_value: 'false'
@@ -596,7 +612,7 @@ globals:
 
   - id: debug_mode
     type: bool
-    initial_value: 'true'
+    initial_value: 'false'
 
 
 # we updating all the time the values of hall sensors
@@ -613,9 +629,9 @@ interval:
       - lambda: |-
           if (!id(game_running)) {
             // check position of the pieces 
-            id(main_loop).execute();
+            // id(main_loop).execute();
             // we have to update lichess_game_id if meanwhile a new id was sent by stream
-            id(lichess_game_id).update();
+            // id(lichess_game_id).update();
             // update variables, if black & white init-positions are set
             id(check_init_position_set).execute();
             // turn on red-led if not
@@ -1480,7 +1496,7 @@ text_sensor:
                 id(game_running) = false;
                 id(beep_long).execute();
               }
-              id(inform_game_over).execute();
+              id(game_result) = "0-1";
             }
     web_server:
       sorting_group_id: sorting_group_settings
@@ -1507,7 +1523,7 @@ text_sensor:
                 id(game_running) = false;
                 id(beep_long).execute();
               }
-              id(inform_game_over).execute();
+              id(game_result) = "1-0";
             }
     web_server:
       sorting_group_id: sorting_group_settings
@@ -1743,22 +1759,8 @@ script:
     max_runs: 3 
     then:
       - lambda: |-
-          // measure execution time
-          int tic = 0;
-          int toc = 0;
-          
-          if (id(debug_mode)) {
-            tic = millis();  // Start time
-          }
-
           // read hall sensors
-          id(update_all_hall_sensors).execute();
-
-          if (id(debug_mode)) {
-            toc = millis() - tic;
-            ESP_LOGW("TIMER", "Execution Time (hall): %d ms", toc);
-          }
-          
+          id(update_all_hall_sensors).execute();          
           // transform voltage to position flags (-1, 0, 1)
           id(update_raw_position_current).execute();
           // check, if we have new position in comparison to the previous
@@ -1773,20 +1775,14 @@ script:
             id(led_update_valid_move).execute();
             // we check, if we should store the move (i.e. button pressed, or lichess-move is applied)
             id(store_move).execute();            
-          } else {
-            // reset display messages, if any
-            id(clear_display_messages).execute();
+          } else {            
             // reset flags
             id(reset_validator_flags).execute();
             // same position, turn on blue
             id(led_update_color_to_move).execute();
           }
-
-          if (id(debug_mode)) {
-            // to deactivate after debuging phase
-            toc = millis() - tic;
-            ESP_LOGW("TIMER", "Execution Time (loop): %d ms", toc);
-          }
+          // reset display messages, if any
+          id(clear_display_messages).execute();
        
   - id: button_black_finished_script
     mode: queued
@@ -2108,7 +2104,10 @@ script:
           id(current_move_type) = "";
           id(current_move_uci) = "";
           id(valid_move) = false;
-          id(moved_piece) = "";
+          id(moved_piece) = "0";
+          id(target_piece) = "0";
+
+          id(game_result) = "";
 
           id(last_move_white) = "";
           id(last_move_black) = "";
@@ -2127,6 +2126,8 @@ script:
           id(differences_sum_abs) = 0;
           id(differences_n_changes) = 0;
           id(differences_n_pieces) = 0;
+          id(differences_n_black_pieces) = 0;
+          id(differences_n_white_pieces) = 0;
 
           id(timer_black).update();
           id(timer_white).update();
@@ -2275,52 +2276,54 @@ script:
   - id: inform_game_over
     then:
       - lambda: |-
-          // turn all led's off
-          id(led_all_turn_off).execute();
+          if (id(game_running)) {
+            // turn all led's off
+            id(led_all_turn_off).execute();
 
-          bool white_won = (bool)(id(last_move_pgn_additional) == " 1-0" || (id(last_move_pgn_additional) == "#" &&  id(white_to_move))|| id(timer_black).state == "--:--");
-          bool black_won = (bool)(id(last_move_pgn_additional) == " 0-1" || (id(last_move_pgn_additional) == "#" && !id(white_to_move))|| id(timer_white).state == "--:--");
-          bool draw = (bool)(id(last_move_pgn_additional) == " 1/2-1/2");
+            bool white_won = (bool)(id(game_result) == "1-0" || (id(game_result) == "#" &&  id(white_to_move))|| id(timer_black).state == "--:--");
+            bool black_won = (bool)(id(game_result) == "0-1" || (id(game_result) == "#" && !id(white_to_move))|| id(timer_white).state == "--:--");
+            bool draw = (bool)(id(game_result) == "1/2-1/2");
 
-          if (white_won) { 
-            id(led_white_green).execute(); // green
-            id(led_black_red).execute(); // red            
-            id(display_message_black) = "{\"n_lines\": 1, \"line_0\": \"LOST\"}";
-            id(display_message_white) = "{\"n_lines\": 1, \"line_0\": \"WINNER\"}";
-            id(pgn_history) += " 1-0";
-            if (id(timer_black).state == "--:--") {
-              id(pgn_history) += " {Won by time}";
+            if (white_won) { 
+              id(led_white_green).execute(); // green
+              id(led_black_red).execute(); // red            
+              id(display_message_black) = "{\"n_lines\": 1, \"line_0\": \"LOST\"}";
+              id(display_message_white) = "{\"n_lines\": 1, \"line_0\": \"WINNER\"}";
+              id(pgn_history) += " 1-0";
+              if (id(timer_black).state == "--:--") {
+                id(pgn_history) += " {Won by time}";
+              }
             }
-          }
 
-          if (black_won) {
-            id(led_black_green).execute(); // green
-            id(led_white_red).execute(); // red       
-            id(display_message_black) = "{\"n_lines\": 1, \"line_0\": \"WINNER\"}";
-            id(display_message_white) = "{\"n_lines\": 1, \"line_0\": \"LOST\"}";
-            id(pgn_history) += " 0-1";
-            if (id(timer_white).state == "--:--") {
-              id(pgn_history) += " {Won by time}";
+            if (black_won) {
+              id(led_black_green).execute(); // green
+              id(led_white_red).execute(); // red       
+              id(display_message_black) = "{\"n_lines\": 1, \"line_0\": \"WINNER\"}";
+              id(display_message_white) = "{\"n_lines\": 1, \"line_0\": \"LOST\"}";
+              id(pgn_history) += " 0-1";
+              if (id(timer_white).state == "--:--") {
+                id(pgn_history) += " {Won by time}";
+              }
             }
-          }
 
-          if (draw) {
-            id(led_black_blue).execute(); // blue
-            id(led_white_blue).execute(); // blue 
-            id(display_message_black) = "{\"n_lines\": 1, \"line_0\": \"DRAW\"}";
-            id(display_message_white) = "{\"n_lines\": 1, \"line_0\": \"DRAW\"}";
-            id(pgn_history) += " 1/2-1/2";
-          }
+            if (draw) {
+              id(led_black_blue).execute(); // blue
+              id(led_white_blue).execute(); // blue 
+              id(display_message_black) = "{\"n_lines\": 1, \"line_0\": \"DRAW\"}";
+              id(display_message_white) = "{\"n_lines\": 1, \"line_0\": \"DRAW\"}";
+              id(pgn_history) += " 1/2-1/2";
+            }
 
-          if (!white_won && !black_won && !draw) {
-            id(led_black_red).execute(); // blue
-            id(led_white_red).execute(); // blue 
-            id(display_message_black) = "{\"n_lines\": 1, \"line_0\": \"Aborted\"}";
-            id(display_message_white) = "{\"n_lines\": 1, \"line_0\": \"Aborted\"}";
-          }
+            if (!white_won && !black_won && !draw) {
+              id(led_black_red).execute(); // red
+              id(led_white_red).execute(); // red 
+              id(display_message_black) = "{\"n_lines\": 1, \"line_0\": \"Aborted\"}";
+              id(display_message_white) = "{\"n_lines\": 1, \"line_0\": \"Aborted\"}";
+            }
 
-          id(oled_show_page_message).execute();
-          delay(3000);
+            id(oled_show_page_message).execute();
+            delay(3000);
+          }
 
 
   - id: sync_time_control
@@ -2403,7 +2406,7 @@ script:
             id(lichess_make_move).execute();
 
             // game finished on board ?
-            if (!id(lichess_game_running) && (id(last_move_pgn_additional) == "#" || id(last_move_pgn_additional).length() > 1)){
+            if (!id(lichess_game_running) && (id(game_result) == "#" || id(game_result) == "1-0" || id(game_result) == "0-1" || id(game_result) == "1/2-1/2")){
               // game over
               id(inform_game_over).execute();
               // do some post game operations
@@ -2608,11 +2611,13 @@ script:
                 if (chess_validator::is_check_mate(&new_table_state))
                 {
                     id(last_move_pgn_additional) = "#";
+                    id(game_result) = "#";
                 }
                 // draw ?
                 chess_validator::DRAW_REASON   draw  = chess_validator::get_draw_reason(&new_table_state);
                 if (draw != chess_validator::DRAW_REASON::NO_DRAW) {
                     id(last_move_pgn_additional) = " 1/2-1/2";
+                    id(game_result) = "1/2-1/2";
                 }
 
                 valid_check = true;
@@ -2637,22 +2642,38 @@ script:
           int sum_abs = 0; // holds the sum of all abs differences
           int n_changes = 0; // holds the number of changed fields
           int n_pieces_last = 0; // holds number of pieces last
+          int n_black_pieces_last = 0;
+          int n_white_pieces_last = 0;
           int n_pieces_current = 0; // holds number of pieces current
+          int n_black_pieces_current = 0;
+          int n_white_pieces_current = 0;
 
           for (int value = 0; value < 64; value++) {
             sum += id(raw_position_differences)[value];
             int cur_pos_abs = abs(id(raw_position_differences)[value]);
             sum_abs += cur_pos_abs;
             n_changes += (int)((cur_pos_abs > 0) ? 1 : 0);
-            if (id(raw_position_last)[value] != 0 ) {
+            // calculate n pieces last
+            if (id(raw_position_last)[value] < 0 ) {
               n_pieces_last += 1;
-            }
-            if (id(raw_position_current)[value] != 0) {
+              n_black_pieces_last += 1;
+            } else if (id(raw_position_last)[value] > 0 ) {
+              n_pieces_last += 1;
+              n_white_pieces_last += 1;
+            }  
+            // calculate n pieces current
+            if (id(raw_position_current)[value] < 0) {
               n_pieces_current += 1;
+              n_black_pieces_current += 1;
+            } else if (id(raw_position_current)[value] > 0) {
+              n_pieces_current += 1;
+              n_white_pieces_current += 1;
             }
           }
 
           id(differences_n_pieces) = n_pieces_last - n_pieces_current;
+          id(differences_n_white_pieces) = n_white_pieces_last - n_white_pieces_current;
+          id(differences_n_black_pieces) = n_black_pieces_last - n_black_pieces_current;
           id(differences_sum) = sum;
           id(differences_sum_abs) = sum_abs;
           id(differences_n_changes) = n_changes;
@@ -2666,7 +2687,8 @@ script:
           id(current_move_to) = -1;
           id(fen_enpassant_index) = -1;
           // there is no moved piece
-          id(moved_piece) = "";
+          id(moved_piece) = "0";
+          id(target_piece) = "0";
           // reset valid move
           id(valid_move) = false;
           // reset move type
@@ -2687,12 +2709,8 @@ script:
               id(fen_position_current)[i] = id(fen_position_last)[i];
             };
 
-            if (id(debug_mode)) {
-              id(debugger_sensor).publish_state("abs: " + std::to_string(id(differences_sum_abs)) + ", sum"  + std::to_string(id(differences_sum))  + ", n"  + std::to_string(id(differences_n_changes)) + ", pieces"  + std::to_string(id(differences_n_pieces)) );
-            }
-
             // Update from / to indexes
-            if (id(differences_n_pieces) == 0) { // move or castling
+            if (id(differences_n_pieces) == 0 && id(differences_n_white_pieces) == 0 && id(differences_n_black_pieces) == 0) { // move or castling
 
               // MOVE
               if (id(differences_sum_abs) == 2 && id(differences_sum) == 0 && id(differences_n_changes) == 2 ) {
@@ -2703,7 +2721,7 @@ script:
               if (id(differences_sum_abs) == 4 && id(differences_sum) == 0 && id(differences_n_changes) == 4 ) {
                 id(validate_castling).execute();
               }
-            } else if (id(differences_n_pieces) == 1) { // take or enpassant
+            } else if (id(differences_n_pieces) == 1 && ((id(differences_n_white_pieces) == 1 && id(differences_n_black_pieces) == 0) || (id(differences_n_white_pieces) == 0 && id(differences_n_black_pieces) == 1))) { // take or enpassant
 
               // TAKE
               if (id(differences_sum_abs) == 3 && id(differences_sum) == 1 && id(differences_n_changes) == 2 ) {
@@ -2770,63 +2788,68 @@ script:
               to = std::distance(id(raw_position_differences).begin(), it_to);
           }
 
-          // update global variables
-          id(moved_piece) = id(fen_position_last)[from];
+          if (from > -1 && to > -1) {
+            // update global variables
+            id(moved_piece) = id(fen_position_last)[from];
+            id(target_piece) = id(fen_position_last)[to];
+          }
 
-          // for the case of en passant, we have to exclude taking of "empty square" from "move"
-          // algought, we have to wait, till the rook also moved at casteling
-          // otherwise the move will be checked as valid, although the opponent pawn is still on the board
-          bool pawn_move = (id(moved_piece) == "P" || id(moved_piece) == "p" );
-          bool king_move = (id(moved_piece) == "K" || id(moved_piece) == "k" );
-          bool take_enpassant = pawn_move  && (std::abs(from - to) == 7 || std::abs(from - to) == 9);
-          bool king_castling = king_move && std::abs(from - to) == 2;
+          if (id(moved_piece) != "0"  && id(target_piece) == "0") {
+            // for the case of en passant, we have to exclude taking of "empty square" from "move"
+            // algought, we have to wait, till the rook also moved at casteling
+            // otherwise the move will be checked as valid, although the opponent pawn is still on the board
+            bool pawn_move = (id(moved_piece) == "P" || id(moved_piece) == "p" );
+            bool king_move = (id(moved_piece) == "K" || id(moved_piece) == "k" );
+            bool take_enpassant = pawn_move  && (std::abs(from - to) == 7 || std::abs(from - to) == 9);
+            bool king_castling = king_move && std::abs(from - to) == 2;
 
-          // skip, till the opponent pawn is removed from board and we recognize the "enpassant - move"
-          if (!take_enpassant && !king_castling && from > -1 && to > -1) { 
+            // skip, till the opponent pawn is removed from board and we recognize the "enpassant - move"
+            if (!take_enpassant && !king_castling && from > -1 && to > -1) { 
 
-            id(current_move_from) = from;
-            id(current_move_to) = to;
-            id(current_move_type) = "MOVE";
+              id(current_move_from) = from;
+              id(current_move_to) = to;
+              id(current_move_type) = "MOVE";
 
-            // if pawn move by 2 fields (16 indexes), we have to check en-passant for FEN
-            if ( std::abs(from - to) == 16 && pawn_move)
-            {
-              std::vector<int> idx_to_check;
-              if (id(white_to_move)) { // white
-                if (from != 48) { // left diagonal (not a2 -> a4)
-                  idx_to_check.push_back(to - 1);
-                } 
-                if (from != 55) { // right diagonal (not h2 -> h4)
-                  idx_to_check.push_back(to + 1);
-                }
-                for (int i = 0; i < idx_to_check.size(); i++) {
-                  // check if black pawns
-                  if (id(fen_position_last)[idx_to_check[i]] == "p") {
-                    id(fen_enpassant_index) = from - 8;
-                    break;
+              // if pawn move by 2 fields (16 indexes), we have to check en-passant for FEN
+              if ( std::abs(from - to) == 16 && pawn_move)
+              {
+                std::vector<int> idx_to_check;
+                if (id(white_to_move)) { // white
+                  if (from != 48) { // left diagonal (not a2 -> a4)
+                    idx_to_check.push_back(to - 1);
+                  } 
+                  if (from != 55) { // right diagonal (not h2 -> h4)
+                    idx_to_check.push_back(to + 1);
                   }
-                }
-              } else { // black
-                if (from != 8) { // left diagonal (not a7 -> a5)
-                  idx_to_check.push_back(to - 1);
-                } 
-                if (from != 15) { // right diagonal (not h7 -> h5)
-                  idx_to_check.push_back(to + 1);
-                }
-                for (int i = 0; i < idx_to_check.size(); i++) {
-                  // check if black pawns
-                  if (id(fen_position_last)[idx_to_check[i]] == "P") {
-                    id(fen_enpassant_index) = from + 8;
-                    break;
+                  for (int i = 0; i < idx_to_check.size(); i++) {
+                    // check if black pawns
+                    if (id(fen_position_last)[idx_to_check[i]] == "p") {
+                      id(fen_enpassant_index) = from - 8;
+                      break;
+                    }
+                  }
+                } else { // black
+                  if (from != 8) { // left diagonal (not a7 -> a5)
+                    idx_to_check.push_back(to - 1);
+                  } 
+                  if (from != 15) { // right diagonal (not h7 -> h5)
+                    idx_to_check.push_back(to + 1);
+                  }
+                  for (int i = 0; i < idx_to_check.size(); i++) {
+                    // check if black pawns
+                    if (id(fen_position_last)[idx_to_check[i]] == "P") {
+                      id(fen_enpassant_index) = from + 8;
+                      break;
+                    }
                   }
                 }
               }
-            }
 
-            // prepare uci notation
-            id(update_uci_notation).execute();
-            // check if move is legal
-            id(check_chess_rules).execute();
+              // prepare uci notation
+              id(update_uci_notation).execute();
+              // check if move is legal
+              id(check_chess_rules).execute();
+            }
           }
 
           // still valid
@@ -2859,10 +2882,13 @@ script:
               to = std::distance(id(raw_position_differences).begin(), it_to);
           }
 
-          // update global variables
-          id(moved_piece) = id(fen_position_last)[from];
+          if (from > -1 && to > -1) {
+            // update global variables
+            id(moved_piece) = id(fen_position_last)[from];
+            id(target_piece) = id(fen_position_last)[to];
+          }
 
-          if (id(moved_piece) != ""  && from > -1 && to > -1) {
+          if (id(moved_piece) != "0"  && id(target_piece) != "0") {
             id(current_move_from) = from;
             id(current_move_to) = to;
             id(current_move_type) = "TAKE";
@@ -2931,9 +2957,10 @@ script:
 
             // store moved piece (we expect king)
             id(moved_piece) = id(fen_position_last)[from_k];
+            id(target_piece) = id(fen_position_last)[to_k];
 
             // check, if the moved piece is a king
-            if ((id(moved_piece) == "K" || id(moved_piece) == "k") ) {
+            if ((id(moved_piece) == "K" || id(moved_piece) == "k") && id(target_piece) == "0" ) {
               // king move only is set as from - to
               id(current_move_from) = from_k;
               id(current_move_to) = to_k;
@@ -2973,15 +3000,18 @@ script:
           // find from index
           auto it_from = std::find(id(raw_position_differences).begin(), id(raw_position_differences).end(), -1);
           if (it_from != id(raw_position_differences).end()) {
-              from = std::distance(id(raw_position_differences).begin(), it_from);
+              from = std::distance(id(raw_position_differences).begin(), it_from);              
               if (id(raw_position_differences)[from - 1] == 1) {
                 from_opponent = from - 1;  
               }
               if (id(raw_position_differences)[from + 1] == 1) {
                 from_opponent = from + 1;  
               }
-              // we deactivate the neighbour idx to find the goal
-              id(raw_position_differences)[from_opponent]  = 0;
+
+              if (from_opponent > -1) {
+                // we deactivate the neighbour idx to find the goal
+                id(raw_position_differences)[from_opponent]  = 0;
+              }
           }
 
           // find to index
@@ -2990,10 +3020,18 @@ script:
               to = std::distance(id(raw_position_differences).begin(), it_to);
           }
 
-          // update global variables
-          id(moved_piece) = id(fen_position_last)[from];
+          std::string from_opponent_piece = "0";
 
-          if (id(moved_piece) != ""  && from > -1 && to > -1) {
+          if (from > -1 && to > -1 && from_opponent > -1) {
+            // update global variables
+            id(moved_piece) = id(fen_position_last)[from];
+            id(target_piece) = id(fen_position_last)[to];
+            from_opponent_piece = id(fen_position_last)[from_opponent];
+            std::transform(from_opponent_piece.begin(), from_opponent_piece.end(), from_opponent_piece.begin(), ::toupper);
+          }
+
+          if ( (id(moved_piece) == "P" || id(moved_piece) == "p" ) && id(target_piece) == "0"  && from_opponent_piece == "P" ) {
+
             id(current_move_from) = from;
             id(current_move_to) = to;          
             id(current_move_type) = "ENPASSANT";
@@ -3348,6 +3386,8 @@ script:
   - id: lichess_create_new_game
     mode: single
     then:
+      - script.execute: check_init_position_set
+      - script.wait: check_init_position_set
       - lambda: |-
           // not during the gave
           if (id(initial_position_set).state) {
@@ -3404,14 +3444,12 @@ script:
             id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"waiting for new game ...\", \"line_1\": \"" + id(chess_time_control).state + "\"}";
             id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"waiting for new game ...\", \"line_1\": \"" + id(chess_time_control).state + "\"}"; 
           } else {
-            id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"Not initial position\"}";            
-            id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"Not initial position\"}";                    
+            
+            id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"Set initial position\"}";            
+            id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"Set initial position\"}";                    
           }
 
-          id(oled_white_acitve_page) = 2;
-          id(oled_black_acitve_page) = 2;  
-          id(redraw_displays).execute();  
-
+          id(oled_show_page_message).execute();
 
   - id: lichess_handle_new_event
     mode: queued
@@ -3440,6 +3478,7 @@ script:
 
             // we start board stream
             id(lichess_game_id).publish_state(game_id);
+            id(lichess_game_id).update();
 
             // we check the white color
             if ( root["color"].as<std::string>() == "white"){ 
@@ -3461,24 +3500,29 @@ script:
           // ############# game finished #############
           if (root.containsKey("type") && root["type"].as<std::string>() == "gameFinish" && root.containsKey("gameId") && root["gameId"].as<std::string>() == id(lichess_game_id).state){
             // for the case, multiple games are running, we check the current gameId
-            
+              
+              // store the win-state
+              std::string win = root["win"].as<std::string>();
+              std::string state = root["status"].as<std::string>();
+
               // white won ?
-              if (root["win"].as<std::string>() == "w"){
-                id(last_move_pgn_additional) = " 1-0"; 
+              if (win == "w"){
+                id(game_result) = "1-0"; 
               }
 
               // black won ?
-              if (root["win"].as<std::string>() == "b"){
-                id(last_move_pgn_additional) = " 0-1";
+              if (win == "b"){
+                id(game_result) = "0-1";
               }
 
-              if (root["status"].as<std::string>() == "draw"){
-                id(last_move_pgn_additional) = " 1/2-1/2";
+              if (state == "draw"){
+                id(game_result) = "1/2-1/2";
               }
 
               // close the event stream
               id(lichess_stream_events).publish_state("OFF");
               id(lichess_game_id).publish_state("idle");
+              id(lichess_game_id).update();
 
               id(inform_game_over).execute();
               id(game_running) = false;
