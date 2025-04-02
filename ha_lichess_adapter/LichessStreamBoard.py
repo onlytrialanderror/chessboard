@@ -54,7 +54,7 @@ class LichessStreamBoard(hass.Hass):
             break_game = True
         if (dat.get('type') == 'opponentGone' and dat.get('gone') == True and dat.get('claimWinInSeconds') == 0):
             break_game = True
-        if (self.__class__._current_game_id == IDLE_GAME_ID or self.__class__._current_game_id == UNAVAILABLE_STATE or self.__class__._current_game_id == UNKNOWN_STATE):
+        if (self.__class__._current_game_id == IDLE_GAME_ID):
             break_game = True
         return break_game
 
@@ -121,7 +121,7 @@ class LichessStreamBoard(hass.Hass):
             url = URL_TEMPLATE.format(self.__class__._current_game_id)
 
             # open the stream for whole chess game
-            with httpx.stream("GET", url, headers=headers, timeout=30) as response:
+            with httpx.stream("GET", url, headers=headers, timeout=7200) as response:
                 for line in response.iter_lines():
                     if line:
                         # convert to json - object
