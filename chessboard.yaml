@@ -87,7 +87,7 @@ substitutions:
   # shorter delay and high amount of samples works best
   adc_n_sampels: '50' 
   attenuation_value: 12dB
-  hall_sensor_intervall_game: 300ms 
+  hall_sensor_intervall_game: 500ms 
   hall_sensor_intervall_idle: 1s
   delay_before_adc_reading: '2'
 
@@ -1083,7 +1083,11 @@ binary_sensor:
     id: initial_position_set
     internal: true
     lambda: |-
-      return id(initial_position_set_black) && id(initial_position_set_white);
+      if (id(game_running)) {
+        return false;
+      } else {
+        return id(initial_position_set_black) && id(initial_position_set_white);
+      }
     on_press:
       then:
         - lambda: |-
@@ -2539,77 +2543,80 @@ script:
           // define flag          
           bool valid_check = false;
           id(last_move_pgn_additional) = "";
-
+          
           std::string new_fen = id(fen_position_last_string);
+          std::string new_uci = id(current_move_uci);
 
           // we use validator by https://github.com/rilpires/chess_fen_validator/blob/master/chess_validator.h
           chess_validator::TableState table_state;
-          chess_validator::get_table_state( new_fen.c_str() , &table_state );
-          chess_validator::INVALID_REASON invalid = chess_validator::is_move_invalid( &table_state , id(current_move_from), id(current_move_to) );
-          if( invalid ){
-              std::string fen_string = ", FEN = " + id(fen_position_last_string) + ", MOVE: " + id(current_move_uci);
-              std::string invalid_reason = "";              
-              switch(invalid){
-                  case chess_validator::INVALID_FEN_STRING:
-                      ESP_LOGW("Validator", "Invalid move... reason: INVALID_FEN_STRING %s",  fen_string.c_str() );
-                      invalid_reason = "INVALID_FEN_STRING";
-                      break;
-                  case chess_validator::NOT_PLAYER_TURN:
-                      ESP_LOGW("Validator", "Invalid move... reason: NOT_PLAYER_TURN %s",  fen_string.c_str() );
-                      invalid_reason = "NOT_PLAYER_TURN";
-                      break;
-                  case chess_validator::NO_UNIT:
-                      ESP_LOGW("Validator", "Invalid move... reason: NO_UNIT %s",  fen_string.c_str() );
-                      break;
-                  case chess_validator::SAME_PLACE:
-                      ESP_LOGW("Validator", "Invalid move... reason: SAME_PLACE %s",  fen_string.c_str() );
-                      break;
-                  case chess_validator::CAPTURING_SAME_COLOR:
-                      ESP_LOGW("Validator", "Invalid move... reason: CAPTURING_SAME_COLOR %s",  fen_string.c_str() );
-                      invalid_reason = "CAPTURING_SAME_COLOR";
-                      break;
-                  case chess_validator::INVALID_UNIT_MOVE:
-                      ESP_LOGW("Validator", "Invalid move... reason: INVALID_UNIT_MOVE %s",  fen_string.c_str() );
-                      invalid_reason = "INVALID_UNIT_MOVE";
-                      break;
-                  case chess_validator::KING_IN_CHECK:
-                      ESP_LOGW("Validator", "Invalid move... reason: KING_IN_CHECK %s",  fen_string.c_str() );
-                      invalid_reason = "KING_IN_CHECK";
-                      break;
-              }
-              if (invalid_reason != "") {
-                if (id(white_to_move)) {
-                  id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"" + invalid_reason + "\"}";
-                  id(oled_white_acitve_page) = 2;
-                } else {
-                  id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"" + invalid_reason + "\"}";
-                  id(oled_black_acitve_page) = 2;
+          bool valid_fen = chess_validator::get_table_state( new_fen.c_str() , &table_state );
+          if (valid_fen) {
+            chess_validator::INVALID_REASON invalid = chess_validator::is_move_invalid( &table_state , new_uci.c_str() );
+            if( invalid ){
+                std::string fen_string = ", FEN = " + id(fen_position_last_string) + ", MOVE: " + new_uci;
+                std::string invalid_reason = "";              
+                switch(invalid){
+                    case chess_validator::INVALID_FEN_STRING:
+                        ESP_LOGW("Validator", "Invalid move... reason: INVALID_FEN_STRING %s",  fen_string.c_str() );
+                        invalid_reason = "INVALID_FEN_STRING";
+                        break;
+                    case chess_validator::NOT_PLAYER_TURN:
+                        ESP_LOGW("Validator", "Invalid move... reason: NOT_PLAYER_TURN %s",  fen_string.c_str() );
+                        invalid_reason = "NOT_PLAYER_TURN";
+                        break;
+                    case chess_validator::NO_UNIT:
+                        ESP_LOGW("Validator", "Invalid move... reason: NO_UNIT %s",  fen_string.c_str() );
+                        break;
+                    case chess_validator::SAME_PLACE:
+                        ESP_LOGW("Validator", "Invalid move... reason: SAME_PLACE %s",  fen_string.c_str() );
+                        break;
+                    case chess_validator::CAPTURING_SAME_COLOR:
+                        ESP_LOGW("Validator", "Invalid move... reason: CAPTURING_SAME_COLOR %s",  fen_string.c_str() );
+                        invalid_reason = "CAPTURING_SAME_COLOR";
+                        break;
+                    case chess_validator::INVALID_UNIT_MOVE:
+                        ESP_LOGW("Validator", "Invalid move... reason: INVALID_UNIT_MOVE %s",  fen_string.c_str() );
+                        invalid_reason = "INVALID_UNIT_MOVE";
+                        break;
+                    case chess_validator::KING_IN_CHECK:
+                        ESP_LOGW("Validator", "Invalid move... reason: KING_IN_CHECK %s",  fen_string.c_str() );
+                        invalid_reason = "KING_IN_CHECK";
+                        break;
                 }
-                id(redraw_displays).execute();
-              }
+                if (invalid_reason != "") {
+                  if (id(white_to_move)) {
+                    id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"" + invalid_reason + "\"}";
+                    id(oled_white_acitve_page) = 2;
+                  } else {
+                    id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"" + invalid_reason + "\"}";
+                    id(oled_black_acitve_page) = 2;
+                  }
+                  id(redraw_displays).execute();
+                }
 
-          } else {
+            } else {
 
-              // apply current move and check if any checks, mates, draws (we use here UCI due to missing promotion parameter)
-              chess_validator::TableState new_table_state = chess_validator::apply_move( &table_state , id(current_move_uci).c_str() );
-              new_fen = chess_validator::to_fen_string(&new_table_state);
+                // apply current move and check if any checks, mates, draws (we use here UCI due to missing promotion parameter)
+                chess_validator::TableState new_table_state = chess_validator::apply_move( &table_state , new_uci.c_str() );
+                new_fen = chess_validator::to_fen_string(&new_table_state);
 
-              // king in check ?
-              if (chess_validator::is_king_in_check(&new_table_state, new_table_state.next_color_to_play)) {
-                  id(last_move_pgn_additional) = "+";
-              }
-              // kind in mate?
-              if (chess_validator::is_check_mate(&new_table_state))
-              {
-                  id(last_move_pgn_additional) = "#";
-              }
-              // draw ?
-              chess_validator::DRAW_REASON   draw  = chess_validator::get_draw_reason(&new_table_state);
-              if (draw != chess_validator::DRAW_REASON::NO_DRAW) {
-                  id(last_move_pgn_additional) = " 1/2-1/2";
-              }
+                // king in check ?
+                if (chess_validator::is_king_in_check(&new_table_state, new_table_state.next_color_to_play)) {
+                    id(last_move_pgn_additional) = "+";
+                }
+                // kind in mate?
+                if (chess_validator::is_check_mate(&new_table_state))
+                {
+                    id(last_move_pgn_additional) = "#";
+                }
+                // draw ?
+                chess_validator::DRAW_REASON   draw  = chess_validator::get_draw_reason(&new_table_state);
+                if (draw != chess_validator::DRAW_REASON::NO_DRAW) {
+                    id(last_move_pgn_additional) = " 1/2-1/2";
+                }
 
-              valid_check = true;
+                valid_check = true;
+            }
           }
 
           // reset flag if not valid
@@ -2679,6 +2686,10 @@ script:
             for (int i = 0; i < 72; i++) {
               id(fen_position_current)[i] = id(fen_position_last)[i];
             };
+
+            if (id(debug_mode)) {
+              id(debugger_sensor).publish_state("abs: " + std::to_string(id(differences_sum_abs)) + ", sum"  + std::to_string(id(differences_sum))  + ", n"  + std::to_string(id(differences_n_changes)) + ", pieces"  + std::to_string(id(differences_n_pieces)) );
+            }
 
             // Update from / to indexes
             if (id(differences_n_pieces) == 0) { // move or castling
