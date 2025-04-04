@@ -578,6 +578,10 @@ globals:
     type: int
     initial_value: '2'
 
+  - id: initial_position_state
+    type: int
+    initial_value: '0'
+
   - id: differences_sum
     type: int
     initial_value: '0'
@@ -602,14 +606,6 @@ globals:
     type: int
     initial_value: '0'
 
-  - id: initial_position_set_black
-    type: bool
-    initial_value: 'false'
-
-  - id: initial_position_set_white
-    type: bool
-    initial_value: 'false'
-
   - id: debug_mode
     type: bool
     initial_value: 'false'
@@ -628,12 +624,12 @@ interval:
     then:
       - lambda: |-
           if (!id(game_running)) {
-            // check position of the pieces 
-            // id(main_loop).execute();
-            // we have to update lichess_game_id if meanwhile a new id was sent by stream
-            // id(lichess_game_id).update();
+            // read hall sensors
+            id(update_all_hall_sensors).execute();          
+            // transform voltage to position flags (-1, 0, 1)
+            id(update_raw_position_current).execute();
             // update variables, if black & white init-positions are set
-            id(check_init_position_set).execute();
+            id(initial_position_set).update();
             // turn on red-led if not
             id(led_update_initial_position_set).execute();
           }
@@ -749,14 +745,6 @@ graphical_display_menu:
       - lambda: |-
           id(redraw_displays).execute();
   items:
-    - type: select
-      immediate_edit: false
-      text: 'TIMER'
-      select: chess_time_control
-    - type: select
-      immediate_edit: false
-      text: 'PROMOTION'
-      select: pawn_promotion
     - type: menu
       text: 'LICHESS'
       items:
@@ -843,6 +831,14 @@ graphical_display_menu:
         then:
           - lambda: |-
               id(send_telegram_message).execute();
+    - type: select
+      immediate_edit: false
+      text: 'TIMER'
+      select: chess_time_control
+    - type: select
+      immediate_edit: false
+      text: 'PROMOTION'
+      select: pawn_promotion
     - type: command
       text: 'TAKE BACK'
       on_value:
@@ -1091,24 +1087,10 @@ binary_sensor:
                 - display_menu.show:  my_menu
                 - lambda: |-
                     id(game_running) = !id(game_running);
-                    id(led_update_color_to_move).execute(); 
+                    id(initial_position_set).update();
+                    id(led_update_initial_position_set).execute(); 
                     id(oled_show_page_menu).execute();
     internal: true
-  - platform: template
-    name: initial_position_set
-    id: initial_position_set
-    internal: true
-    lambda: |-
-      if (id(game_running)) {
-        return false;
-      } else {
-        return id(initial_position_set_black) && id(initial_position_set_white);
-      }
-    on_press:
-      then:
-        - lambda: |-
-            id(post_game_operation).execute();
-            // notfiy -> ready for new game
 
 select:
   - platform: template
@@ -1341,6 +1323,43 @@ sensor:
     attenuation: $attenuation_value
     samples: $adc_n_sampels
     update_interval: never
+  - platform: template
+    name: initial_position_set
+    id: initial_position_set
+    internal: true
+    lambda: |-
+      // 0 - non, 1 - black, 2 - white, 3 - both set
+      int init_position = 0;      
+      if (!id(game_running)) {
+        // check black
+        init_position += 1;
+        for (int i = 0; i < 16; i++) {
+          if (id(raw_position_current)[i]  != id(raw_position_init)[i])
+          {
+            init_position -= 1;
+            break;
+          }
+        }
+        // check white
+        init_position += 2;
+        for (int i = 48; i < 64; i++) {
+          if (id(raw_position_current)[i]  != id(raw_position_init)[i])
+          {
+            init_position -= 2;
+            break;
+          }
+        }
+      }
+      return init_position;          
+    update_interval: never
+    on_value:
+      then:
+        - lambda: |-
+            if (x == 3) {
+              id(post_game_operation).execute();
+              // notfiy -> ready for new game
+            }
+            
 
 text_sensor:
 
@@ -1816,7 +1835,7 @@ script:
                 id(move_to_store_flag) = true; 
               }
             // we assume here, initial-position-set is updated by the idle iteration loop
-            } else if (!id(game_running) && id(white_to_move) && !id(lichess_game_running) && id(halfmove_counter) == 0 && id(initial_position_set).state) { 
+            } else if (!id(game_running) && id(white_to_move) && !id(lichess_game_running) && id(halfmove_counter) == 0 && id(initial_position_set).state == 3) { 
                 // if initial position, white can also start the the clock
                 id(game_running) = true;
                 // update LEDs
@@ -2247,31 +2266,6 @@ script:
             float curr_value = id(voltage_field_offset)[i];
             id(voltage_field_current)[i] = curr_value;   
           };
-
-  - id: check_init_position_set
-    then:
-      - lambda: |-
-          // check black
-          bool init_position = true;
-          for (int i = 0; i < 16; i++) {
-            if (id(raw_position_current)[i]  != id(raw_position_init)[i])
-            {
-              init_position = false;
-              break;
-            }
-          }
-          id(initial_position_set_black) = init_position;
-          // check white
-          init_position = true;
-          for (int i = 48; i < 64; i++) {
-            if (id(raw_position_current)[i]  != id(raw_position_init)[i])
-            {
-              init_position = false;
-              break;
-            }
-          }
-          id(initial_position_set_white) = init_position;
-
 
   - id: inform_game_over
     then:
@@ -2796,7 +2790,7 @@ script:
 
           if (id(moved_piece) != "0"  && id(target_piece) == "0") {
             // for the case of en passant, we have to exclude taking of "empty square" from "move"
-            // algought, we have to wait, till the rook also moved at casteling
+            // furthermore, we have to wait, till the rook also moved at casteling
             // otherwise the move will be checked as valid, although the opponent pawn is still on the board
             bool pawn_move = (id(moved_piece) == "P" || id(moved_piece) == "p" );
             bool king_move = (id(moved_piece) == "K" || id(moved_piece) == "k" );
@@ -2804,7 +2798,7 @@ script:
             bool king_castling = king_move && std::abs(from - to) == 2;
 
             // skip, till the opponent pawn is removed from board and we recognize the "enpassant - move"
-            if (!take_enpassant && !king_castling && from > -1 && to > -1) { 
+            if (!take_enpassant && !king_castling) { 
 
               id(current_move_from) = from;
               id(current_move_to) = to;
@@ -3386,11 +3380,12 @@ script:
   - id: lichess_create_new_game
     mode: single
     then:
-      - script.execute: check_init_position_set
-      - script.wait: check_init_position_set
       - lambda: |-
+          // update sensor
+          id(update_raw_position_current).execute();
+          id(initial_position_set).update();
           // not during the gave
-          if (id(initial_position_set).state) {
+          if (id(initial_position_set).state == 3) {
             // stop timer, if running
             id(game_running) = false;
             // update lichess token, if not selected yet
@@ -3690,14 +3685,17 @@ script:
           if (!id(game_running)) {
             // turn all leds off
             id(led_all_turn_off).execute();
+            // extract the current state of init position
+            // 0 - non, 1 - black, 2 - white, 3 - both are set
+            int value = id(initial_position_set).state;
             // black -> red if not set
-            if (id(initial_position_set_black)) {
-              id(led_black_blue).execute();              
+            if (value & 0b000001) {
+              id(led_black_blue).execute(); 
             } else {
               id(led_black_red).execute();
             }
             // white -> red if not set
-            if (id(initial_position_set_white)) {              
+            if (value & 0b000010) {
               id(led_white_blue).execute();
             } else {
               id(led_white_red).execute();
