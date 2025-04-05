@@ -752,7 +752,6 @@ graphical_display_menu:
           text: 'New game'
           on_value:
             then:
-              - display_menu.show_main:   my_menu
               - display_menu.hide:  my_menu 
               - lambda: |-
                   id(lichess_create_new_game).execute();
@@ -764,6 +763,8 @@ graphical_display_menu:
                   // force changed state, to be able to call the same request 
                   id(lichess_api_call).publish_state("{}"); 
                   id(lichess_api_call).publish_state("{\"type\": \"resign\"}");
+                  id(oled_show_page_clock).execute();
+              - display_menu.hide:  my_menu 
         - type: command
           text: 'Claim victory'
           on_value:
@@ -772,6 +773,8 @@ graphical_display_menu:
                   // force changed state, to be able to call the same request 
                   id(lichess_api_call).publish_state("{}"); 
                   id(lichess_api_call).publish_state("{\"type\": \"claim-victory\"}");
+                  id(oled_show_page_clock).execute();
+              - display_menu.hide:  my_menu 
         - type: command
           text: 'Draw (yes)'
           on_value:
@@ -780,6 +783,8 @@ graphical_display_menu:
                   // force changed state, to be able to call the same request 
                   id(lichess_api_call).publish_state("{}"); 
                   id(lichess_api_call).publish_state("{\"type\": \"draw\", \"parameter\": \"yes\"}");
+                  id(oled_show_page_clock).execute();
+              - display_menu.hide:  my_menu 
         - type: command
           text: 'Draw (no)'
           on_value:
@@ -788,6 +793,8 @@ graphical_display_menu:
                   // force changed state, to be able to call the same request 
                   id(lichess_api_call).publish_state("{}"); 
                   id(lichess_api_call).publish_state("{\"type\": \"draw\", \"parameter\": \"no\"}");
+                  id(oled_show_page_clock).execute();
+              - display_menu.hide:  my_menu 
         - type: command
           text: 'Takeback (yes)'
           on_value:
@@ -795,6 +802,8 @@ graphical_display_menu:
               - lambda: |-
                   id(lichess_api_call).publish_state("{}"); 
                   id(lichess_api_call).publish_state("{\"type\": \"takeback\", \"parameter\": \"yes\"}");
+                  id(oled_show_page_clock).execute();
+              - display_menu.hide:  my_menu 
         - type: command
           text: 'Takeback (no)'
           on_value:
@@ -803,6 +812,8 @@ graphical_display_menu:
                   // force changed state, to be able to call the same request 
                   id(lichess_api_call).publish_state("{}"); 
                   id(lichess_api_call).publish_state("{\"type\": \"takeback\", \"parameter\": \"no\"}");
+                  id(oled_show_page_clock).execute();
+              - display_menu.hide:  my_menu 
         - type: command
           text: 'Abort game'
           on_value:
@@ -811,6 +822,8 @@ graphical_display_menu:
                   // force changed state, to be able to call the same request 
                   id(lichess_api_call).publish_state("{}"); 
                   id(lichess_api_call).publish_state("{\"type\": \"abort\"}");
+                  id(oled_show_page_clock).execute();
+              - display_menu.hide:  my_menu 
         - type: select
           immediate_edit: false
           text: 'User'
@@ -819,6 +832,10 @@ graphical_display_menu:
           immediate_edit: false
           text: 'Opponent'
           select: lichess_opponent
+        - type: select
+          immediate_edit: False
+          text: 'Rated'
+          select: lichess_seek_rated
         - type: select
           immediate_edit: False
           text: 'Opponent at board'
@@ -1086,7 +1103,12 @@ binary_sensor:
               else:
                 - display_menu.show:  my_menu
                 - lambda: |-
-                    id(game_running) = !id(game_running);
+                    id(game_running) = false;
+                    // read hall sensors
+                    id(update_all_hall_sensors).execute();          
+                    // transform voltage to position flags (-1, 0, 1)
+                    id(update_raw_position_current).execute();
+                    // update variables, if black & white init-positions are set
                     id(initial_position_set).update();
                     id(led_update_initial_position_set).execute(); 
                     id(oled_show_page_menu).execute();
@@ -1240,6 +1262,9 @@ select:
       - !secret chessboard_opponent_a
       - !secret chessboard_opponent_b
       - !secret chessboard_opponent_c
+      - !secret chessboard_opponent_d
+      - !secret chessboard_opponent_e
+      - !secret chessboard_opponent_f
       - "random"
       - "AI_1"
       - "AI_2"
@@ -1274,7 +1299,7 @@ select:
     options:
       - "rated"
       - "not rated"
-    initial_option: "not rated"
+    initial_option: "rated"
     web_server:
       sorting_group_id: sorting_group_lichess
       sorting_weight: 4
@@ -1329,23 +1354,23 @@ sensor:
     internal: true
     lambda: |-
       // 0 - non, 1 - black, 2 - white, 3 - both set
-      int init_position = 0;      
+      int init_position = 0b00;      
       if (!id(game_running)) {
+        init_position = 0b11; // 3
         // check black
-        init_position += 1;
         for (int i = 0; i < 16; i++) {
           if (id(raw_position_current)[i]  != id(raw_position_init)[i])
           {
-            init_position -= 1;
+            init_position = 0b10; // 2
             break;
           }
         }
+        // here 2 or 3
         // check white
-        init_position += 2;
         for (int i = 48; i < 64; i++) {
           if (id(raw_position_current)[i]  != id(raw_position_init)[i])
           {
-            init_position -= 2;
+            init_position &= 0b01; // 0 or 1
             break;
           }
         }
@@ -1355,9 +1380,8 @@ sensor:
     on_value:
       then:
         - lambda: |-
-            if (x == 3) {
+            if (x == 0b11) {
               id(post_game_operation).execute();
-              // notfiy -> ready for new game
             }
             
 
@@ -2031,6 +2055,7 @@ script:
   - id: send_telegram_message
     then:
       - script.execute: create_full_pgn
+      - script.wait: create_full_pgn
       - http_request.post:
           url: !secret telegram_cheesboard_url
           headers:
@@ -2268,15 +2293,17 @@ script:
           };
 
   - id: inform_game_over
+    parameters:
+      game_result: std::string
     then:
       - lambda: |-
           if (id(game_running)) {
             // turn all led's off
             id(led_all_turn_off).execute();
 
-            bool white_won = (bool)(id(game_result) == "1-0" || (id(game_result) == "#" &&  id(white_to_move))|| id(timer_black).state == "--:--");
-            bool black_won = (bool)(id(game_result) == "0-1" || (id(game_result) == "#" && !id(white_to_move))|| id(timer_white).state == "--:--");
-            bool draw = (bool)(id(game_result) == "1/2-1/2");
+            bool white_won = (bool)(game_result == "1-0" || id(timer_black).state == "--:--");
+            bool black_won = (bool)(game_result == "0-1" || id(timer_white).state == "--:--");
+            bool draw = (bool)(game_result == "1/2-1/2");
 
             if (white_won) { 
               id(led_white_green).execute(); // green
@@ -2308,7 +2335,8 @@ script:
               id(pgn_history) += " 1/2-1/2";
             }
 
-            if (!white_won && !black_won && !draw) {
+            // on a lichess game, we have to end the game (abort, mate, draw)
+            if (!id(lichess_game_running) && !white_won && !black_won && !draw) {
               id(led_black_red).execute(); // red
               id(led_white_red).execute(); // red 
               id(display_message_black) = "{\"n_lines\": 1, \"line_0\": \"Aborted\"}";
@@ -2316,7 +2344,7 @@ script:
             }
 
             id(oled_show_page_message).execute();
-            delay(3000);
+            delay(5000);
           }
 
 
@@ -2399,10 +2427,17 @@ script:
             // make lichess move
             id(lichess_make_move).execute();
 
+            // overwrite game result from # to 0-1/1-0
+            if (id(white_to_move) && id(game_result) == "#") {
+                id(game_result) == "1-0";
+            } else if (!id(white_to_move) && id(game_result) == "#") {
+                id(game_result) == "0-1";
+            }
+
             // game finished on board ?
             if (!id(lichess_game_running) && (id(game_result) == "#" || id(game_result) == "1-0" || id(game_result) == "0-1" || id(game_result) == "1/2-1/2")){
               // game over
-              id(inform_game_over).execute();
+              id(inform_game_over)->execute(id(game_result));
               // do some post game operations
               id(post_game_operation).execute();
             } else {               
@@ -2540,6 +2575,7 @@ script:
           // define flag          
           bool valid_check = false;
           id(last_move_pgn_additional) = "";
+          id(game_result) = "";
           
           std::string new_fen = id(fen_position_last_string);
           std::string new_uci = id(current_move_uci);
@@ -2742,9 +2778,9 @@ script:
             }
 
             // ON SETTING START POSITION?
-            if (id(differences_n_pieces) < -4) { // added five and more pieces to board
+            if (id(game_running) && (id(differences_n_pieces) < -2)) { // added three and more pieces to board
               // inform game is aborted
-              id(inform_game_over).execute();
+              id(inform_game_over)->execute(id(game_result));
               // we stop the game and send png
               id(post_game_operation).execute();
               id(game_running) = false;
@@ -3242,25 +3278,25 @@ script:
           // Read all 16 ADC-Channels and store them in the array
           for (int value = 0; value < 16; value++) {
 
-            if (value & 0b000001) {
+            if (value & 0b0001) {
               id(output_s1).turn_on();
             } else {
               id(output_s1).turn_off();
             }
 
-            if (value & 0b000010) {
+            if (value & 0b0010) {
               id(output_s2).turn_on();
             } else {
               id(output_s2).turn_off();
             }
 
-            if (value & 0b000100) {
+            if (value & 0b0100) {
               id(output_s3).turn_on();
             } else {
               id(output_s3).turn_off();
             }
 
-            if (value & 0b001000) {
+            if (value & 0b1000) {
               id(output_s4).turn_on();
             } else {
               id(output_s4).turn_off();
@@ -3393,7 +3429,7 @@ script:
             // open the event stream
             id(lichess_stream_events).publish_state("ON");
             // Create JSON object
-            StaticJsonDocument<250> root;  
+            StaticJsonDocument<512> root;  
             root["type"] = "createGame";   
             root["color"] = id(lichess_seek_color).state;     
             root["time_m"] = float(float(id(time_control_duration)) / 60.);
@@ -3438,6 +3474,12 @@ script:
 
             id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"waiting for new game ...\", \"line_1\": \"" + id(chess_time_control).state + "\"}";
             id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"waiting for new game ...\", \"line_1\": \"" + id(chess_time_control).state + "\"}"; 
+
+            // accept the game by the opponents, if both lichess-players are on board
+            if ( id(lichess_opponent_at_board).state == "yes" ) {
+              id(lichess_accept_challenge).execute();
+            }
+
           } else {
             
             id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"Set initial position\"}";            
@@ -3452,14 +3494,17 @@ script:
       - lambda: |-
           std::string json_str = id(lichess_last_event_in).state;
 
-          StaticJsonDocument<255> root;
+          if (id(debug_mode)) {
+            id(debugger_sensor).publish_state("json (1): " + json_str);
+          }
+
+          StaticJsonDocument<512> root;
           deserializeJson(root, json_str);
 
           // ############# new game started #############
-          if (root.containsKey("type") && root.containsKey("color") && root["type"].as<std::string>() == "gameStart"){
+          if (root.containsKey("type") && root.containsKey("color") && (root["type"].as<std::string>() == "gameStart")){
 
-            // rise flag we are in lichess game
-            id(lichess_game_running) = true;
+            
             id(game_running) = true;
             id(white_to_move) = true;
             // we could have some pgn_additionals from last game
@@ -3490,11 +3535,22 @@ script:
 
             id(lichess_opponent_name) = opponent;     
             id(oled_show_page_message).execute();
+
+            // rise flag we are in lichess game
+            id(lichess_game_running) = true;
           }
 
           // ############# game finished #############
-          if (root.containsKey("type") && root["type"].as<std::string>() == "gameFinish" && root.containsKey("gameId") && root["gameId"].as<std::string>() == id(lichess_game_id).state){
+          if (root.containsKey("type") && (root["type"].as<std::string>() == "gameFinish" ) && root.containsKey("gameId") && (root["gameId"].as<std::string>() == id(lichess_game_id).state)){
             // for the case, multiple games are running, we check the current gameId
+
+              std::string curr_game_result = "";
+
+              if (id(debug_mode)) {
+                std::string serialized_json = "";
+                serializeJson(root, serialized_json);
+                id(debugger_sensor).publish_state("json (2): " + serialized_json);
+              }
               
               // store the win-state
               std::string win = root["win"].as<std::string>();
@@ -3502,16 +3558,16 @@ script:
 
               // white won ?
               if (win == "w"){
-                id(game_result) = "1-0"; 
+                curr_game_result = "1-0"; 
               }
 
               // black won ?
               if (win == "b"){
-                id(game_result) = "0-1";
+                curr_game_result = "0-1";
               }
 
               if (state == "draw"){
-                id(game_result) = "1/2-1/2";
+                curr_game_result = "1/2-1/2";
               }
 
               // close the event stream
@@ -3519,10 +3575,12 @@ script:
               id(lichess_game_id).publish_state("idle");
               id(lichess_game_id).update();
 
-              id(inform_game_over).execute();
+              id(inform_game_over)->execute(curr_game_result);
+              id(post_game_operation).execute();
+              // should be reseted by post_game_operation, just for the case counter = 0 (i.e. resigned at first move)
               id(game_running) = false;
+              id(lichess_game_running) = false;              
           }
-
           
 
   - id: lichess_handle_last_move
@@ -3531,11 +3589,11 @@ script:
       - lambda: |-
           std::string json_str = id(lichess_last_move_in).state;
 
-          StaticJsonDocument<300> root;
+          StaticJsonDocument<512> root;
           deserializeJson(root, json_str);
 
           // ############# opponent gone #############
-          if (root["type"].as<std::string>() == "opponentGone" && root["gone"].as<bool>() == true  && root["claimWinInSeconds"].as<int>() == 0 ){
+          if ((root["type"].as<std::string>() == "opponentGone") && (root["gone"].as<bool>() == true ) && (root["claimWinInSeconds"].as<int>() == 0) ){
             delay(1000);  // Wait 1s to sync
             // claim victory
             id(lichess_api_call).publish_state("{}"); 
@@ -3543,7 +3601,8 @@ script:
           }
 
           // ############# move on board #############
-          if (root["type"].as<std::string>() == "gameState"){
+          if ((root["type"].as<std::string>() == "gameState") && root.containsKey("win") && (root["win"].as<std::string>() != "w") && (root["win"].as<std::string>() != "b")){
+            // win - state is extracted from the event - json
             
             // let the player know about the last move of opponent
             std::string last_move = root["last"].as<std::string>();
@@ -3613,7 +3672,7 @@ script:
             }   
            
             // draw offer ?
-            if ( (root["wdraw"].as<int>() == 1 && !id(lichess_is_my_color_white)) || (root["bdraw"].as<int>() == 1 && id(lichess_is_my_color_white)) ) {
+            if ( ((root["wdraw"].as<int>() == 1) && !id(lichess_is_my_color_white)) || ((root["bdraw"].as<int>() == 1) && id(lichess_is_my_color_white)) ) {
               if (!id(lichess_is_my_color_white)) {
                 id(display_message_black) = "{\"n_lines\": 1, \"line_0\": \"DRAW?\"}";
                 id(oled_black_acitve_page) = 2;
@@ -3625,7 +3684,7 @@ script:
             }
 
             // take back offer ?
-            if ( (root["wback"].as<int>() == 1 && !id(lichess_is_my_color_white)) || (root["bback"].as<int>() == 1 && id(lichess_is_my_color_white)) ) {
+            if ( ((root["wback"].as<int>() == 1) && !id(lichess_is_my_color_white)) || ((root["bback"].as<int>() == 1) && id(lichess_is_my_color_white)) ) {
               if (!id(lichess_is_my_color_white)) {
                 id(display_message_black) = "{\"n_lines\": 1, \"line_0\": \"Takeback?\"}";
                 id(oled_black_acitve_page) = 2;
@@ -3639,6 +3698,50 @@ script:
 
           id(redraw_displays).execute();
 
+  - id: lichess_accept_challenge
+    then:
+      - lambda: |-
+            // here we have to accept the game for the opponent   
+            if (id(lichess_opponent).state != "random" && (id(lichess_opponent).state).compare(0, 3, "AI_") != 0 ) {         
+              bool challenge_accepted = false;
+              std::string token_body = "{\"type\": \"overwriteToken\", \"token\": \"" + id(chessboard_token_opponent) + "\"}";
+              // switch to oppoents token
+              id(lichess_api_call).publish_state(token_body);
+              for ( int i = 0; i < 10; i++) { // we try 10 times to find the current challenge
+                
+                // sent opponents (in this case, "me" name)
+                std::string challenge_body = "{\"type\": \"acceptChallenge\", \"parameter\": \"" + id(lichess_account).state + "\"}";
+                // accept the current challenge
+                id(lichess_api_call).publish_state(challenge_body); 
+
+                // wait a second (we have to list all available challenges, send the request to accept the right one,
+                // and then, we have to recieve "startGame" event, which overwrites the gameID, so we know, challenge is accepted
+                delay(1000); 
+                
+                // we expect length of ID = 8 : unknown & unavailble are not 8 chars long
+                if ((id(lichess_game_id).state).length() == 8) {
+                  id(beep_long).execute();
+                  challenge_accepted = true;
+                  // we can break the loop
+                  break;
+                } else {
+                  std::string dots(i+1, '.');
+                  id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"Accepting challenge " + dots + "\"}";            
+                  id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"Accepting challenge " + dots + "\"}";   
+                  id(oled_show_page_message).execute();
+                }
+
+              }
+              if (!challenge_accepted) {
+                id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"Challenge not accepted\"}";            
+                id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"Challenge not accepted\"}";   
+                id(oled_show_page_message).execute();
+              }
+              // switch token back
+              token_body = "{\"type\": \"overwriteToken\", \"token\": \"" + id(chessboard_token_current) + "\"}";
+              id(lichess_api_call).publish_state(token_body);
+            }
+
   - id: oled_show_page_clock
     then:
       - if:
@@ -3648,8 +3751,24 @@ script:
             - display_menu.show_main:   my_menu
             - display_menu.hide:  my_menu
       - lambda: |-
-            id(oled_white_acitve_page) = 1;
-            id(oled_black_acitve_page) = 1;
+            if (!id(lichess_game_running) || id(lichess_opponent_at_board).state == "yes" || !id(game_running)) {
+              id(oled_white_acitve_page) = 1;
+              id(oled_black_acitve_page) = 1;
+            } else { // at lichess game with online opponent, we dont want to show clock
+              if (id(lichess_is_my_color_white) ) { // I'm white
+                id(oled_white_acitve_page) = 1;
+                // if we've been in menu, switch to messages
+                if (id(oled_black_acitve_page) == 0) {
+                  id(oled_black_acitve_page) = 2;
+                }
+              } else { // I'm black
+                id(oled_black_acitve_page) = 1;
+                // if we've been in menu, switch to messages
+                if (id(oled_white_acitve_page) == 0) {
+                  id(oled_white_acitve_page) = 2;
+                }
+              }
+            }            
             id(redraw_displays).execute();
 
   - id: oled_show_page_menu
@@ -3689,13 +3808,13 @@ script:
             // 0 - non, 1 - black, 2 - white, 3 - both are set
             int value = id(initial_position_set).state;
             // black -> red if not set
-            if (value & 0b000001) {
+            if (value & 0b01) {
               id(led_black_blue).execute(); 
             } else {
               id(led_black_red).execute();
             }
             // white -> red if not set
-            if (value & 0b000010) {
+            if (value & 0b10) {
               id(led_white_blue).execute();
             } else {
               id(led_white_red).execute();
