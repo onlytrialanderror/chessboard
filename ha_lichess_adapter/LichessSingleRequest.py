@@ -89,14 +89,59 @@ class LichessSingleRequest(hass.Hass):
             call_type = json_data.get('type', None)
 
             if (json_data and call_type):
-
-                # no token or id required
+                ######################################
+                ##### no token or id required ########
+                ######################################
                 if (call_type == 'overwriteToken' and json_data.get('token')):
                     self.token_changed(None, None, self.__class__._current_token, json_data.get('token'), None)
 
-                # token only
+                ######################################
+                ##### token only #####################
+                ######################################
                 valid_token   = self.__class__._current_token != EMPTY_STRING and self.__class__._current_token != UNAVAILABLE_STATE and self.__class__._current_token != UNKNOWN_STATE
                 if valid_token: 
+
+                    # handle challenge request
+                    if (call_type == 'createGame' and json_data.get('opponentname')):
+
+                        if (json_data.get('opponentname') == 'random'): # we create a seek
+
+                            self.__class__._current_body = {      
+                                "rated": json_data.get('rated', False),                      
+                                "variant": "standard",
+                                "color": json_data.get('color', "random"),
+                                "time": json_data.get('time_m', 15),
+                                "increment": json_data.get('increment', 0)
+                            }
+                            self.__class__._current_call_description = f"Seek new game ({json_data.get('time_m', 15)}+{json_data.get('increment', 0)})"
+                            self.__class__._current_url = URL_TEMPLATE_SEEK
+
+                        else: # create a challenge
+
+                            self.__class__._current_body = {                            
+                                "variant": "standard",
+                                "color": json_data.get('color'),
+                                "keepAliveStream": False,
+                                "clock": {
+                                            "limit": json_data.get('time_s'),
+                                            "increment": json_data.get('increment')
+                                            }                            
+                            }
+
+                            # check if challenge to a user or AI
+                            username, level = self.parse_username_string(json_data.get('opponentname'))                        
+                            if (level == 0): # challege a user                            
+                                self.__class__._current_body["rated"] = json_data.get('rated', False)
+                            else:
+                                self.__class__._current_body["level"] = level
+                                username = "ai" # we need lowercase for the url
+                            
+                            self.__class__._current_url = URL_TEMPLATE_CHALLENGE.format(username) 
+                            self.__class__._current_call_description = f"Seek new challenge with {json_data.get('opponentname')} ({json_data.get('time_s')}+{json_data.get('increment')})"
+
+                        # post api body                    
+                        self.lichess_api_call_post()
+
                     if (call_type == 'acceptChallenge' and json_data.get('parameter')):
               
                         self.__class__._current_call_description = call_type + ": list of " + json_data.get('parameter')
@@ -209,7 +254,7 @@ class LichessSingleRequest(hass.Hass):
                                 data = {
                                     "type": "tournamentJoinedById",
                                     "id": tournament_id,
-                                    "starts_in": starts_in,
+                                    "starts_in": "-",
                                     "status": "success"
                                 }
                                 json_data = json.dumps(data)
@@ -224,7 +269,9 @@ class LichessSingleRequest(hass.Hass):
                             # let chessboard know about the tournament id
                             self.set_state(LICHESS_LAST_EVENT_SENSOR, state=json_data)
 
-                # token and id required
+                ######################################
+                ##### no token and id required ########
+                ######################################
                 valid_game_id = self.__class__._current_game_id != IDLE_GAME_ID and self.__class__._current_game_id != UNAVAILABLE_STATE and self.__class__._current_game_id != UNKNOWN_STATE
                 if (valid_token and valid_game_id):  
                     ####################################
@@ -261,10 +308,10 @@ class LichessSingleRequest(hass.Hass):
                     ####################################
                     ######### CALLS WITH BODY ##########                           
                     ####################################
-                    if (call_type in {'writeChatMessage' } and json_data.get('parameter')):
+                    if (call_type in {'writeChatMessage' } and json_data.get('text')):
                         self.__class__._current_body = {      
                             "room": "player",                      
-                            "text": json_data.get('parameter')
+                            "text": json_data.get('text')
                         }
                         self.__class__._current_call_description = call_type
                         self.__class__._current_url = URL_TEMPLATE_CHAT.format(self.__class__._current_game_id)
@@ -272,46 +319,7 @@ class LichessSingleRequest(hass.Hass):
                         # post api body                    
                         self.lichess_api_call_post()
 
-                    # handle challenge request
-                    if (call_type == 'createGame' and json_data.get('opponentname')):
 
-                        if (json_data.get('opponentname') == 'random'): # we create a seek
-
-                            self.__class__._current_body = {      
-                                "rated": json_data.get('rated', False),                      
-                                "variant": "standard",
-                                "color": json_data.get('color', "random"),
-                                "time": json_data.get('time_m', 15),
-                                "increment": json_data.get('increment', 0)
-                            }
-                            self.__class__._current_call_description = f"Seek new game ({json_data.get('time_m', 15)}+{json_data.get('increment', 0)})"
-                            self.__class__._current_url = URL_TEMPLATE_SEEK
-
-                        else: # create a challenge
-
-                            self.__class__._current_body = {                            
-                                "variant": "standard",
-                                "color": json_data.get('color'),
-                                "keepAliveStream": False,
-                                "clock": {
-                                            "limit": json_data.get('time_s'),
-                                            "increment": json_data.get('increment')
-                                            }                            
-                            }
-
-                            # check if challenge to a user or AI
-                            username, level = self.parse_username_string(json_data.get('opponentname'))                        
-                            if (level == 0): # challege a user                            
-                                self.__class__._current_body["rated"] = json_data.get('rated', False)
-                            else:
-                                self.__class__._current_body["level"] = level
-                                username = "ai" # we need lowercase for the url
-                            
-                            self.__class__._current_url = URL_TEMPLATE_CHALLENGE.format(username) 
-                            self.__class__._current_call_description = f"Seek new challenge with {json_data.get('opponentname')} ({json_data.get('time_s')}+{json_data.get('increment')})"
-
-                        # post api body                    
-                        self.lichess_api_call_post()
                     
 
     # function to post the request to lichess api

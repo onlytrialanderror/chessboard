@@ -15,6 +15,7 @@ esphome:
       then:
         - lambda: |-
             id(redraw_displays).execute();
+            id(lichess_tournament_id).publish_state(std::string("idle"));
 
 esp32:
   board: esp32dev
@@ -458,10 +459,6 @@ globals:
     initial_value: '""'
 
   - id: lichess_tournament_json
-    type: std::string
-    initial_value: '""'
-
-  - id: lichess_tournament_id
     type: std::string
     initial_value: '""'
 
@@ -1337,7 +1334,7 @@ select:
       sorting_group_id: sorting_group_lichess
       sorting_weight: 4
   - platform: template
-    name: "Tournament"
+    name: "Arena type"
     id: lichess_tournament
     internal: False
     optimistic: true
@@ -1361,7 +1358,7 @@ select:
       sorting_group_id: sorting_group_lichess
       sorting_weight: 5
   - platform: template
-    name: "Speed"
+    name: "Arena speed"
     id: lichess_tournament_speed
     internal: False
     optimistic: true
@@ -1379,7 +1376,7 @@ select:
       sorting_group_id: sorting_group_lichess
       sorting_weight: 6
   - platform: template
-    name: "Start"
+    name: "Arena start"
     id: lichess_tournament_start
     internal: False
     optimistic: true
@@ -1541,6 +1538,14 @@ text_sensor:
       sorting_group_id: sorting_group_lichess
       sorting_weight: 7
 
+  - platform: template
+    name: "Lichess Arena Id"
+    id: lichess_tournament_id
+    update_interval: never
+    web_server:
+      sorting_group_id: sorting_group_lichess
+      sorting_weight: 8
+  
   - platform: template
     name: "Lichess Api Call"
     id: lichess_api_call
@@ -2302,7 +2307,7 @@ script:
           id(timer_black).update();
           id(timer_white).update();
 
-          id(lichess_last_move).publish_state(std::string(""));
+          id(lichess_last_move).publish_state(std::string("idle"));
           id(lichess_game_id).publish_state(std::string("idle"));
           id(update_lichess_token).execute();
           
@@ -3488,8 +3493,8 @@ script:
     then:
       - lambda: |-
           // if we are currently in a tournament, we have to withdraw
-          if (id(lichess_tournament_id).length() == 8){              
-            std::string withdraw_json = "{\"type\": \"withdrawTournament\", \"id\": \"" + id(lichess_tournament_id) + "\"}";
+          if (id(lichess_tournament_id).state.length() == 8){              
+            std::string withdraw_json = "{\"type\": \"withdrawTournament\", \"id\": \"" + id(lichess_tournament_id).state + "\"}";
             id(lichess_api_call).publish_state(withdraw_json);
           } 
 
@@ -3497,8 +3502,8 @@ script:
     then:
       - lambda: |-
           // if we are currently in a tournament, we have to withdraw
-          if (id(lichess_tournament_id).length() == 8){              
-            std::string join_json = "{\"type\": \"joinTournamentById\", \"id\": \"" + id(lichess_tournament_id) + "\"}";
+          if (id(lichess_tournament_id).state.length() == 8){              
+            std::string join_json = "{\"type\": \"joinTournamentById\", \"id\": \"" + id(lichess_tournament_id).state + "\"}";
             id(lichess_api_call).publish_state(join_json);
           } 
 
@@ -3506,7 +3511,7 @@ script:
     then: 
       - lambda: |-
           id(lichess_arena_withdraw_by_id).execute();
-          id(lichess_tournament_id) = "";
+          id(lichess_tournament_id).publish_state("idle");
           id(lichess_tournament_json) = "";
           if (id(initial_position_set).state == 3) {
             id(lichess_stream_events).publish_state("OFF"); 
@@ -3517,14 +3522,7 @@ script:
       - lambda: |-
           // sync timer with tournament timer
           auto call = id(chess_time_control).make_call();
-          std::string x = id(lichess_tournament_speed).state;
-          if (x == "Rapid (10+0)") {
-            call.set_option("Rapid (10+0)");
-          } else if (x == "Classical (20+10)") {
-            call.set_option("Classical (20+10)");
-          } else if (x == "Blitz (5+0)") {
-            call.set_option("Blitz (5+0)");
-          } 
+          call.set_option(id(lichess_tournament_speed).state);
           call.perform();
 
           // update lichess token, if not selected yet
@@ -3534,7 +3532,7 @@ script:
           // update current tournament json
           id(lichess_tournament_json_update)->execute(id(lichess_tournament).state, id(lichess_tournament_speed).state, id(lichess_tournament_start).state);
           // reset current tournament_id
-          id(lichess_tournament_id) = "";
+          id(lichess_tournament_id).publish_state("idle");
           // join tournament
           if (id(lichess_tournament_json) != "") {
             // open the event stream
@@ -3551,10 +3549,10 @@ script:
           }
 
   - id: lichess_tournament_json_update
-    params:
-      freq: std::string
-      speed: std::string
-      start: std::string
+    parameters:
+      freq: string
+      speed: string
+      start: string
     then:
       - lambda: |-
           std::string tournament_json = "";
@@ -3570,7 +3568,7 @@ script:
           // set speed
           size_t pos = speed.find(' '); // Find the "(" character
           if (pos != std::string::npos) {
-              std::string first_part = speed.substr(0, pos - 1); // Extract first part
+              std::string first_part = speed.substr(0, pos); // Extract first part
               tournament_name += first_part + " Arena";
 
               size_t open_paren = speed.find('(');
@@ -3581,15 +3579,15 @@ script:
                 std::string duration_str = speed.substr(open_paren + 1, plus_sign - open_paren - 1);
                 std::string increment_str = speed.substr(plus_sign + 1, close_paren - plus_sign - 1);
 
-                limit = std::stoi(duration_str);
+                limit = std::stoi(duration_str)*60;
                 increment = std::stoi(increment_str);
               }
           }
 
           // convert start
-          if (start == "Wait to next") {
+          if (start == "Wait for next") {
             tournament_start = "created";
-          } else if (start == "Join started") {
+          } else if (start == "Join now") {
             tournament_start = "started";
           }
 
@@ -3689,7 +3687,7 @@ script:
             // update lichess token, if not selected yet
             id(update_lichess_token).execute();
             // open the event stream
-            if (id(lichess_stream_events).state == "OFF") {
+            if (id(lichess_stream_events).state != "ON") {
               id(lichess_stream_events).publish_state("ON");
             }
             
@@ -3756,11 +3754,8 @@ script:
     mode: queued
     then:
       - lambda: |-
+      
           std::string json_str = id(lichess_last_event_in).state;
-
-          if (id(debug_mode)) {
-            id(debugger_sensor).publish_state("json (1): " + json_str);
-          }
 
           StaticJsonDocument<512> root;
           deserializeJson(root, json_str);
@@ -3768,8 +3763,10 @@ script:
           // ############# new game started #############
           if (root.containsKey("type") && root.containsKey("color") && (root["type"].as<std::string>() == "gameStart")){
 
-            if (id(lichess_tournament_id).length() == 8) {
+            if (id(lichess_tournament_id).state.length() == 8) {
                 id(beep_long).execute();
+            } else {
+              id(beep_short).execute();
             }
 
             id(game_running) = true;
@@ -3785,7 +3782,6 @@ script:
 
             // we start board stream
             id(lichess_game_id).publish_state(game_id);
-            id(lichess_game_id).update();
 
             // we check the white color
             if ( root["color"].as<std::string>() == "white"){ 
@@ -3805,20 +3801,19 @@ script:
 
             // rise flag we are in lichess game
             id(lichess_game_running) = true;
+
+            std::string say_hello = "{\"type\": \"writeChatMessage\", \"text\": \"Good luck and have fun!\"}";
+            id(lichess_api_call).publish_state(say_hello);
           }
 
           // ############# game finished #############
           if (root.containsKey("type") && (root["type"].as<std::string>() == "gameFinish" ) && root.containsKey("gameId") && (root["gameId"].as<std::string>() == id(lichess_game_id).state)){
-            // for the case, multiple games are running, we check the current gameId
+              // for the case, multiple games are running, we check the current gameId
+              std::string say_bye = "{\"type\": \"writeChatMessage\", \"text\": \"GG. Bye.\"}";
+              id(lichess_api_call).publish_state(say_bye);
 
               std::string curr_game_result = "";
 
-              if (id(debug_mode)) {
-                std::string serialized_json = "";
-                serializeJson(root, serialized_json);
-                id(debugger_sensor).publish_state("json (2): " + serialized_json);
-              }
-              
               // store the win-state
               std::string win = root["win"].as<std::string>();
               std::string state = root["status"].as<std::string>();
@@ -3838,12 +3833,11 @@ script:
               }
 
               // close the event stream
-              if (id(lichess_tournament_id).length() != 8) {
+              if (id(lichess_tournament_id).state.length() != 8) {
                 id(lichess_stream_events).publish_state("OFF");
               }
               
               id(lichess_game_id).publish_state("idle");
-              id(lichess_game_id).update();
 
               id(inform_game_over)->execute(curr_game_result);
               id(post_game_operation).execute();
@@ -3856,11 +3850,11 @@ script:
           }
 
           // ############# joined new arena tournament #############
-          if (root.containsKey("type") && root.containsKey("id") && root["id"].as<std::string>() && (root["type"].as<std::string>() == "tournamentJoinedByName")){
+          if (root.containsKey("type") && root.containsKey("id") && (root["id"].as<std::string>().length() == 8) && (root["type"].as<std::string>() == "tournamentJoinedByName")){
             if (root["status"].as<std::string>() == "success") {
-              id(lichess_tournament_id) = root["id"].as<std::string>();
-              id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"Joined: " + id(lichess_tournament_id).c_str() + "\", \"line_1\": \"Start: " + root["starts_in"].as<std::string>() + "\"}";
-              id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"Joined: " + id(lichess_tournament_id).c_str() + "\", \"line_1\": \"Start: " + root["starts_in"].as<std::string>() + "\"}";              
+              id(lichess_tournament_id).publish_state(root["id"].as<std::string>());
+              id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"Joined: " + id(lichess_tournament_id).state + "\", \"line_1\": \"Start: " + root["starts_in"].as<std::string>() + "\"}";
+              id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"Joined: " + id(lichess_tournament_id).state + "\", \"line_1\": \"Start: " + root["starts_in"].as<std::string>() + "\"}";              
             } else {
               id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"Failed to join\"}";
               id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"Failed to join\"}";
@@ -3869,9 +3863,9 @@ script:
           }
           
           // ############# rejoined arena tournament #############
-          if (root.containsKey("type") && root.containsKey("id") && root["id"].as<std::string>() && (root["type"].as<std::string>() == "tournamentJoinedById")){
-              id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"Joined: " + id(lichess_tournament_id).c_str() + "\", \"line_1\": \"Waiting for new game\"}";
-              id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"Joined: " + id(lichess_tournament_id).c_str() + "\", \"line_1\": \"Waiting for new game\"}";
+          if (root.containsKey("type") && root.containsKey("id") && (root["id"].as<std::string>().length() == 8) && (root["type"].as<std::string>() == "tournamentJoinedById")){
+              id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"Joined: " + id(lichess_tournament_id).state + "\", \"line_1\": \"Waiting for new game\"}";
+              id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"Joined: " + id(lichess_tournament_id).state + "\", \"line_1\": \"Waiting for new game\"}";
               id(oled_show_page_message).execute();
           }
 
