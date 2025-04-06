@@ -421,7 +421,7 @@ globals:
     type: std::string
     initial_value: '' 
 
-  - id: pgn_full
+  - id: pgn_header
     type: std::string
     initial_value: ''
 
@@ -454,6 +454,14 @@ globals:
     initial_value: 'true'
 
   - id: lichess_opponent_name
+    type: std::string
+    initial_value: '""'
+
+  - id: lichess_tournament_json
+    type: std::string
+    initial_value: '""'
+
+  - id: lichess_tournament_id
     type: std::string
     initial_value: '""'
 
@@ -578,10 +586,6 @@ globals:
     type: int
     initial_value: '2'
 
-  - id: initial_position_state
-    type: int
-    initial_value: '0'
-
   - id: differences_sum
     type: int
     initial_value: '0'
@@ -636,7 +640,7 @@ interval:
   - interval: 1000ms
     then:
       - script.execute: update_timer
-      - script.execute: check_opponent_at_board_select
+      - script.execute: check_opponent_otb_select
 
 display:
   - platform: ssd1306_i2c
@@ -756,12 +760,25 @@ graphical_display_menu:
               - lambda: |-
                   id(lichess_create_new_game).execute();
         - type: command
+          text: 'Join arena'
+          on_value:
+            then:
+              - display_menu.hide:  my_menu 
+              - lambda: |-
+                  id(lichess_arena_join_new_tournament).execute();
+        - type: command
+          text: 'Quit arena'
+          on_value: 
+            then:
+              - lambda: |-
+                  id(lichess_arena_quit_tournament).execute();
+        - type: command
           text: 'Resign'
           on_value:
             then:
               - lambda: |-
                   // force changed state, to be able to call the same request 
-                  id(lichess_api_call).publish_state("{}"); 
+                  id(lichess_api_call).publish_state("idle"); 
                   id(lichess_api_call).publish_state("{\"type\": \"resign\"}");
                   id(oled_show_page_clock).execute();
               - display_menu.hide:  my_menu 
@@ -771,7 +788,7 @@ graphical_display_menu:
             then:
               - lambda: |-
                   // force changed state, to be able to call the same request 
-                  id(lichess_api_call).publish_state("{}"); 
+                  id(lichess_api_call).publish_state("idle"); 
                   id(lichess_api_call).publish_state("{\"type\": \"claim-victory\"}");
                   id(oled_show_page_clock).execute();
               - display_menu.hide:  my_menu 
@@ -781,7 +798,7 @@ graphical_display_menu:
             then:
               - lambda: |-
                   // force changed state, to be able to call the same request 
-                  id(lichess_api_call).publish_state("{}"); 
+                  id(lichess_api_call).publish_state("idle"); 
                   id(lichess_api_call).publish_state("{\"type\": \"draw\", \"parameter\": \"yes\"}");
                   id(oled_show_page_clock).execute();
               - display_menu.hide:  my_menu 
@@ -791,7 +808,7 @@ graphical_display_menu:
             then:
               - lambda: |-
                   // force changed state, to be able to call the same request 
-                  id(lichess_api_call).publish_state("{}"); 
+                  id(lichess_api_call).publish_state("idle"); 
                   id(lichess_api_call).publish_state("{\"type\": \"draw\", \"parameter\": \"no\"}");
                   id(oled_show_page_clock).execute();
               - display_menu.hide:  my_menu 
@@ -800,7 +817,7 @@ graphical_display_menu:
           on_value:
             then:
               - lambda: |-
-                  id(lichess_api_call).publish_state("{}"); 
+                  id(lichess_api_call).publish_state("idle"); 
                   id(lichess_api_call).publish_state("{\"type\": \"takeback\", \"parameter\": \"yes\"}");
                   id(oled_show_page_clock).execute();
               - display_menu.hide:  my_menu 
@@ -810,7 +827,7 @@ graphical_display_menu:
             then:
               - lambda: |-
                   // force changed state, to be able to call the same request 
-                  id(lichess_api_call).publish_state("{}"); 
+                  id(lichess_api_call).publish_state("idle"); 
                   id(lichess_api_call).publish_state("{\"type\": \"takeback\", \"parameter\": \"no\"}");
                   id(oled_show_page_clock).execute();
               - display_menu.hide:  my_menu 
@@ -820,7 +837,7 @@ graphical_display_menu:
             then:
               - lambda: |-
                   // force changed state, to be able to call the same request 
-                  id(lichess_api_call).publish_state("{}"); 
+                  id(lichess_api_call).publish_state("idle"); 
                   id(lichess_api_call).publish_state("{\"type\": \"abort\"}");
                   id(oled_show_page_clock).execute();
               - display_menu.hide:  my_menu 
@@ -840,6 +857,18 @@ graphical_display_menu:
           immediate_edit: False
           text: 'Opponent at board'
           select: lichess_opponent_at_board
+        - type: select
+          immediate_edit: False
+          text: 'Tournament'
+          select: lichess_tournament
+        - type: select
+          immediate_edit: False
+          text: 'Speed'
+          select: lichess_tournament_speed
+        - type: select
+          immediate_edit: False
+          text: 'Start'
+          select: lichess_tournament_start
         - type: back
           text: 'Back'
     - type: command
@@ -1001,7 +1030,17 @@ button:
             id(lichess_create_new_game).execute();
     web_server:
       sorting_group_id: sorting_group_lichess
-      sorting_weight: -1
+      sorting_weight: -3
+  - platform: template
+    name: Join Arena Tournament
+    id: lichess_new_arena_button
+    on_press:
+      then:
+        - lambda: |-
+            id(lichess_arena_join_new_tournament).execute();
+    web_server:
+      sorting_group_id: sorting_group_lichess
+      sorting_weight: -2
 
 
 binary_sensor:
@@ -1127,6 +1166,7 @@ select:
       - "Rapid (10+0)"
       - "Rapid (10+5)"
       - "Rapid (15+10)"
+      - "Classical (20+10)"
       - "Classical (30+0)"
       - "Classical (60+0)"
       - "Classical (90+30)"
@@ -1164,7 +1204,11 @@ select:
                 // Set time control to Rapid (15+10)
                 id(time_control_duration) = 900;
                 id(time_control_increment) = 10;
-              } else if (x == "Classical (30+0)") {
+              } else if (x == "Classical (20+10)") {
+                // Set time control to Classical (20+10)
+                id(time_control_duration) = 1200;
+                id(time_control_increment) = 10;
+              }else if (x == "Classical (30+0)") {
                 // Set time control to Classical (30+0)
                 id(time_control_duration) = 1800;
                 id(time_control_increment) = 0;
@@ -1226,17 +1270,6 @@ select:
       sorting_group_id: sorting_group_settings
       sorting_weight: 2
   - platform: template
-    name: "Telegram notification"
-    id: telegram_notification
-    optimistic: true
-    options:
-      - "yes"
-      - "no"
-    initial_option: "yes"
-    web_server:
-      sorting_group_id: sorting_group_settings
-      sorting_weight: 3
-  - platform: template
     name: "Account"
     id: lichess_account
     internal: False
@@ -1245,7 +1278,7 @@ select:
       - !secret chessboard_player_a
       - !secret chessboard_player_b
       - !secret chessboard_player_c
-    initial_option: !secret chessboard_player_c
+    initial_option: !secret chessboard_player_b
     on_value: 
       then:
         lambda: |-
@@ -1274,7 +1307,7 @@ select:
       - "AI_6"
       - "AI_7"
       - "AI_8"
-    initial_option: AI_1
+    initial_option: random
     web_server:
       sorting_group_id: sorting_group_lichess
       sorting_weight: 2
@@ -1304,6 +1337,65 @@ select:
       sorting_group_id: sorting_group_lichess
       sorting_weight: 4
   - platform: template
+    name: "Tournament"
+    id: lichess_tournament
+    internal: False
+    optimistic: true
+    options:
+      - "Hourly"
+      - "Daily"
+      - "≤1300"
+      - "≤1500"
+      - "≤1700"
+      - "≤2000"
+      - "Eastern"
+      - "Weekly"
+      - "Monthly"
+      - "Yearly"
+    initial_option: "Hourly"
+    on_value: 
+      then:
+        lambda: |-
+          id(lichess_tournament_json_update)->execute(x, id(lichess_tournament_speed).state, id(lichess_tournament_start).state);
+    web_server:
+      sorting_group_id: sorting_group_lichess
+      sorting_weight: 5
+  - platform: template
+    name: "Speed"
+    id: lichess_tournament_speed
+    internal: False
+    optimistic: true
+    options:
+      - "Rapid (10+0)"
+      - "Classical (20+10)"
+      - "Blitz (5+0)"
+    initial_option: "Rapid (10+0)"
+    on_value: 
+      then:
+        lambda: |-           
+          // we create json of the tournament
+          id(lichess_tournament_json_update)->execute(id(lichess_tournament).state, x, id(lichess_tournament_start).state);
+    web_server:
+      sorting_group_id: sorting_group_lichess
+      sorting_weight: 6
+  - platform: template
+    name: "Start"
+    id: lichess_tournament_start
+    internal: False
+    optimistic: true
+    options:
+      - "Join now"
+      - "Wait for next"
+    initial_option: "Wait for next"
+    on_value: 
+      then:
+        lambda: |-           
+          // we create json of the tournament
+          id(lichess_tournament_json_update)->execute(id(lichess_tournament).state, id(lichess_tournament_speed).state, x);
+    web_server:
+      sorting_group_id: sorting_group_lichess
+      sorting_weight: 7
+  - platform: template
     name: "Opponent at board"
     id: lichess_opponent_at_board
     internal: False
@@ -1314,7 +1406,7 @@ select:
     initial_option: "no"
     web_server:
       sorting_group_id: sorting_group_lichess
-      sorting_weight: 6
+      sorting_weight: 8
 sensor:
   - platform: adc
     pin: GPIO34
@@ -1380,8 +1472,10 @@ sensor:
     on_value:
       then:
         - lambda: |-
-            if (x == 0b11) {
+            if (x == 0b11) { // both colors are in init position
               id(post_game_operation).execute();
+              // if we are in arena, we want to rejoin
+              id(lichess_arena_join_by_id).execute();
             }
             
 
@@ -1795,9 +1889,7 @@ text_sensor:
       sorting_weight: 8
 
 script:
-
-  - id: main_loop
-    # to avoid long queues, we skip the iteration if not finished till next call
+  - id: main_loop    # to avoid long queues, we skip the iteration if not finished till next call
     mode: queued
     max_runs: 3 
     then:
@@ -1848,6 +1940,7 @@ script:
             // show timer
             id(oled_show_page_clock).execute();
           } 
+
   - id: button_white_finished_script
     mode: queued
     then: 
@@ -1867,6 +1960,7 @@ script:
                 // show timer
                 id(oled_show_page_clock).execute();
             }
+
   - id: update_array_text
     mode: restart
     then:
@@ -2051,11 +2145,26 @@ script:
             id(oled_black).update();
           }
 
-
   - id: send_telegram_message
     then:
-      - script.execute: create_full_pgn
-      - script.wait: create_full_pgn
+      - script.execute: create_pgn_header
+      - script.wait: create_pgn_header
+      - if:
+          condition:
+            - lambda: |-
+                return id(halfmove_counter) > 0;
+          then:
+            - script.execute: telegram_pgn_a
+            - script.wait: telegram_pgn_a
+            - script.execute: telegram_pgn_b
+            - script.wait: telegram_pgn_b
+            #- script.execute: telegram_chessboard_a
+            #- script.wait: telegram_chessboard_a
+            #- script.execute: telegram_chessboard_b
+            #- script.wait: telegram_chessboard_b
+
+  - id: telegram_pgn_a
+    then:
       - http_request.post:
           url: !secret telegram_cheesboard_url
           headers:
@@ -2063,8 +2172,10 @@ script:
           json:
             chat_id: !secret telegram_cheesboard_chat_id_a
             text: !lambda |-
-                return id(pgn_full);
-              
+                return id(pgn_header);
+
+  - id: telegram_pgn_b
+    then:
       - http_request.post:
           url: !secret telegram_cheesboard_url
           headers:
@@ -2072,9 +2183,31 @@ script:
           json:
             chat_id: !secret telegram_cheesboard_chat_id_b
             text: !lambda |-
-                return id(pgn_full);
+                return id(pgn_header);
 
-  - id: create_full_pgn
+  - id: telegram_chessboard_a
+    then:
+      - http_request.post:
+          url: !secret telegram_cheesboard_url
+          headers:
+            Content-Type: application/json
+          json:
+            chat_id: !secret telegram_cheesboard_chat_id_a
+            text: !lambda |-
+                return id(pgn_header) + "\n" + id(fen_position_chessboard);
+
+  - id: telegram_chessboard_b
+    then:
+      - http_request.post:
+          url: !secret telegram_cheesboard_url
+          headers:
+            Content-Type: application/json
+          json:
+            chat_id: !secret telegram_cheesboard_chat_id_b
+            text: !lambda |-
+                return id(pgn_header) + "\n" + id(fen_position_chessboard);
+
+  - id: create_pgn_header
     mode: queued
     then:
       - lambda: |-
@@ -2092,39 +2225,32 @@ script:
           std::string second_prefix = (time.second < 10 ? "0" : "");
           std::string second = std::to_string(time.second);
 
-          std::string pgn_header = "[Event \"Chessboard Game\"]\n";
-          pgn_header += "[Date \"" + year + "." + month_prefix  + month + "." + day_prefix  + day  + "\"]\n";
+          std::string header = "[Event \"Chessboard Game\"]\n";
+          header += "[Date \"" + year + "." + month_prefix  + month + "." + day_prefix  + day  + "\"]\n";
           if (id(lichess_game_running)) {
             if (id(lichess_is_my_color_white)) { 
-              pgn_header += "[White \"Chessboard-Player\"]\n";
-              pgn_header += "[Black \"" + id(lichess_opponent_name) + "\"]\n";              
+              header += "[White \"Chessboard-Player\"]\n";
+              header += "[Black \"" + id(lichess_opponent_name) + "\"]\n";              
             } else {
-              pgn_header += "[White \"" + id(lichess_opponent_name) + "\"]\n"; 
-              pgn_header += "[Black \"Chessboard-Player\"]\n";              
+              header += "[White \"" + id(lichess_opponent_name) + "\"]\n"; 
+              header += "[Black \"Chessboard-Player\"]\n";              
             }
           } else {
-            pgn_header += "[White \"Chessboard-Player A\"]\n";
-            pgn_header += "[Black \"Chessboard-Player B\"]\n";
+            header += "[White \"Chessboard-Player A\"]\n";
+            header += "[Black \"Chessboard-Player B\"]\n";
           }
-          pgn_header += "[UTCDate \"" + year + "." + month_prefix  + month + "." +  day_prefix  + day + "\"]\n";
-          pgn_header += "[UTCTime \"" + hour_prefix + hour + ":" + minute_prefix + minute + ":" + second_prefix + second + "\"]\n";
-          pgn_header += "[Variant \"Standard\"]\n";
-          pgn_header += "[TimeControl \"" + std::to_string(id(time_control_duration)) + "+" + std::to_string(id(time_control_increment))+ "\"]";
+          header += "[UTCDate \"" + year + "." + month_prefix  + month + "." +  day_prefix  + day + "\"]\n";
+          header += "[UTCTime \"" + hour_prefix + hour + ":" + minute_prefix + minute + ":" + second_prefix + second + "\"]\n";
+          header += "[Variant \"Standard\"]\n";
+          header += "[TimeControl \"" + std::to_string(id(time_control_duration)) + "+" + std::to_string(id(time_control_increment))+ "\"]";
 
-          pgn_header += "\n\n" + id(pgn_history);
-          
-          if (id(fen_position_chessboard) != "") {
-            pgn_header += "\n{\n";
-            pgn_header += id(fen_position_chessboard) + "\n}";
-          }
-
-          id(pgn_full) = pgn_header;
+          id(pgn_header) = header;
 
   - id: post_game_operation
     then:
       - lambda: |-
           if (id(halfmove_counter) > 0 ) {
-            if (id(telegram_notification).state == "yes") {
+            if (!id(lichess_game_running)) {
               id(send_telegram_message).execute();
             }            
             id(reset_all_values).execute();
@@ -2245,7 +2371,7 @@ script:
           id(last_move_pgn_take_back) = "";
           id(pgn_history) = "";
           id(pgn_history_take_back) = "";
-          id(pgn_full) = "";
+          id(pgn_header) = "";
           id(pgn_history_1).update();
           id(pgn_history_2).update();
           id(pgn_history_3).update();
@@ -2347,7 +2473,6 @@ script:
             delay(5000);
           }
 
-
   - id: sync_time_control
     then:
       - lambda: |-
@@ -2368,6 +2493,8 @@ script:
             call.set_option("Rapid (10+5)");
           } else if (id(time_control_duration) == 900 && id(time_control_increment) == 10) {
             call.set_option("Rapid (15+10)");
+          } else if (id(time_control_duration) == 1200 && id(time_control_increment) == 10) {
+            call.set_option("Classical (20+10)");
           } else if (id(time_control_duration) == 1800 && id(time_control_increment) == 0) {
             call.set_option("Classical (30+0)");
           } else if (id(time_control_duration) == 3600 && id(time_control_increment) == 0) {
@@ -3233,7 +3360,6 @@ script:
             }
           }
 
-
   - id: update_raw_position_current
     mode: queued
     then:
@@ -3266,7 +3392,6 @@ script:
           if (n_empty_fields > n_empty_fields_init) {
             id(voltage_field_drift) = sum_voltage_drift / n_empty_fields;
           }
-
 
   - id: update_all_hall_sensors
     mode: queued
@@ -3334,7 +3459,6 @@ script:
             // id(update_array_text).execute();
           }
 
-
   - id: beep_short
     then:
       - lambda: |-
@@ -3346,17 +3470,142 @@ script:
     then:
       - lambda: |-
           id(beep_switch).turn_on();
-          delay(150);
+          delay(200);
           id(beep_switch).turn_off();
-  - id: check_opponent_at_board_select
+
+  - id: check_opponent_otb_select
     then:
       - lambda: |- 
-          if ( id(lichess_opponent_at_board).state == "yes" && (id(lichess_opponent).state == "random" || (id(lichess_opponent).state).compare(0, 3, "AI_") == 0) ) {
+          bool otb_player = (id(lichess_opponent).state == id(lichess_opponent).at(0) || id(lichess_opponent).state == id(lichess_opponent).at(1) || id(lichess_opponent).state == id(lichess_opponent).at(2));
+          if ( id(lichess_opponent_at_board).state == "yes" && !otb_player ) {
             // not possible to play "on board"
             auto call = id(lichess_opponent_at_board).make_call();
             call.set_option("no");
             call.perform();          
           }
+
+  - id: lichess_arena_withdraw_by_id
+    then:
+      - lambda: |-
+          // if we are currently in a tournament, we have to withdraw
+          if (id(lichess_tournament_id).length() == 8){              
+            std::string withdraw_json = "{\"type\": \"withdrawTournament\", \"id\": \"" + id(lichess_tournament_id) + "\"}";
+            id(lichess_api_call).publish_state(withdraw_json);
+          } 
+
+  - id: lichess_arena_join_by_id
+    then:
+      - lambda: |-
+          // if we are currently in a tournament, we have to withdraw
+          if (id(lichess_tournament_id).length() == 8){              
+            std::string join_json = "{\"type\": \"joinTournamentById\", \"id\": \"" + id(lichess_tournament_id) + "\"}";
+            id(lichess_api_call).publish_state(join_json);
+          } 
+
+  - id: lichess_arena_quit_tournament
+    then: 
+      - lambda: |-
+          id(lichess_arena_withdraw_by_id).execute();
+          id(lichess_tournament_id) = "";
+          id(lichess_tournament_json) = "";
+          if (id(initial_position_set).state == 3) {
+            id(lichess_stream_events).publish_state("OFF"); 
+          }
+
+  - id: lichess_arena_join_new_tournament
+    then:
+      - lambda: |-
+          // sync timer with tournament timer
+          auto call = id(chess_time_control).make_call();
+          std::string x = id(lichess_tournament_speed).state;
+          if (x == "Rapid (10+0)") {
+            call.set_option("Rapid (10+0)");
+          } else if (x == "Classical (20+10)") {
+            call.set_option("Classical (20+10)");
+          } else if (x == "Blitz (5+0)") {
+            call.set_option("Blitz (5+0)");
+          } 
+          call.perform();
+
+          // update lichess token, if not selected yet
+          id(update_lichess_token).execute();            
+          // withdraw current tournament
+          id(lichess_arena_withdraw_by_id).execute();
+          // update current tournament json
+          id(lichess_tournament_json_update)->execute(id(lichess_tournament).state, id(lichess_tournament_speed).state, id(lichess_tournament_start).state);
+          // reset current tournament_id
+          id(lichess_tournament_id) = "";
+          // join tournament
+          if (id(lichess_tournament_json) != "") {
+            // open the event stream
+            id(lichess_stream_events).publish_state("ON");            
+            // deserialize for messaging
+            StaticJsonDocument<256> root;
+            deserializeJson(root, id(lichess_tournament_json));
+            // update display message
+            id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"joining arena ...\", \"line_1\": \"" + root["tournamentName"].as<std::string>() + "\"}";
+            id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"joining arena ...\", \"line_1\": \"" + root["tournamentName"].as<std::string>() + "\"}"; 
+            id(oled_show_page_message).execute();
+            // try to join the tournament
+            id(lichess_api_call).publish_state(id(lichess_tournament_json));           
+          }
+
+  - id: lichess_tournament_json_update
+    params:
+      freq: std::string
+      speed: std::string
+      start: std::string
+    then:
+      - lambda: |-
+          std::string tournament_json = "";
+          std::string tournament_name = "";          
+          std::string tournament_start = "";
+
+          int limit = 0;
+          int increment = 0;
+
+          // convert type
+          tournament_name += freq + " ";
+
+          // set speed
+          size_t pos = speed.find(' '); // Find the "(" character
+          if (pos != std::string::npos) {
+              std::string first_part = speed.substr(0, pos - 1); // Extract first part
+              tournament_name += first_part + " Arena";
+
+              size_t open_paren = speed.find('(');
+              size_t plus_sign = speed.find('+');
+              size_t close_paren = speed.find(')');
+
+              if (open_paren != std::string::npos && plus_sign != std::string::npos && close_paren != std::string::npos) {
+                std::string duration_str = speed.substr(open_paren + 1, plus_sign - open_paren - 1);
+                std::string increment_str = speed.substr(plus_sign + 1, close_paren - plus_sign - 1);
+
+                limit = std::stoi(duration_str);
+                increment = std::stoi(increment_str);
+              }
+          }
+
+          // convert start
+          if (start == "Wait to next") {
+            tournament_start = "created";
+          } else if (start == "Join started") {
+            tournament_start = "started";
+          }
+
+          // Create JSON object
+          StaticJsonDocument<256> root;  
+          root["type"] = "joinTournamentByName";   
+          root["tournamentName"] = tournament_name;     
+          root["tournamentStatus"] = tournament_start;
+          root["limit"] = limit;
+          root["increment"] = increment;            
+
+          // Convert JSON to string
+          serializeJson(root, tournament_json);
+
+          // overwrite current tournament json
+          id(lichess_tournament_json) = tournament_json;
 
   - id: lichess_make_move
     then:
@@ -3389,6 +3638,9 @@ script:
       - lambda: |-
           // update own token
           auto index = id(lichess_account).active_index();
+          std::string previous_token = id(chessboard_token_current);
+          bool previous_active_stream = (id(lichess_stream_events).state == "ON");
+
           if (index.value() == 0) {
             id(chessboard_token_current) = id(chessboard_token_a);
           } else if (index.value() == 1) {
@@ -3397,6 +3649,11 @@ script:
             id(chessboard_token_current) = id(chessboard_token_c);
           } else {
             id(chessboard_token_current) = id(chessboard_token_c);
+          }
+
+          // we close the stream with previous token
+          if ( (previous_token != id(chessboard_token_current) ) && previous_active_stream) {
+            id(lichess_stream_events).publish_state("OFF");
           }
 
           // update opponents token
@@ -3413,6 +3670,11 @@ script:
 
           id(lichess_token).update();
 
+          // we reopen the stream with new token
+          if ( (previous_token != id(chessboard_token_current) ) && previous_active_stream) {
+            id(lichess_stream_events).publish_state("ON");
+          }
+
   - id: lichess_create_new_game
     mode: single
     then:
@@ -3427,7 +3689,10 @@ script:
             // update lichess token, if not selected yet
             id(update_lichess_token).execute();
             // open the event stream
-            id(lichess_stream_events).publish_state("ON");
+            if (id(lichess_stream_events).state == "OFF") {
+              id(lichess_stream_events).publish_state("ON");
+            }
+            
             // Create JSON object
             StaticJsonDocument<512> root;  
             root["type"] = "createGame";   
@@ -3469,7 +3734,7 @@ script:
             delay(1000);  // Wait 1s to stream be open
 
             // force changed state, to be able to call the same request 
-            id(lichess_api_call).publish_state("{}"); 
+            id(lichess_api_call).publish_state("idle"); 
             id(lichess_api_call).publish_state(json_string);
 
             id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"waiting for new game ...\", \"line_1\": \"" + id(chess_time_control).state + "\"}";
@@ -3481,9 +3746,8 @@ script:
             }
 
           } else {
-            
-            id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"Set initial position\"}";            
-            id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"Set initial position\"}";                    
+              id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"Set initial position\"}";            
+              id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"Set initial position\"}";                               
           }
 
           id(oled_show_page_message).execute();
@@ -3504,7 +3768,10 @@ script:
           // ############# new game started #############
           if (root.containsKey("type") && root.containsKey("color") && (root["type"].as<std::string>() == "gameStart")){
 
-            
+            if (id(lichess_tournament_id).length() == 8) {
+                id(beep_long).execute();
+            }
+
             id(game_running) = true;
             id(white_to_move) = true;
             // we could have some pgn_additionals from last game
@@ -3571,7 +3838,10 @@ script:
               }
 
               // close the event stream
-              id(lichess_stream_events).publish_state("OFF");
+              if (id(lichess_tournament_id).length() != 8) {
+                id(lichess_stream_events).publish_state("OFF");
+              }
+              
               id(lichess_game_id).publish_state("idle");
               id(lichess_game_id).update();
 
@@ -3579,9 +3849,31 @@ script:
               id(post_game_operation).execute();
               // should be reseted by post_game_operation, just for the case counter = 0 (i.e. resigned at first move)
               id(game_running) = false;
-              id(lichess_game_running) = false;              
+              id(lichess_game_running) = false; 
+              
+              // if we are in tournament, withdraw the game to set the initial position
+              id(lichess_arena_withdraw_by_id).execute();
+          }
+
+          // ############# joined new arena tournament #############
+          if (root.containsKey("type") && root.containsKey("id") && root["id"].as<std::string>() && (root["type"].as<std::string>() == "tournamentJoinedByName")){
+            if (root["status"].as<std::string>() == "success") {
+              id(lichess_tournament_id) = root["id"].as<std::string>();
+              id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"Joined: " + id(lichess_tournament_id).c_str() + "\", \"line_1\": \"Start: " + root["starts_in"].as<std::string>() + "\"}";
+              id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"Joined: " + id(lichess_tournament_id).c_str() + "\", \"line_1\": \"Start: " + root["starts_in"].as<std::string>() + "\"}";              
+            } else {
+              id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"Failed to join\"}";
+              id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"Failed to join\"}";
+            }  
+            id(oled_show_page_message).execute();          
           }
           
+          // ############# rejoined arena tournament #############
+          if (root.containsKey("type") && root.containsKey("id") && root["id"].as<std::string>() && (root["type"].as<std::string>() == "tournamentJoinedById")){
+              id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"Joined: " + id(lichess_tournament_id).c_str() + "\", \"line_1\": \"Waiting for new game\"}";
+              id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"Joined: " + id(lichess_tournament_id).c_str() + "\", \"line_1\": \"Waiting for new game\"}";
+              id(oled_show_page_message).execute();
+          }
 
   - id: lichess_handle_last_move
     mode: queued
@@ -3596,7 +3888,7 @@ script:
           if ((root["type"].as<std::string>() == "opponentGone") && (root["gone"].as<bool>() == true ) && (root["claimWinInSeconds"].as<int>() == 0) ){
             delay(1000);  // Wait 1s to sync
             // claim victory
-            id(lichess_api_call).publish_state("{}"); 
+            id(lichess_api_call).publish_state("idle"); 
             id(lichess_api_call).publish_state("{\"type\": \"claim-victory\"}");            
           }
 
