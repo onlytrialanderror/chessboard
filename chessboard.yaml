@@ -542,6 +542,14 @@ globals:
     type: std::string
     initial_value: '"Q"' 
 
+  - id: secret_key
+    type: std::string
+    initial_value: !secret chessboard_secret_key
+
+  - id: encrypted_message
+    type: std::string
+    initial_value: '""'
+
   - id: chessboard_token_a
     type: std::string
     initial_value: !secret chessboard_token_a
@@ -3480,6 +3488,27 @@ script:
           delay(200);
           id(beep_switch).turn_off();
 
+  - id: encrypt_message
+    parameters:
+      input_string: string
+    then:
+      - lambda: |-
+          std::string key = id(secret_key);
+          std::string encrypted = "";
+          for (size_t i = 0; i < input_string.size(); i++) {
+            encrypted += (char)(input_string[i] ^ key[i % key.size()]);
+          }
+
+          // Convert to hex for safe transmission
+          std::string hex = "";
+          const char* hex_chars = "0123456789ABCDEF";
+          for (char c : encrypted) {
+            hex += hex_chars[(c >> 4) & 0xF];
+            hex += hex_chars[c & 0xF];
+          }
+
+          id(encrypted_message) = hex;
+
   - id: check_opponent_otb_select
     then:
       - lambda: |- 
@@ -3651,6 +3680,10 @@ script:
             id(chessboard_token_current) = id(chessboard_token_c);
           }
 
+          // encrypt token
+          id(encrypt_message)->execute(id(chessboard_token_current));
+          id(chessboard_token_current) = id(encrypted_message);
+
           // we close the stream with previous token
           if ( (previous_token != id(chessboard_token_current) ) && previous_active_stream) {
             id(lichess_stream_events).publish_state("OFF");
@@ -3667,6 +3700,10 @@ script:
           } else {
             id(chessboard_token_opponent) = "";
           }
+
+          // encrypt token
+          id(encrypt_message)->execute(id(chessboard_token_opponent));
+          id(chessboard_token_opponent) = id(encrypted_message);
 
           id(lichess_token).update();
 

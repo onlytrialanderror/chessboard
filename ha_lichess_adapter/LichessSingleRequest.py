@@ -1,6 +1,7 @@
 import appdaemon.plugins.hass.hassapi as hass
 import requests
 import json
+import yaml
 from datetime import datetime
 
 IDLE_GAME_ID = "idle"
@@ -32,6 +33,11 @@ URL_TEMPLATE_TOURNAMENT_JOIN = "https://lichess.org/api/tournament/{}/join"
 URL_TEMPLATE_TOURNAMENT_WITHDRAW = "https://lichess.org/api/tournament/{}/withdraw"
 
 
+def get_secret(path="/config/secrets.yaml"):
+    with open(path, "r") as file:
+        secrets = yaml.safe_load(file)
+    return secrets.get('chessboard_secret_key')
+
 class LichessSingleRequest(hass.Hass):
 
     _current_game_id = IDLE_GAME_ID
@@ -40,10 +46,12 @@ class LichessSingleRequest(hass.Hass):
     _current_url = EMPTY_STRING
     _current_header = EMPTY_HEADER
     _current_body = EMPTY_CALL
+    _current_secret_key = EMPTY_STRING
 
-    def initialize(self):
+    def initialize(self):        
         self.log("AppDaemon LichessSingleRequest script initialized!")
-        self.__class__._current_token = self.get_state(LICHESS_TOKEN_SENSOR)
+        self.__class__._current_secret_key = get_secret()
+        self.__class__._current_token = self.decrypt_message(self.get_state(LICHESS_TOKEN_SENSOR))
         self.__class__._current_game_id = self.get_state(LICHESS_GAME_ID_SENSOR)
         self.log(f"Initialized Game ID: {self.__class__._current_game_id}")
         self.log(f"Initialized Token (call): {self.__class__._current_token}")
@@ -63,8 +71,12 @@ class LichessSingleRequest(hass.Hass):
 
     def token_changed(self, entity, attribute, old, new, kwargs):
         if new and new != old and new != UNAVAILABLE_STATE and new != UNKNOWN_STATE:
-            self.log(f"Token changed (call): {old} -> {new}")
-            self.__class__._current_token = new
+            new_decrypted = self.decrypt_message(new)
+            old_decrypted = old
+            if old != UNAVAILABLE_STATE and old != UNKNOWN_STATE:
+                old_decrypted = self.decrypt_message(old)
+            self.log(f"Token changed (call): {old_decrypted} -> {new_decrypted}")
+            self.__class__._current_token = new_decrypted
         else:
             if new is None or new == UNAVAILABLE_STATE or new == UNKNOWN_STATE: 
                 self.log("Not allowed token (call): {}".format(new))
@@ -80,6 +92,14 @@ class LichessSingleRequest(hass.Hass):
                 if level < 1 or level > 8:
                     level = 1 # reset level
         return username, level
+    
+    def decrypt_message(self, hex_string):
+        decrypted = hex_string
+        if hex_string != UNAVAILABLE_STATE and hex_string != UNKNOWN_STATE:
+            # Convert hex to bytes
+            encrypted_bytes = bytes.fromhex(hex_string)
+            decrypted = ''.join(chr(b ^ ord(self.__class__._current_secret_key[i % len(self.__class__._current_secret_key)])) for i, b in enumerate(encrypted_bytes))
+        return decrypted
 
     def handle_call_trigger(self, entity, attribute, old, new, kwargs):
 
@@ -94,6 +114,9 @@ class LichessSingleRequest(hass.Hass):
                 ######################################
                 if (call_type == 'overwriteToken' and json_data.get('token')):
                     self.token_changed(None, None, self.__class__._current_token, json_data.get('token'), None)
+
+                if (call_type == 'overwriteGameId' and json_data.get('gameId')):
+                    self.game_id_changed(None, None, self.__class__._current_game_id, json_data.get('gameId'), None)
 
                 ######################################
                 ##### token only #####################

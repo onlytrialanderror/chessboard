@@ -1,6 +1,7 @@
 import appdaemon.plugins.hass.hassapi as hass
 import httpx
 import json
+import yaml
 
 UNAVAILABLE_STATE = "unavailable"
 UNKNOWN_STATE = "unknown"
@@ -14,14 +15,21 @@ LICHESS_TOKEN_SENSOR = 'sensor.chessboard_lichess_token'
 LICHESS_EVENT_SENSOR = 'sensor.chessboard_lichess_stream_events'
 LICHESS_LAST_EVENT_SENSOR = 'sensor.chessboard_lichess_last_event_out'
 
+def get_secret(path="/config/secrets.yaml"):
+    with open(path, "r") as file:
+        secrets = yaml.safe_load(file)
+    return secrets.get('chessboard_secret_key')
+
 class LichessStreamEvent(hass.Hass):
 
     _current_token = LICHESS_TOKEN
     _stream_event = False
+    _current_secret_key = LICHESS_TOKEN
 
     def initialize(self):
         self.log("AppDaemon LichessStreamEvent script initialized!")
-        self.__class__._current_token = self.get_state(LICHESS_TOKEN_SENSOR)
+        self.__class__._current_secret_key = get_secret()
+        self.__class__._current_token = self.decrypt_message(self.get_state(LICHESS_TOKEN_SENSOR))
         self.log(f"Initialized Token: {self.__class__._current_token}")
         self.listen_state(self.token_changed, LICHESS_TOKEN_SENSOR)
         self.listen_state(self.stream_events_trigger, LICHESS_EVENT_SENSOR)
@@ -33,8 +41,12 @@ class LichessStreamEvent(hass.Hass):
 
     def token_changed(self, entity, attribute, old, new, kwargs):
         if new and new != old and new != UNAVAILABLE_STATE and new != UNKNOWN_STATE:
-            self.log(f"Token changed (event): {old} -> {new}")
-            self.__class__._current_token = new
+            new_decrypted = self.decrypt_message(new)
+            old_decrypted = old
+            if old != UNAVAILABLE_STATE and old != UNKNOWN_STATE:
+                old_decrypted = self.decrypt_message(old)
+            self.log(f"Token changed (event): {old_decrypted} -> {new_decrypted}")
+            self.__class__._current_token = new_decrypted
         else:
             if new is None or new == UNAVAILABLE_STATE or new == UNKNOWN_STATE: 
                 self.log("Not allowed token (event): {}".format(new))
@@ -55,6 +67,14 @@ class LichessStreamEvent(hass.Hass):
         if (self.__class__._stream_event == False or self.__class__._current_token == UNAVAILABLE_STATE or self.__class__._current_token == UNKNOWN_STATE):
             break_game = True
         return break_game
+    
+    def decrypt_message(self, hex_string):
+        decrypted = hex_string
+        if hex_string != UNAVAILABLE_STATE and hex_string != UNKNOWN_STATE:
+            # Convert hex to bytes
+            encrypted_bytes = bytes.fromhex(hex_string)
+            decrypted = ''.join(chr(b ^ ord(self.__class__._current_secret_key[i % len(self.__class__._current_secret_key)])) for i, b in enumerate(encrypted_bytes))
+        return decrypted
 
     def reduce_response(self, dat):
         
