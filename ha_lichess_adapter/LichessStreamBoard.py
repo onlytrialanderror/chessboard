@@ -75,35 +75,45 @@ class LichessStreamBoard(hass.Hass):
                 "wback": int(dat.get("wtakeback", False)),
                 "bback": int(dat.get("btakeback", False)),
                 "n": int(len(dat.get("moves", "").split())) if dat.get("moves") else -1,
-                "last": dat.get("moves", "").split()[-1] if dat.get("moves") else ""
+                "last": dat.get("moves", "").split()[-1] if dat.get("moves") else "",
+                "id" : self.__class__._current_game_id
             } 
-        else :
-            # gameFull (we try to short the json, due to limit of 255 characters for HA sensors)
-            if (dat.get('type') == 'gameFull'):
-                reduced_data = {
-                    "type": dat.get("type", ""),
-                    "wid": "{}: {}".format(dat.get('white', {}).get("name", "white"), dat.get('white', {}).get("rating", 0)),
-                    "bid": "{}: {}".format(dat.get('black', {}).get("name", "black"), dat.get('black', {}).get("rating", 0)),
-                    "wclk": "{}+{}".format(round(dat.get('state', {}).get("wtime", 0) / 1000), round(dat.get('state', {}).get("winc", 0) / 1000)),
-                    "bclk": "{}+{}".format(round(dat.get('state', {}).get("btime", 0) / 1000), round(dat.get('state', {}).get("binc", 0) / 1000)),                
-                    "state": dat.get('state', {}).get("status", ""),
-                    "win": {"white": "w", "black": "b"}.get(dat.get('state', {}).get("winner", ""), ""),
-                    "wdraw": int(dat.get('state', {}).get("wdraw", False)),
-                    "bdraw": int(dat.get('state', {}).get("bdraw", False)),
-                    "wback": int(dat.get('state', {}).get("wtakeback", False)),
-                    "bback": int(dat.get('state', {}).get("btakeback", False)),
-                    "last": dat.get('state', {}).get("moves", "").split()[-1] if dat.get("moves") else ""
-                }
-            else :
-                # chatline: cut the message, that we dont exeed 255 characters
-                if (dat.get('type') == 'chatLine'):
-                        # calulates: max-length - base length
-                        max_text_length = 255 - len(json.dumps({"type": "chatLine", "username": reduced_data["username"], "text": "", "room": reduced_data["room"]}))
 
-                        if len(reduced_data["text"]) > max_text_length:
-                            reduced_data["text"] = reduced_data["text"][:max_text_length-3] + "..."  # Truncate and add "..."
+        # gameFull (we try to short the json, due to limit of 255 characters for HA sensors)
+        if (dat.get('type') == 'gameFull'):
+            reduced_data = {
+                "type": dat.get("type", ""),
+                "wid": "{}: {}".format(dat.get('white', {}).get("name", "white"), dat.get('white', {}).get("rating", 0)),
+                "bid": "{}: {}".format(dat.get('black', {}).get("name", "black"), dat.get('black', {}).get("rating", 0)),
+                "wclk": "{}+{}".format(round(dat.get('state', {}).get("wtime", 0) / 1000), round(dat.get('state', {}).get("winc", 0) / 1000)),
+                "bclk": "{}+{}".format(round(dat.get('state', {}).get("btime", 0) / 1000), round(dat.get('state', {}).get("binc", 0) / 1000)),                
+                "state": dat.get('state', {}).get("status", ""),
+                "win": {"white": "w", "black": "b"}.get(dat.get('state', {}).get("winner", ""), ""),
+                "wdraw": int(dat.get('state', {}).get("wdraw", False)),
+                "bdraw": int(dat.get('state', {}).get("bdraw", False)),
+                "wback": int(dat.get('state', {}).get("wtakeback", False)),
+                "bback": int(dat.get('state', {}).get("btakeback", False)),
+                "last": dat.get('state', {}).get("moves", "").split()[-1] if dat.get("moves") else "",
+                "id" : self.__class__._current_game_id
+            }
+
+        # chatline: cut the message, that we dont exeed 255 characters
+        if (dat.get('type') == 'chatLine'):
+            reduced_data = {
+                "type": "chatLine",
+                "text": dat.get("text", ""),
+                "id" : self.__class__._current_game_id
+            }
+            # calulates: max-length - base length
+            max_text_length = 255 - len(json.dumps({"type": "chatLine", "id": "12345678", "text": ""}))
+
+            if len(reduced_data["text"]) > max_text_length:
+                reduced_data["text"] = reduced_data["text"][:max_text_length-3] + "..."  # Truncate and add "..."
         
-        #opponent gone is not reduced
+        #opponent gone
+        if (dat.get('type') == 'opponentGone'):
+            # we extend by ID
+            reduced_data["id"] = self.__class__._current_game_id
 
         return reduced_data
 

@@ -2274,8 +2274,8 @@ script:
           id(move_to_store_flag) = false;          
           id(halfmove_counter) = 0;
           id(halfmove_or_capture_counter) = 0;
-          id(current_move_from) = 0;
-          id(current_move_to) = 0;
+          id(current_move_from) = -1;
+          id(current_move_to) = -1;
           id(current_move_type) = "";
           id(current_move_uci) = "";
           id(valid_move) = false;
@@ -2621,34 +2621,36 @@ script:
   - id: update_uci_notation
     then:
       - lambda: |-
-          // create uci move for lichess
-          std::string field_name_from = id(chess_field_names)[id(current_move_from)];
-          std::string field_name_to = id(chess_field_names)[id(current_move_to)];
-          std::string fen_name_from = id(fen_position_last)[id(current_move_from)];
-          std::string uci_move = field_name_from + field_name_to;
+          if (id(current_move_to) > -1 && id(current_move_from) > -1) {
+            // create uci move for lichess
+            std::string field_name_from = id(chess_field_names)[id(current_move_from)];
+            std::string field_name_to = id(chess_field_names)[id(current_move_to)];
+            std::string fen_name_from = id(fen_position_last)[id(current_move_from)];
+            std::string uci_move = field_name_from + field_name_to;
 
-          // we have to add promotion to UCI
-          bool move_or_take = (bool)(id(current_move_type) == "MOVE" ||  id(current_move_type) == "TAKE");
-          bool promotion_move = (bool)(fen_name_from  == "P" || fen_name_from  == "p" );
-          if (move_or_take && promotion_move) {  
+            // we have to add promotion to UCI
+            bool move_or_take = (bool)(id(current_move_type) == "MOVE" ||  id(current_move_type) == "TAKE");
+            bool promotion_move = (bool)(fen_name_from  == "P" || fen_name_from  == "p" );
+            if (move_or_take && promotion_move) {  
 
-            // white
-            if (id(white_to_move) && (field_name_to.find('8') != std::string::npos)) {
-              // add promotion piece to uci notation
-              uci_move += id(default_pawn_promotion_to);
-              std::transform(uci_move.begin(), uci_move.end(), uci_move.begin(), ::tolower);
+              // white
+              if (id(white_to_move) && (field_name_to.find('8') != std::string::npos)) {
+                // add promotion piece to uci notation
+                uci_move += id(default_pawn_promotion_to);
+                std::transform(uci_move.begin(), uci_move.end(), uci_move.begin(), ::tolower);
+              }
+
+              // black
+              if (!id(white_to_move) && (field_name_to.find('1') != std::string::npos)) {
+                // add promotion piece to uci notation
+                uci_move += id(default_pawn_promotion_to);
+                std::transform(uci_move.begin(), uci_move.end(), uci_move.begin(), ::tolower);
+              }
             }
-
-            // black
-            if (!id(white_to_move) && (field_name_to.find('1') != std::string::npos)) {
-              // add promotion piece to uci notation
-              uci_move += id(default_pawn_promotion_to);
-              std::transform(uci_move.begin(), uci_move.end(), uci_move.begin(), ::tolower);
-            }
+            
+            id(current_move_uci) = uci_move;
+            id(current_move_uci_sensor).update();
           }
-          
-          id(current_move_uci) = uci_move;
-          id(current_move_uci_sensor).update();
 
   - id: fen_position_last_arr_to_string
     mode: queued
@@ -2858,6 +2860,11 @@ script:
           // reset add pgn
           id(last_move_pgn_additional) = "";
 
+          // we have to reset FEN, to allow move correction
+          for (int i = 0; i < 72; i++) {
+            id(fen_position_current)[i] = id(fen_position_last)[i];
+          };
+
   - id: move_validator
     mode: queued 
     then:
@@ -2865,11 +2872,6 @@ script:
           if (id(game_running)) {
             // reset flags
             id(reset_validator_flags).execute();
-
-            // we have to reset FEN, to allow move correction
-            for (int i = 0; i < 72; i++) {
-              id(fen_position_current)[i] = id(fen_position_last)[i];
-            };
 
             // Update from / to indexes
             if (id(differences_n_pieces) == 0 && id(differences_n_white_pieces) == 0 && id(differences_n_black_pieces) == 0) { // move or castling
@@ -3227,7 +3229,7 @@ script:
 
           // update castling part
           if (std::string("KRkr").find(id(moved_piece)) != std::string::npos){ // Kind or rook move
-            if (id(white_to_move) && (id(fen_position_current)[65] == "K" || id(fen_position_current)[65] == "Q") ) { // white
+            if (id(white_to_move) && (id(fen_position_current)[65] == "K" || id(fen_position_current)[66] == "Q") ) { // white
               // king
               if (id(moved_piece) == "K"){
                 id(fen_position_current)[65] = "";
@@ -3240,7 +3242,7 @@ script:
                     id(fen_position_current)[66] = "";
                   }
               }
-            } else if (id(fen_position_current)[67] == "k" || id(fen_position_current)[68] == "q") {
+            } else if (!id(white_to_move) && (id(fen_position_current)[67] == "k" || id(fen_position_current)[68] == "q")) {
               // king
               if (id(moved_piece) == "k"){
                 id(fen_position_current)[67] = "";
@@ -3279,7 +3281,7 @@ script:
             // create pgn notation (internal)
             std::string pgn_move = "";
             
-            if (id(current_move_type) == "MOVE" ||  id(current_move_type) == "TAKE" ||  id(current_move_type) == "ENPASSANT") {            
+            if ((id(current_move_type) == "MOVE" ||  id(current_move_type) == "TAKE" ||  id(current_move_type) == "ENPASSANT") && id(current_move_to) > -1 && id(current_move_to) > -1) {            
               
               // from FEN-position to upper case
               std::string fen_from = id(fen_position_last)[id(current_move_from)];
@@ -3743,12 +3745,13 @@ script:
               id(lichess_accept_challenge).execute();
             }
 
+            id(oled_show_page_message).execute();
+
           } else {
-              id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"Set initial position\"}";            
-              id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"Set initial position\"}";                               
+              id(beep_long).execute();
+              id(oled_show_page_temporary_message)->execute("{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"Set initial position\"}", "both", 2000);                     
           }
 
-          id(oled_show_page_message).execute();
 
   - id: lichess_handle_new_event
     mode: queued
@@ -3854,12 +3857,12 @@ script:
             if (root["status"].as<std::string>() == "success") {
               id(lichess_tournament_id).publish_state(root["id"].as<std::string>());
               id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"Joined: " + id(lichess_tournament_id).state + "\", \"line_1\": \"Start: " + root["starts_in"].as<std::string>() + "\"}";
-              id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"Joined: " + id(lichess_tournament_id).state + "\", \"line_1\": \"Start: " + root["starts_in"].as<std::string>() + "\"}";              
+              id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"Joined: " + id(lichess_tournament_id).state + "\", \"line_1\": \"Start: " + root["starts_in"].as<std::string>() + "\"}";    
+              id(oled_show_page_message).execute();          
             } else {
-              id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"Failed to join\"}";
-              id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"Failed to join\"}";
-            }  
-            id(oled_show_page_message).execute();          
+              id(beep_long).execute();
+              id(oled_show_page_temporary_message)->execute("{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"Failed to join\"}", "both", 2000); 
+            }                        
           }
           
           // ############# rejoined arena tournament #############
@@ -3879,15 +3882,31 @@ script:
           deserializeJson(root, json_str);
 
           // ############# opponent gone #############
-          if ((root["type"].as<std::string>() == "opponentGone") && (root["gone"].as<bool>() == true ) && (root["claimWinInSeconds"].as<int>() == 0) ){
+          if ((root["type"].as<std::string>() == "opponentGone") && (root["gone"].as<bool>() == true ) && (root["claimWinInSeconds"].as<int>() == 0) &&  (root["id"].as<std::string>() == id(lichess_game_id).state)  ){
             delay(1000);  // Wait 1s to sync
             // claim victory
             id(lichess_api_call).publish_state("idle"); 
             id(lichess_api_call).publish_state("{\"type\": \"claim-victory\"}");            
           }
 
+          // ############# chat line #############
+          if ((root["type"].as<std::string>() == "chatLine") && (root["text"].as<std::string>() != "" ) &&  (root["id"].as<std::string>() == id(lichess_game_id).state) ){
+
+            int maxCharsPerLine = 32;
+            std::string part_1 = root["text"].as<std::string>();            
+            std::string part_2 = "";
+            if (part_1.length() > maxCharsPerLine) {
+              part_2 = part_1.substr(maxCharsPerLine, maxCharsPerLine);
+              part_1 = part_1.substr(0, maxCharsPerLine);              
+            }
+
+            id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"" + part_1 + "\", \"line_1\": \"" + part_2 + "\"}";            
+            id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"" + part_1 + "\", \"line_1\": \"" + part_2 + "\"}";    
+                 
+          }
+
           // ############# move on board #############
-          if ((root["type"].as<std::string>() == "gameState") && root.containsKey("win") && (root["win"].as<std::string>() != "w") && (root["win"].as<std::string>() != "b")){
+          if ((root["type"].as<std::string>() == "gameState") && root.containsKey("win") && (root["win"].as<std::string>() != "w") && (root["win"].as<std::string>() != "b") &&  (root["id"].as<std::string>() == id(lichess_game_id).state)){
             // win - state is extracted from the event - json
             
             // let the player know about the last move of opponent
@@ -3959,26 +3978,14 @@ script:
            
             // draw offer ?
             if ( ((root["wdraw"].as<int>() == 1) && !id(lichess_is_my_color_white)) || ((root["bdraw"].as<int>() == 1) && id(lichess_is_my_color_white)) ) {
-              if (!id(lichess_is_my_color_white)) {
-                id(display_message_black) = "{\"n_lines\": 1, \"line_0\": \"DRAW?\"}";
-                id(oled_black_acitve_page) = 2;
-              } else {
-                id(display_message_white) = "{\"n_lines\": 1, \"line_0\": \"DRAW?\"}";
-                id(oled_white_acitve_page) = 2;
-              } 
-              id(beep_long).execute();             
+              id(beep_long).execute(); 
+              id(oled_show_page_temporary_message)->execute("{\"n_lines\": 1, \"line_0\": \"DRAW?\"}", "otb", 2000);                          
             }
 
             // take back offer ?
             if ( ((root["wback"].as<int>() == 1) && !id(lichess_is_my_color_white)) || ((root["bback"].as<int>() == 1) && id(lichess_is_my_color_white)) ) {
-              if (!id(lichess_is_my_color_white)) {
-                id(display_message_black) = "{\"n_lines\": 1, \"line_0\": \"Takeback?\"}";
-                id(oled_black_acitve_page) = 2;
-              } else {
-                id(display_message_white) = "{\"n_lines\": 1, \"line_0\": \"Takeback?\"}";
-                id(oled_white_acitve_page) = 2;
-              }
-              id(beep_long).execute();   
+              id(beep_long).execute();
+              id(oled_show_page_temporary_message)->execute("{\"n_lines\": 1, \"line_0\": \"Takeback?\"}", "otb", 2000);                 
             }                        
           }
 
@@ -4081,6 +4088,57 @@ script:
       - lambda: |-
             id(oled_white_acitve_page) = 2;
             id(oled_black_acitve_page) = 2;
+            id(redraw_displays).execute();
+
+    # color: "white", "black", "both", "otb" (player otb is selected, lichess games only)
+  - id: oled_show_page_temporary_message
+    parameters:      
+      message: string
+      color: string
+      duration_ms: int 
+    then:
+      - lambda: |-
+            if (color == "otb") {
+              if(id(lichess_game_running) && id(lichess_is_my_color_white)) {
+                color = "white";
+              }
+              if(id(lichess_game_running) && !id(lichess_is_my_color_white)) {
+                color = "black";
+              }
+              // we dont really need that case, makes not so much sence
+              if(id(lichess_game_running) && id(lichess_opponent_at_board).state == "yes") {
+                color = "both";
+              }
+            }
+
+            // store previous values
+            std::string message_w = id(display_message_white);
+            std::string message_b = id(display_message_black);
+            int page_w = id(oled_white_acitve_page);
+            int page_b = id(oled_black_acitve_page);
+
+            if (color == "white" || color == "both") {
+              id(display_message_white) = message; 
+              id(oled_white_acitve_page) = 2;
+            }
+            if (color == "black" || color == "both") {
+              id(display_message_black) = message; 
+              id(oled_black_acitve_page) = 2;
+            }
+            // show temporary message
+            id(redraw_displays).execute();
+            // wait
+            delay(duration_ms);
+            // restore previous message
+            if (color == "white" || color == "both") {
+              id(display_message_white) = message_w; 
+              id(oled_white_acitve_page) = page_w;
+            }
+            if (color == "black" || color == "both") {
+              id(display_message_black) = message_b; 
+              id(oled_black_acitve_page) = page_b;
+            }
+            // show previous message
             id(redraw_displays).execute();
   
   - id: led_update_initial_position_set
