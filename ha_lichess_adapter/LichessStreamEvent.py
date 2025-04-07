@@ -13,7 +13,7 @@ IDLE_LICHESS_TOKEN = 'idle'
 URL_TEMPLATE_STREAM_EVENT = "https://lichess.org/api/stream/event"
 
 LICHESS_STREAM_PARAMETER_IN_SENSOR = "sensor.chessboard_lichess_stream_call"
-LICHESS_RESPONSE_OUT_SENSOR = 'sensor.chessboard_response_out'
+LICHESS_RESPONSE_OUT_SENSOR = 'sensor.chessboard_lichess_response_out'
 
 class LichessStreamEvent(hass.Hass):
 

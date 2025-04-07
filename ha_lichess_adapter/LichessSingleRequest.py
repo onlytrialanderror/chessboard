@@ -15,7 +15,7 @@ EMPTY_HEADER = {"Content-Type": "application/json" }
 
 LICHESS_SINGLE_CALL_PARAMETER_IN_SENSOR = 'sensor.chessboard_lichess_api_call'
 LICHESS_STREAM_PARAMETER_IN_SENSOR = "sensor.chessboard_lichess_stream_call"
-LICHESS_RESPONSE_OUT_SENSOR = 'sensor.chessboard_response_out'
+LICHESS_RESPONSE_OUT_SENSOR = 'sensor.chessboard_lichess_response_out'
 
 URL_TEMPLATE_SEEK = "https://lichess.org/api/board/seek"
 URL_TEMPLATE_MOVE = "https://lichess.org/api/board/game/{}/move/{}"
@@ -72,7 +72,6 @@ class LichessSingleRequest(hass.Hass):
         if new and new != self.__class__._current_game_id:
             self.log(f"Game ID changed: {self.__class__._current_game_id} -> {new}")
             self.__class__._current_game_id = new
-            self.stream_game()
 
     def token_changed(self, new):
         if new and new != self.__class__._current_token and new != UNAVAILABLE_STATE and new != UNKNOWN_STATE and new != EMPTY_STRING:

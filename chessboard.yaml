@@ -1494,12 +1494,12 @@ text_sensor:
     update_interval: never
     web_server:
       sorting_group_id: sorting_group_system
-      sorting_weight: 6
+      sorting_weight: 5
 
   - platform: homeassistant
     name: "Lichess Response"
     id: lichess_response
-    entity_id: sensor.chessboard_response_out
+    entity_id: sensor.chessboard_lichess_response_out
     internal: false
     on_value:
       then:
@@ -1507,15 +1507,15 @@ text_sensor:
             id(lichess_handle_response).execute();
     web_server:
       sorting_group_id: sorting_group_system
-      sorting_weight: 3
+      sorting_weight: 4
 
   - platform: template
     name: "Lichess Stream Call"
     id: lichess_stream_call
     update_interval: never
     web_server:
-      sorting_group_id: sorting_group_lichess
-      sorting_weight: 8
+      sorting_group_id: sorting_group_system
+      sorting_weight: 3
   
   - platform: template
     name: "Lichess Api Call"
@@ -3713,7 +3713,7 @@ script:
             // update lichess token, if not selected yet
             id(update_lichess_token).execute();
             // open the event stream
-            if (!id(lichess_stream_events)) {
+            if (id(lichess_stream_events).state == "OFF") {
               id(lichess_stream_events).publish_state("ON"); 
             }
             
