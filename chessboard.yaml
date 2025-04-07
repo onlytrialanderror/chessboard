@@ -15,7 +15,8 @@ esphome:
       then:
         - lambda: |-
             id(redraw_displays).execute();
-            id(lichess_tournament_id).publish_state(std::string("idle"));
+            id(lichess_tournament_id).publish_state("idle");
+            id(lichess_stream_events).publish_state("OFF");
 
 esp32:
   board: esp32dev
@@ -1488,67 +1489,29 @@ text_sensor:
 
   # used just to define out-sensor for ha to be set as ha-input sensor
   - platform: template
-    name: "Lichess Last Move (out)"
-    id: lichess_last_move
-    update_interval: never
-    web_server:
-      sorting_group_id: sorting_group_system
-      sorting_weight: 7
-
-  - platform: homeassistant
-    name: "Lichess Last Move"
-    id: lichess_last_move_in
-    entity_id: sensor.chessboard_lichess_last_move_out
-    internal: false
-    on_value:
-      then:
-        - lambda: |-
-            id(lichess_handle_last_move).execute();
-    web_server:
-      sorting_group_id: sorting_group_system
-      sorting_weight: 4
-
-  # used just to define out-sensor for ha to be set as ha-input sensor
-  - platform: template
-    name: "Lichess Last Event (out)"
-    id: lichess_last_event
+    name: "Lichess Response (out)"
+    id: lichess_response_dummy
     update_interval: never
     web_server:
       sorting_group_id: sorting_group_system
       sorting_weight: 6
 
   - platform: homeassistant
-    name: "Lichess Last Event"
-    id: lichess_last_event_in
-    entity_id: sensor.chessboard_lichess_last_event_out
+    name: "Lichess Response"
+    id: lichess_response
+    entity_id: sensor.chessboard_response_out
     internal: false
     on_value:
       then:
         - lambda: |-
-            id(lichess_handle_new_event).execute();
+            id(lichess_handle_response).execute();
     web_server:
       sorting_group_id: sorting_group_system
       sorting_weight: 3
 
   - platform: template
-    name: "Lichess Stream Events"
-    id: lichess_stream_events
-    update_interval: never
-    web_server:
-      sorting_group_id: sorting_group_system
-      sorting_weight: 1
-
-  - platform: template
-    name: "Lichess Game Id"
-    id: lichess_game_id
-    update_interval: never
-    web_server:
-      sorting_group_id: sorting_group_lichess
-      sorting_weight: 7
-
-  - platform: template
-    name: "Lichess Arena Id"
-    id: lichess_tournament_id
+    name: "Lichess Stream Call"
+    id: lichess_stream_call
     update_interval: never
     web_server:
       sorting_group_id: sorting_group_lichess
@@ -1563,14 +1526,39 @@ text_sensor:
       sorting_weight: 2
 
   - platform: template
-    name: "Lichess Token"
-    id: lichess_token
-    lambda: >- 
-      return id(chessboard_token_current);
+    name: "Lichess Game Id"
+    id: lichess_game_id
+    update_interval: never
+    internal: False
+    on_value:
+      then:
+        - lambda: |-
+            id(lichess_stream_call).publish_state("{\"type\": \"setGameId\", \"gameId\": \"" + x + "\"}");
+    web_server:
+      sorting_group_id: sorting_group_lichess
+      sorting_weight: 7
+
+  - platform: template
+    name: "Lichess Arena Id"
+    id: lichess_tournament_id
+    internal: False
+    update_interval: never
+    web_server:
+      sorting_group_id: sorting_group_lichess
+      sorting_weight: 8
+
+  - platform: template
+    name: "Lichess Stream Events"
+    id: lichess_stream_events
+    internal: False
+    on_value:
+      then:
+        - lambda: |-
+            id(lichess_stream_call).publish_state("{\"type\": \"streamEvents\", \"state\": \"" + x + "\"}");
     update_interval: never
     web_server:
       sorting_group_id: sorting_group_system
-      sorting_weight: 5
+      sorting_weight: 1
 
   - platform: template
     name: "Hall Array Part Black"
@@ -2315,7 +2303,6 @@ script:
           id(timer_black).update();
           id(timer_white).update();
 
-          id(lichess_last_move).publish_state(std::string("idle"));
           id(lichess_game_id).publish_state(std::string("idle"));
           id(update_lichess_token).execute();
           
@@ -3567,7 +3554,7 @@ script:
           // join tournament
           if (id(lichess_tournament_json) != "") {
             // open the event stream
-            id(lichess_stream_events).publish_state("ON");            
+            id(lichess_stream_call).publish_state("{\"type\": \"streamEvents\", \"state\": \"ON\"}");            
             // deserialize for messaging
             StaticJsonDocument<256> root;
             deserializeJson(root, id(lichess_tournament_json));
@@ -3668,7 +3655,7 @@ script:
           // update own token
           auto index = id(lichess_account).active_index();
           std::string previous_token = id(chessboard_token_current);
-          bool previous_active_stream = (id(lichess_stream_events).state == "ON");
+          bool previous_active_stream = id(lichess_stream_events).state == "ON";
 
           if (index.value() == 0) {
             id(chessboard_token_current) = id(chessboard_token_a);
@@ -3686,7 +3673,7 @@ script:
 
           // we close the stream with previous token
           if ( (previous_token != id(chessboard_token_current) ) && previous_active_stream) {
-            id(lichess_stream_events).publish_state("OFF");
+            id(lichess_stream_events).publish_state("OFF"); 
           }
 
           // update opponents token
@@ -3705,11 +3692,11 @@ script:
           id(encrypt_message)->execute(id(chessboard_token_opponent));
           id(chessboard_token_opponent) = id(encrypted_message);
 
-          id(lichess_token).update();
+          id(lichess_stream_call).publish_state("{\"type\": \"initializeToken\", \"token\": \"" + id(chessboard_token_current) + "\"}");
 
           // we reopen the stream with new token
           if ( (previous_token != id(chessboard_token_current) ) && previous_active_stream) {
-            id(lichess_stream_events).publish_state("ON");
+            id(lichess_stream_events).publish_state("ON"); 
           }
 
   - id: lichess_create_new_game
@@ -3726,8 +3713,8 @@ script:
             // update lichess token, if not selected yet
             id(update_lichess_token).execute();
             // open the event stream
-            if (id(lichess_stream_events).state != "ON") {
-              id(lichess_stream_events).publish_state("ON");
+            if (!id(lichess_stream_events)) {
+              id(lichess_stream_events).publish_state("ON"); 
             }
             
             // Create JSON object
@@ -3746,7 +3733,7 @@ script:
 
             // the shortest seek posible is 10+0, so we set this time, if shorter time - control is choosen
             if (id(lichess_opponent).state == "random" && id(time_control_duration) < 600 ){              
-              ESP_LOGW("Lichess", "Invalid time control. Set the clock to 10+0.");
+              id(oled_show_page_temporary_message)->execute("{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"Invalid time control. Set the clock to 10+0.\"}", "both", 2000); 
               auto call = id(chess_time_control).make_call();
               call.set_option("Rapid (10+0)");
               call.perform();              
@@ -3789,241 +3776,252 @@ script:
               id(oled_show_page_temporary_message)->execute("{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"Set initial position\"}", "both", 2000);                     
           }
 
-
-  - id: lichess_handle_new_event
+  - id: lichess_handle_response
     mode: queued
     then:
       - lambda: |-
-      
-          std::string json_str = id(lichess_last_event_in).state;
+          std::string json_str = id(lichess_response).state;
 
           StaticJsonDocument<512> root;
           deserializeJson(root, json_str);
 
-          // ############# new game started #############
-          if (root.containsKey("type") && root.containsKey("color") && (root["type"].as<std::string>() == "gameStart")){
+          if (root.containsKey("type")) {
 
-            if (id(lichess_tournament_id).state.length() == 8) {
-                id(beep_long).execute();
-            } else {
-              id(beep_short).execute();
-            }
+            // #######################################
+            // ########### EVENTS ####################
+            // #######################################
 
-            id(game_running) = true;
-            id(white_to_move) = true;
-            // we could have some pgn_additionals from last game
-            id(pgn_history) = ""; 
-            id(last_move_pgn_additional) = "";
+            // ############# new game started #############
+            if (root.containsKey("color") && (root["type"].as<std::string>() == "gameStart")){
 
-            // extract opponents name to be shown on display
-            std::string opponent =  root["opponent"].as<std::string>();
-            std::string me = id(lichess_account).state;
-            std::string game_id = root["gameId"].as<std::string>();
-
-            // we start board stream
-            id(lichess_game_id).publish_state(game_id);
-
-            // we check the white color
-            if ( root["color"].as<std::string>() == "white"){ 
-              id(lichess_is_my_color_white) = true;
-              id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"" + me + "\", \"line_1\": \"" + id(chess_time_control).state + "\"}";
-              id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"" + opponent + "\", \"line_1\": \"" + id(chess_time_control).state + "\"}";
-            }
-            // we check the white color
-            if (root["color"].as<std::string>() == "black"){
-              id(lichess_is_my_color_white) = false;
-              id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"" + opponent + "\", \"line_1\": \"" + id(chess_time_control).state + "\"}";
-              id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"" + me + "\", \"line_1\": \"" + id(chess_time_control).state + "\"}";
-            }
-
-            id(lichess_opponent_name) = opponent;     
-            id(oled_show_page_message).execute();
-
-            // rise flag we are in lichess game
-            id(lichess_game_running) = true;
-
-            std::string say_hello = "{\"type\": \"writeChatMessage\", \"text\": \"Good luck and have fun!\"}";
-            id(lichess_api_call).publish_state(say_hello);
-          }
-
-          // ############# game finished #############
-          if (root.containsKey("type") && (root["type"].as<std::string>() == "gameFinish" ) && root.containsKey("gameId") && (root["gameId"].as<std::string>() == id(lichess_game_id).state)){
-              // for the case, multiple games are running, we check the current gameId
-              std::string say_bye = "{\"type\": \"writeChatMessage\", \"text\": \"GG. Bye.\"}";
-              id(lichess_api_call).publish_state(say_bye);
-
-              std::string curr_game_result = "";
-
-              // store the win-state
-              std::string win = root["win"].as<std::string>();
-              std::string state = root["status"].as<std::string>();
-
-              // white won ?
-              if (win == "w"){
-                curr_game_result = "1-0"; 
+              if (id(lichess_tournament_id).state.length() == 8) {
+                  id(beep_long).execute();
+              } else {
+                id(beep_short).execute();
               }
 
-              // black won ?
-              if (win == "b"){
-                curr_game_result = "0-1";
+              id(game_running) = true;
+              id(white_to_move) = true;
+              // we could have some pgn_additionals from last game
+              id(pgn_history) = ""; 
+              id(last_move_pgn_additional) = "";
+
+              // extract opponents name to be shown on display
+              std::string opponent =  root["opponent"].as<std::string>();
+              std::string me = id(lichess_account).state;
+              std::string game_id = root["gameId"].as<std::string>();
+
+              // we start board stream
+              id(lichess_game_id).publish_state(game_id);            
+
+              // we check the white color
+              if ( root["color"].as<std::string>() == "white"){ 
+                id(lichess_is_my_color_white) = true;
+                id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"" + me + "\", \"line_1\": \"" + id(chess_time_control).state + "\"}";
+                id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"" + opponent + "\", \"line_1\": \"" + id(chess_time_control).state + "\"}";
+              }
+              // we check the white color
+              if (root["color"].as<std::string>() == "black"){
+                id(lichess_is_my_color_white) = false;
+                id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"" + opponent + "\", \"line_1\": \"" + id(chess_time_control).state + "\"}";
+                id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"" + me + "\", \"line_1\": \"" + id(chess_time_control).state + "\"}";
               }
 
-              if (state == "draw"){
-                curr_game_result = "1/2-1/2";
-              }
-
-              // close the event stream
-              if (id(lichess_tournament_id).state.length() != 8) {
-                id(lichess_stream_events).publish_state("OFF");
-              }
-              
-              id(lichess_game_id).publish_state("idle");
-
-              id(inform_game_over)->execute(curr_game_result);
-              id(post_game_operation).execute();
-              // should be reseted by post_game_operation, just for the case counter = 0 (i.e. resigned at first move)
-              id(game_running) = false;
-              id(lichess_game_running) = false; 
-              
-              // if we are in tournament, withdraw the game to set the initial position
-              id(lichess_arena_withdraw_by_id).execute();
-          }
-
-          // ############# joined new arena tournament #############
-          if (root.containsKey("type") && root.containsKey("id") && (root["id"].as<std::string>().length() == 8) && (root["type"].as<std::string>() == "tournamentJoinedByName")){
-            if (root["status"].as<std::string>() == "success") {
-              id(lichess_tournament_id).publish_state(root["id"].as<std::string>());
-              id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"Joined: " + id(lichess_tournament_id).state + "\", \"line_1\": \"Start: " + root["starts_in"].as<std::string>() + "\"}";
-              id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"Joined: " + id(lichess_tournament_id).state + "\", \"line_1\": \"Start: " + root["starts_in"].as<std::string>() + "\"}";    
-              id(oled_show_page_message).execute();          
-            } else {
-              id(beep_long).execute();
-              id(oled_show_page_temporary_message)->execute("{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"Failed to join\"}", "both", 2000); 
-            }                        
-          }
-          
-          // ############# rejoined arena tournament #############
-          if (root.containsKey("type") && root.containsKey("id") && (root["id"].as<std::string>().length() == 8) && (root["type"].as<std::string>() == "tournamentJoinedById")){
-              id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"Joined: " + id(lichess_tournament_id).state + "\", \"line_1\": \"Waiting for new game\"}";
-              id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"Joined: " + id(lichess_tournament_id).state + "\", \"line_1\": \"Waiting for new game\"}";
+              id(lichess_opponent_name) = opponent;     
               id(oled_show_page_message).execute();
-          }
 
-  - id: lichess_handle_last_move
-    mode: queued
-    then:
-      - lambda: |-
-          std::string json_str = id(lichess_last_move_in).state;
+              // rise flag we are in lichess game
+              id(lichess_game_running) = true;
 
-          StaticJsonDocument<512> root;
-          deserializeJson(root, json_str);
-
-          // ############# opponent gone #############
-          if ((root["type"].as<std::string>() == "opponentGone") && (root["gone"].as<bool>() == true ) && (root["claimWinInSeconds"].as<int>() == 0) &&  (root["id"].as<std::string>() == id(lichess_game_id).state)  ){
-            delay(1000);  // Wait 1s to sync
-            // claim victory
-            id(lichess_api_call).publish_state("idle"); 
-            id(lichess_api_call).publish_state("{\"type\": \"claim-victory\"}");            
-          }
-
-          // ############# chat line #############
-          if ((root["type"].as<std::string>() == "chatLine") && (root["text"].as<std::string>() != "" ) &&  (root["id"].as<std::string>() == id(lichess_game_id).state) ){
-
-            int maxCharsPerLine = 32;
-            std::string part_1 = root["text"].as<std::string>();            
-            std::string part_2 = "";
-            if (part_1.length() > maxCharsPerLine) {
-              part_2 = part_1.substr(maxCharsPerLine, maxCharsPerLine);
-              part_1 = part_1.substr(0, maxCharsPerLine);              
+              std::string say_hello = "{\"type\": \"writeChatMessage\", \"text\": \"Good luck and have fun!\"}";
+              id(lichess_api_call).publish_state(say_hello);
             }
 
-            id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"" + part_1 + "\", \"line_1\": \"" + part_2 + "\"}";            
-            id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"" + part_1 + "\", \"line_1\": \"" + part_2 + "\"}";    
-                 
-          }
+            // ############# game finished #############
+            if ((root["type"].as<std::string>() == "gameFinish" ) && root.containsKey("gameId") && (root["gameId"].as<std::string>() == id(lichess_game_id).state)){
+                // for the case, multiple games are running, we check the current gameId
+                std::string say_bye = "{\"type\": \"writeChatMessage\", \"text\": \"GG. Bye.\"}";
+                id(lichess_api_call).publish_state(say_bye);
 
-          // ############# move on board #############
-          if ((root["type"].as<std::string>() == "gameState") && root.containsKey("win") && (root["win"].as<std::string>() != "w") && (root["win"].as<std::string>() != "b") &&  (root["id"].as<std::string>() == id(lichess_game_id).state)){
-            // win - state is extracted from the event - json
-            
-            // let the player know about the last move of opponent
-            std::string last_move = root["last"].as<std::string>();
-            std::string from = last_move.substr(0, 2);
-            std::string to = last_move.substr(2, 2);
-            
-            std::string moved_piece = id(fen_position_last)[id(chess_field_indexes)[from]];
-            std::transform(moved_piece.begin(), moved_piece.end(), moved_piece.begin(), ::toupper);
+                std::string curr_game_result = "";
 
-            if (moved_piece == "P") {
-              moved_piece = "";
-            } else {
-              moved_piece += ":";
-            }
+                // store the win-state
+                std::string win = root["win"].as<std::string>();
+                std::string state = root["status"].as<std::string>();
 
-            // get number of moves
-            int n = root["n"].as<int>();           
-            bool is_my_turn = (bool)( (n % 2) == int(id(lichess_is_my_color_white)));            
-
-            if (!is_my_turn) { // we want the opponents move
-              if( id(lichess_opponent_at_board).state == "no") {
-                // opponent is white and its turn
-                if (!id(lichess_is_my_color_white)){ 
-                  id(display_message_black) = "{\"n_lines\": 1, \"line_0\": \"" + moved_piece +  last_move + "\"}";                
-                  id(oled_black_acitve_page) = 2;
-                  id(beep_short).execute();       
-                } 
-                // opponent is black and its turn
-                if (id(lichess_is_my_color_white)){  
-                  id(display_message_white) = "{\"n_lines\": 1, \"line_0\":  \""+ moved_piece  + last_move + "\"}";
-                  id(oled_white_acitve_page) = 2;
-                  id(beep_short).execute();
+                // white won ?
+                if (win == "w"){
+                  curr_game_result = "1-0"; 
                 }
+
+                // black won ?
+                if (win == "b"){
+                  curr_game_result = "0-1";
+                }
+
+                if (state == "draw"){
+                  curr_game_result = "1/2-1/2";
+                }
+
+                // close the event stream
+                if (id(lichess_tournament_id).state.length() != 8) {
+                  id(lichess_stream_events).publish_state("OFF"); 
+                }
+                
+                id(lichess_game_id).publish_state("idle");
+
+                id(inform_game_over)->execute(curr_game_result);
+                id(post_game_operation).execute();
+                // should be reseted by post_game_operation, just for the case counter = 0 (i.e. resigned at first move)
+                id(game_running) = false;
+                id(lichess_game_running) = false; 
+                
+                // if we are in tournament, withdraw the game to set the initial position
+                id(lichess_arena_withdraw_by_id).execute();
+            }
+
+            // ############# joined new arena tournament #############
+            if ((root["type"].as<std::string>() == "tournamentJoinedByName") && root.containsKey("id") && (root["id"].as<std::string>().length() == 8)){
+              if (root["status"].as<std::string>() == "success") {
+                id(lichess_tournament_id).publish_state(root["id"].as<std::string>());
+                id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"Joined: " + id(lichess_tournament_id).state + "\", \"line_1\": \"Start: " + root["starts_in"].as<std::string>() + "\"}";
+                id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"Joined: " + id(lichess_tournament_id).state + "\", \"line_1\": \"Start: " + root["starts_in"].as<std::string>() + "\"}";    
+                id(oled_show_page_message).execute();          
+              } else {
+                id(beep_long).execute();
+                id(oled_show_page_temporary_message)->execute("{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"Failed to join\"}", "both", 2000); 
+              }                        
+            }
+            
+            // ############# rejoined arena tournament #############
+            if ((root["type"].as<std::string>() == "tournamentJoinedById") && root.containsKey("id") && (root["id"].as<std::string>().length() == 8)){
+                id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"Joined: " + id(lichess_tournament_id).state + "\", \"line_1\": \"Waiting for new game\"}";
+                id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"Joined: " + id(lichess_tournament_id).state + "\", \"line_1\": \"Waiting for new game\"}";
+                id(oled_show_page_message).execute();
+            }
+
+            // ############# stream event off #############
+            if ((root["type"].as<std::string>() == "streamEventsResponse") && root.containsKey("state")){
+                id(lichess_stream_events).publish_state(root["state"].as<std::string>());
+            }
+
+            // ############# stream event off #############
+            if ((root["type"].as<std::string>() == "streamBoardResponse") && root.containsKey("state")){
+                id(lichess_game_id).publish_state(root["state"].as<std::string>());
+            }
+
+            // #######################################
+            // ########### BOARD API #################
+            // #######################################
+
+
+            // ############# opponent gone #############
+            if ((root["type"].as<std::string>() == "opponentGone") && (root["gone"].as<bool>() == true ) && (root["claimWinInSeconds"].as<int>() == 0) &&  (root["id"].as<std::string>() == id(lichess_game_id).state)  ){
+              delay(1000);  // Wait 1s to sync
+              // claim victory
+              id(lichess_api_call).publish_state("idle"); 
+              id(lichess_api_call).publish_state("{\"type\": \"claim-victory\"}");            
+            }
+
+            // ############# chat line #############
+            if ((root["type"].as<std::string>() == "chatLine") && (root["text"].as<std::string>() != "" ) &&  (root["id"].as<std::string>() == id(lichess_game_id).state) ){
+
+              int maxCharsPerLine = 32;
+              std::string part_1 = root["text"].as<std::string>();            
+              std::string part_2 = "";
+              if (part_1.length() > maxCharsPerLine) {
+                part_2 = part_1.substr(maxCharsPerLine, maxCharsPerLine);
+                part_1 = part_1.substr(0, maxCharsPerLine);              
+              }
+
+              id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"" + part_1 + "\", \"line_1\": \"" + part_2 + "\"}";            
+              id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"" + part_1 + "\", \"line_1\": \"" + part_2 + "\"}";    
+                  
+            }
+
+            // ############# move on board #############
+            if ((root["type"].as<std::string>() == "gameState") && root.containsKey("win") && (root["win"].as<std::string>() != "w") && (root["win"].as<std::string>() != "b") &&  (root["id"].as<std::string>() == id(lichess_game_id).state)){
+              // win - state is extracted from the event - json
+              
+              // let the player know about the last move of opponent
+              std::string last_move = root["last"].as<std::string>();
+              std::string from = last_move.substr(0, 2);
+              std::string to = last_move.substr(2, 2);
+              
+              std::string moved_piece = id(fen_position_last)[id(chess_field_indexes)[from]];
+              std::transform(moved_piece.begin(), moved_piece.end(), moved_piece.begin(), ::toupper);
+
+              if (moved_piece == "P") {
+                moved_piece = "";
+              } else {
+                moved_piece += ":";
+              }
+
+              // get number of moves
+              int n = root["n"].as<int>();           
+              bool is_my_turn = (bool)( (n % 2) == int(id(lichess_is_my_color_white)));            
+
+              if (!is_my_turn) { // we want the opponents move
+                if( id(lichess_opponent_at_board).state == "no") {
+                  // opponent is white and its turn
+                  if (!id(lichess_is_my_color_white)){ 
+                    id(display_message_black) = "{\"n_lines\": 1, \"line_0\": \"" + moved_piece +  last_move + "\"}";                
+                    id(oled_black_acitve_page) = 2;
+                    id(beep_short).execute();       
+                  } 
+                  // opponent is black and its turn
+                  if (id(lichess_is_my_color_white)){  
+                    id(display_message_white) = "{\"n_lines\": 1, \"line_0\":  \""+ moved_piece  + last_move + "\"}";
+                    id(oled_white_acitve_page) = 2;
+                    id(beep_short).execute();
+                  }
+                } 
+              }
+
+              // store lichess move
+              id(current_move_uci_lichess) = last_move;
+
+              // if my turn, show the clock
+              if (id(white_to_move) && is_my_turn){ // I'm white and my turn
+                id(oled_white_acitve_page) = 1;
               } 
-            }
+              
+              if (!id(white_to_move) && is_my_turn){  // I'm black and my turn
+                id(oled_black_acitve_page) = 1;
+              }
+              
+              // update chessboard clock by values from lichess
+              std::string wclk = root["wclk"].as<std::string>();
+              std::string bclk = root["bclk"].as<std::string>();
 
-            // store lichess move
-            id(current_move_uci_lichess) = last_move;
+              // set white clock
+              size_t pos = wclk.find('+'); // Find the "+" character
+              if (pos != std::string::npos) {
+                  std::string first_part = wclk.substr(0, pos); // Extract first part
+                  id(time_control_timer_white) = std::stoi(first_part); 
+                  id(timer_white).update();
+              }
 
-            // if my turn, show the clock
-            if (id(white_to_move) && is_my_turn){ // I'm white and my turn
-              id(oled_white_acitve_page) = 1;
-            } 
+              // set black clock
+              pos = bclk.find('+'); // Find the "+" character
+              if (pos != std::string::npos) {
+                  std::string first_part = bclk.substr(0, pos); // Extract first part
+                  id(time_control_timer_black) = std::stoi(first_part);
+                  id(timer_black).update();
+              }   
             
-            if (!id(white_to_move) && is_my_turn){  // I'm black and my turn
-              id(oled_black_acitve_page) = 1;
-            }
-            
-            // update chessboard clock by values from lichess
-            std::string wclk = root["wclk"].as<std::string>();
-            std::string bclk = root["bclk"].as<std::string>();
+              // draw offer ?
+              if ( ((root["wdraw"].as<int>() == 1) && !id(lichess_is_my_color_white)) || ((root["bdraw"].as<int>() == 1) && id(lichess_is_my_color_white)) ) {
+                id(beep_long).execute(); 
+                id(oled_show_page_temporary_message)->execute("{\"n_lines\": 1, \"line_0\": \"DRAW?\"}", "otb", 2000);                          
+              }
 
-            // set white clock
-            size_t pos = wclk.find('+'); // Find the "+" character
-            if (pos != std::string::npos) {
-                std::string first_part = wclk.substr(0, pos); // Extract first part
-                id(time_control_timer_white) = std::stoi(first_part); 
-                id(timer_white).update();
+              // take back offer ?
+              if ( ((root["wback"].as<int>() == 1) && !id(lichess_is_my_color_white)) || ((root["bback"].as<int>() == 1) && id(lichess_is_my_color_white)) ) {
+                id(beep_long).execute();
+                id(oled_show_page_temporary_message)->execute("{\"n_lines\": 1, \"line_0\": \"Takeback?\"}", "otb", 2000);                 
+              }                        
             }
-
-            // set black clock
-            pos = bclk.find('+'); // Find the "+" character
-            if (pos != std::string::npos) {
-                std::string first_part = bclk.substr(0, pos); // Extract first part
-                id(time_control_timer_black) = std::stoi(first_part);
-                id(timer_black).update();
-            }   
-           
-            // draw offer ?
-            if ( ((root["wdraw"].as<int>() == 1) && !id(lichess_is_my_color_white)) || ((root["bdraw"].as<int>() == 1) && id(lichess_is_my_color_white)) ) {
-              id(beep_long).execute(); 
-              id(oled_show_page_temporary_message)->execute("{\"n_lines\": 1, \"line_0\": \"DRAW?\"}", "otb", 2000);                          
-            }
-
-            // take back offer ?
-            if ( ((root["wback"].as<int>() == 1) && !id(lichess_is_my_color_white)) || ((root["bback"].as<int>() == 1) && id(lichess_is_my_color_white)) ) {
-              id(beep_long).execute();
-              id(oled_show_page_temporary_message)->execute("{\"n_lines\": 1, \"line_0\": \"Takeback?\"}", "otb", 2000);                 
-            }                        
           }
 
           id(redraw_displays).execute();

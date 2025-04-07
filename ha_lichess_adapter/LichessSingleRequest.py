@@ -9,13 +9,13 @@ UNAVAILABLE_STATE = "unavailable"
 UNKNOWN_STATE = "unknown"
 EMPTY_STRING = ''
 EMPTY_CALL = "idle"
+IDLE_LICHESS_TOKEN = "idle"
 EMPTY_HEADER = {"Content-Type": "application/json" }
 
 
-LICHESS_TOKEN_SENSOR = 'sensor.chessboard_lichess_token'
-LICHESS_GAME_ID_SENSOR = 'sensor.chessboard_lichess_game_id'
-LICHESS_CALL_SENSOR = 'sensor.chessboard_lichess_api_call'
-LICHESS_LAST_EVENT_SENSOR = 'sensor.chessboard_lichess_last_event_out'
+LICHESS_SINGLE_CALL_PARAMETER_IN_SENSOR = 'sensor.chessboard_lichess_api_call'
+LICHESS_STREAM_PARAMETER_IN_SENSOR = "sensor.chessboard_lichess_stream_call"
+LICHESS_RESPONSE_OUT_SENSOR = 'sensor.chessboard_response_out'
 
 URL_TEMPLATE_SEEK = "https://lichess.org/api/board/seek"
 URL_TEMPLATE_MOVE = "https://lichess.org/api/board/game/{}/move/{}"
@@ -33,11 +33,6 @@ URL_TEMPLATE_TOURNAMENT_JOIN = "https://lichess.org/api/tournament/{}/join"
 URL_TEMPLATE_TOURNAMENT_WITHDRAW = "https://lichess.org/api/tournament/{}/withdraw"
 
 
-def get_secret(path="/config/secrets.yaml"):
-    with open(path, "r") as file:
-        secrets = yaml.safe_load(file)
-    return secrets.get('chessboard_secret_key')
-
 class LichessSingleRequest(hass.Hass):
 
     _current_game_id = IDLE_GAME_ID
@@ -50,36 +45,43 @@ class LichessSingleRequest(hass.Hass):
 
     def initialize(self):        
         self.log("AppDaemon LichessSingleRequest script initialized!")
-        self.__class__._current_secret_key = get_secret()
-        self.__class__._current_token = self.decrypt_message(self.get_state(LICHESS_TOKEN_SENSOR))
-        self.__class__._current_game_id = self.get_state(LICHESS_GAME_ID_SENSOR)
-        self.log(f"Initialized Game ID: {self.__class__._current_game_id}")
-        self.log(f"Initialized Token (call): {self.__class__._current_token}")
-        self.listen_state(self.game_id_changed, LICHESS_GAME_ID_SENSOR)
-        self.listen_state(self.token_changed, LICHESS_TOKEN_SENSOR)
-        self.listen_state(self.handle_call_trigger, LICHESS_CALL_SENSOR)
+        self.__class__._current_secret_key = self.get_secret()
+        self.listen_state(self.parameter_in_changed, LICHESS_STREAM_PARAMETER_IN_SENSOR)
+        self.listen_state(self.handle_call_trigger, LICHESS_SINGLE_CALL_PARAMETER_IN_SENSOR)
         # we are ready to go
         self.log(f"Waiting for new api call")
 
-    def game_id_changed(self, entity, attribute, old, new, kwargs):
-        if new and new != old and new != UNAVAILABLE_STATE and new != UNKNOWN_STATE:
-            self.log(f"Game ID changed: {old} -> {new}")
-            self.__class__._current_game_id = new
-        else:
-            if new is None or new == UNAVAILABLE_STATE or new == UNKNOWN_STATE: 
-                self.log("Not allowed game_id: {}".format(new))
+    def get_secret(self, path="/config/secrets.yaml"):
+        with open(path, "r") as file:
+            secrets = yaml.safe_load(file)
+        return secrets.get('chessboard_secret_key')
 
-    def token_changed(self, entity, attribute, old, new, kwargs):
+    def parameter_in_changed(self, entity, attribute, old, new, kwargs):
         if new and new != old and new != UNAVAILABLE_STATE and new != UNKNOWN_STATE:
+            # convert to json - object
+            new_data = json.loads(new)
+            if new_data: # valid json
+                if (new_data.get('type') == 'setGameId'):
+                    self.game_id_changed(new_data.get('gameId'))
+                if (new_data.get('type') == 'initializeToken' and new_data.get('token') != IDLE_LICHESS_TOKEN):
+                    self.token_changed(new_data.get('token'))
+        else:
+            self.log("Not valid json: {}".format(new))
+
+    def game_id_changed(self, new):
+        if new and new != self.__class__._current_game_id:
+            self.log(f"Game ID changed: {self.__class__._current_game_id} -> {new}")
+            self.__class__._current_game_id = new
+            self.stream_game()
+
+    def token_changed(self, new):
+        if new and new != self.__class__._current_token and new != UNAVAILABLE_STATE and new != UNKNOWN_STATE and new != EMPTY_STRING:
             new_decrypted = self.decrypt_message(new)
-            old_decrypted = old
-            if old != UNAVAILABLE_STATE and old != UNKNOWN_STATE:
-                old_decrypted = self.decrypt_message(old)
-            self.log(f"Token changed (call): {old_decrypted} -> {new_decrypted}")
+            self.log(f"Token changed (api): {self.__class__._current_token} -> {new_decrypted}")
             self.__class__._current_token = new_decrypted
         else:
             if new is None or new == UNAVAILABLE_STATE or new == UNKNOWN_STATE: 
-                self.log("Not allowed token (call): {}".format(new))
+                self.log("Not allowed token (api): {}".format(new))
 
     def parse_username_string(self, input_string):
         username = input_string
@@ -95,10 +97,14 @@ class LichessSingleRequest(hass.Hass):
     
     def decrypt_message(self, hex_string):
         decrypted = hex_string
-        if hex_string != UNAVAILABLE_STATE and hex_string != UNKNOWN_STATE:
-            # Convert hex to bytes
-            encrypted_bytes = bytes.fromhex(hex_string)
-            decrypted = ''.join(chr(b ^ ord(self.__class__._current_secret_key[i % len(self.__class__._current_secret_key)])) for i, b in enumerate(encrypted_bytes))
+        if hex_string is not None and hex_string != UNAVAILABLE_STATE and hex_string != UNKNOWN_STATE and hex_string != EMPTY_STRING and hex_string != IDLE_LICHESS_TOKEN:
+            try:
+                # Convert hex to bytes
+                encrypted_bytes = bytes.fromhex(hex_string)
+                decrypted = ''.join(chr(b ^ ord(self.__class__._current_secret_key[i % len(self.__class__._current_secret_key)])) for i, b in enumerate(encrypted_bytes))
+            except ValueError as e:
+                self.log("Not valid hex-string): {}".format(hex_string))
+                self.log(f"Error: {e}")
         return decrypted
 
     def handle_call_trigger(self, entity, attribute, old, new, kwargs):
@@ -257,7 +263,7 @@ class LichessSingleRequest(hass.Hass):
                                 }
                                 json_data = json.dumps(data)
                             # let chessboard know about the tournament id
-                            self.set_state(LICHESS_LAST_EVENT_SENSOR, state=json_data)
+                            self.set_state(LICHESS_RESPONSE_OUT_SENSOR, state=json_data)
 
                     if (call_type == 'joinTournamentById' and json_data.get('id')):
                           
@@ -290,7 +296,7 @@ class LichessSingleRequest(hass.Hass):
                                 }
                                 json_data = json.dumps(data)
                             # let chessboard know about the tournament id
-                            self.set_state(LICHESS_LAST_EVENT_SENSOR, state=json_data)
+                            self.set_state(LICHESS_RESPONSE_OUT_SENSOR, state=json_data)
 
                 ######################################
                 ##### no token and id required ########
