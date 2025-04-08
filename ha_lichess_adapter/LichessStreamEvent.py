@@ -8,6 +8,7 @@ UNKNOWN_STATE = "unknown"
 EMPTY_STRING = ''
 ON_STATE = "ON"
 OFF_STATE = "OFF"
+IDLE_STATE = 'idle'
 IDLE_LICHESS_TOKEN = 'idle'
 
 URL_TEMPLATE_STREAM_EVENT = "https://lichess.org/api/stream/event"
@@ -60,7 +61,7 @@ class LichessStreamEvent(hass.Hass):
     def stream_events_trigger(self, new):
         if new and new == ON_STATE:
             self.__class__._stream_event = True
-        if new and new == OFF_STATE:
+        if new and (new == OFF_STATE or new == IDLE_STATE):
             self.__class__._stream_event = False
         if (self.__class__._stream_event):
             self.stream_event()
@@ -115,8 +116,8 @@ class LichessStreamEvent(hass.Hass):
                     "opponent": "{}: {}".format(dat.get('game', {}).get("opponent", {}).get("username", "player"), dat.get('game', {}).get("opponent", {}).get("rating", 0)),
                     "rated": dat.get('game', {}).get("rated", False),
                     "speed": dat.get('game', {}).get("speed", ""),
-                    "status": dat.get('game', {}).get('status', {}).get("name", ""),
-                    "win": {"white": "w", "black": "b"}.get(dat.get('game', {}).get("winner", ""), "")
+                    "status": {"draw": "1/2-1/2"}.get(dat.get('game', {}).get('status', {}).get("name", ""), dat.get('game', {}).get('status', {}).get("name", "")),
+                    "win": {"white": "1-0", "black": "0-1"}.get(dat.get('game', {}).get("winner", ""), "")
                 }
             else :
                 # challenge
@@ -160,7 +161,7 @@ class LichessStreamEvent(hass.Hass):
             self.__class__._stream_event = False
             off_json = {
                         "type": "streamEventsResponse",
-                        "state": "OFF"
+                        "state": IDLE_STATE
                     }
             off_json_str = json.dumps(off_json)
             self.set_state(LICHESS_RESPONSE_OUT_SENSOR, state=off_json_str)

@@ -14,9 +14,9 @@ esphome:
     - priority: 700
       then:
         - lambda: |-
-            id(redraw_displays).execute();
+            id(reset_display_message).execute();
             id(lichess_tournament_id).publish_state("idle");
-            id(lichess_stream_events).publish_state("OFF");
+            id(lichess_stream_events).publish_state("idle");
 
 esp32:
   board: esp32dev
@@ -90,7 +90,7 @@ substitutions:
   adc_n_sampels: '40' 
   attenuation_value: 12dB
   hall_sensor_intervall_game: 300ms 
-  hall_sensor_intervall_idle: 1s
+  hall_sensor_intervall_idle: 500ms
   delay_before_adc_reading: '2'
 
 i2c:
@@ -359,10 +359,6 @@ globals:
     type: std::string
     initial_value: '""'
 
-  - id: fen_position_new_string
-    type: std::string
-    initial_value: '""'
-
   - id: fen_position_current
     type: std::array<std::string, 72>
     initial_value: '{""}'
@@ -470,6 +466,10 @@ globals:
   - id: target_piece
     type: std::string
     initial_value: '"0"' 
+
+  - id: initial_position_state
+    type: int
+    initial_value: '0'
 
   - id: halfmove_counter
     type: int
@@ -625,24 +625,25 @@ globals:
 interval:
   - interval: $hall_sensor_intervall_game
     then:
-      - lambda: |-
-          if (id(game_running)) {
-            // perform main loop
-            id(main_loop).execute();
-          }
+      - if:
+          condition:
+            lambda: 'return id(game_running);'
+          then:
+            - script.execute: main_loop
   - interval: $hall_sensor_intervall_idle
     then:
-      - lambda: |-
-          if (!id(game_running)) {
-            // read hall sensors
-            id(update_all_hall_sensors).execute();          
-            // transform voltage to position flags (-1, 0, 1)
-            id(update_raw_position_current).execute();
-            // update variables, if black & white init-positions are set
-            id(initial_position_set).update();
-            // turn on red-led if not
-            id(led_update_initial_position_set).execute();
-          }
+      - if:
+          condition:
+            lambda: 'return !id(game_running);'
+          then:
+            - script.execute: update_all_hall_sensors
+            #- script.wait: update_all_hall_sensors
+            - script.execute: update_raw_position_current
+            #- script.wait: update_raw_position_current
+            - script.execute: initial_position_state_update
+            #- script.wait: initial_position_state_update
+            - script.execute: led_update_initial_position_state
+            #- script.wait: led_update_initial_position_state
   - interval: 1000ms
     then:
       - script.execute: update_timer
@@ -1154,8 +1155,8 @@ binary_sensor:
                     // transform voltage to position flags (-1, 0, 1)
                     id(update_raw_position_current).execute();
                     // update variables, if black & white init-positions are set
-                    id(initial_position_set).update();
-                    id(led_update_initial_position_set).execute(); 
+                    id(initial_position_state_update).execute();
+                    id(led_update_initial_position_state).execute(); 
                     id(oled_show_page_menu).execute();
     internal: true
 
@@ -1446,44 +1447,6 @@ sensor:
     attenuation: $attenuation_value
     samples: $adc_n_sampels
     update_interval: never
-  - platform: template
-    name: initial_position_set
-    id: initial_position_set
-    internal: true
-    lambda: |-
-      // 0 - non, 1 - black, 2 - white, 3 - both set
-      int init_position = 0b00;      
-      if (!id(game_running)) {
-        init_position = 0b11; // 3
-        // check black
-        for (int i = 0; i < 16; i++) {
-          if (id(raw_position_current)[i]  != id(raw_position_init)[i])
-          {
-            init_position = 0b10; // 2
-            break;
-          }
-        }
-        // here 2 or 3
-        // check white
-        for (int i = 48; i < 64; i++) {
-          if (id(raw_position_current)[i]  != id(raw_position_init)[i])
-          {
-            init_position &= 0b01; // 0 or 1
-            break;
-          }
-        }
-      }
-      return init_position;          
-    update_interval: never
-    on_value:
-      then:
-        - lambda: |-
-            if (x == 0b11) { // both colors are in init position
-              id(post_game_operation).execute();
-              // if we are in arena, we want to rejoin
-              id(lichess_arena_join_by_id).execute();
-            }
-            
 
 text_sensor:
 
@@ -1584,16 +1547,6 @@ text_sensor:
       sorting_weight: 12
     lambda: |-
       return id(fen_position_last_string);
-  - platform: template
-    name: FEN (new)
-    id: fen_position_new_string_sensor
-    internal: False
-    update_interval: never
-    web_server:
-      sorting_group_id: sorting_group_sensors
-      sorting_weight: 13
-    lambda: |-
-      return id(fen_position_new_string);
   - platform: template
     name: Debugger
     id: debugger_sensor
@@ -1910,7 +1863,7 @@ script:
             // update led's valid / non valid move
             id(led_update_valid_move).execute();
             // we check, if we should store the move (i.e. button pressed, or lichess-move is applied)
-            id(store_move).execute();            
+            id(store_move)->execute(id(game_result));            
           } else {            
             // reset flags
             id(reset_validator_flags).execute();
@@ -1953,7 +1906,7 @@ script:
                 id(move_to_store_flag) = true; 
               }
             // we assume here, initial-position-set is updated by the idle iteration loop
-            } else if (!id(game_running) && id(white_to_move) && !id(lichess_game_running) && id(halfmove_counter) == 0 && id(initial_position_set).state == 3) { 
+            } else if (!id(game_running) && id(white_to_move) && !id(lichess_game_running) && id(halfmove_counter) == 0 && id(initial_position_state) == 3) { 
                 // if initial position, white can also start the the clock
                 id(game_running) = true;
                 // update LEDs
@@ -2152,17 +2105,16 @@ script:
       - script.wait: create_pgn_header
       - if:
           condition:
-            - lambda: |-
-                return id(halfmove_counter) > 0;
+            - lambda: 'return id(halfmove_counter) > 0;'
           then:
             - script.execute: telegram_pgn_a
             - script.wait: telegram_pgn_a
             - script.execute: telegram_pgn_b
             - script.wait: telegram_pgn_b
-            #- script.execute: telegram_chessboard_a
-            #- script.wait: telegram_chessboard_a
-            #- script.execute: telegram_chessboard_b
-            #- script.wait: telegram_chessboard_b
+            - script.execute: telegram_chessboard_a
+            - script.wait: telegram_chessboard_a
+            - script.execute: telegram_chessboard_b
+            - script.wait: telegram_chessboard_b
 
   - id: telegram_pgn_a
     then:
@@ -2214,36 +2166,38 @@ script:
       - lambda: |-
           auto time = id(sntp_time).now();
 
-          std::string year = std::to_string(time.year);
-          std::string month = std::to_string(time.month);
-          std::string month_prefix = (time.month < 10 ? "0" : "");
-          std::string day_prefix = (time.day_of_month < 10 ? "0" : "");
-          std::string day = std::to_string(time.day_of_month);
-          std::string hour_prefix = (time.hour < 10 ? "0" : "");
-          std::string hour = std::to_string(time.hour);
-          std::string minute_prefix = (time.minute < 10 ? "0" : "");
-          std::string minute = std::to_string(time.minute);
-          std::string second_prefix = (time.second < 10 ? "0" : "");
-          std::string second = std::to_string(time.second);
+          auto format_two_digits = [](int val) -> std::string {
+            return (val < 10 ? "0" : "") + std::to_string(val);
+          };
+
+          std::string year   = std::to_string(time.year);
+          std::string month  = format_two_digits(time.month);
+          std::string day    = format_two_digits(time.day_of_month);
+          std::string hour   = format_two_digits(time.hour);
+          std::string minute = format_two_digits(time.minute);
+          std::string second = format_two_digits(time.second);
 
           std::string header = "[Event \"Chessboard Game\"]\n";
-          header += "[Date \"" + year + "." + month_prefix  + month + "." + day_prefix  + day  + "\"]\n";
+          header += "[Date \"" + year + "." + month + "." + day + "\"]\n";
+
           if (id(lichess_game_running)) {
-            if (id(lichess_is_my_color_white)) { 
+            if (id(lichess_is_my_color_white)) {
               header += "[White \"Chessboard-Player\"]\n";
-              header += "[Black \"" + id(lichess_opponent_name) + "\"]\n";              
+              header += "[Black \"" + id(lichess_opponent_name) + "\"]\n";
             } else {
-              header += "[White \"" + id(lichess_opponent_name) + "\"]\n"; 
-              header += "[Black \"Chessboard-Player\"]\n";              
+              header += "[White \"" + id(lichess_opponent_name) + "\"]\n";
+              header += "[Black \"Chessboard-Player\"]\n";
             }
           } else {
             header += "[White \"Chessboard-Player A\"]\n";
             header += "[Black \"Chessboard-Player B\"]\n";
           }
-          header += "[UTCDate \"" + year + "." + month_prefix  + month + "." +  day_prefix  + day + "\"]\n";
-          header += "[UTCTime \"" + hour_prefix + hour + ":" + minute_prefix + minute + ":" + second_prefix + second + "\"]\n";
+
+          header += "[UTCDate \"" + year + "." + month + "." + day + "\"]\n";
+          header += "[UTCTime \"" + hour + ":" + minute + ":" + second + "\"]\n";
           header += "[Variant \"Standard\"]\n";
-          header += "[TimeControl \"" + std::to_string(id(time_control_duration)) + "+" + std::to_string(id(time_control_increment))+ "\"]";
+          header += "[TimeControl \"" + std::to_string(id(time_control_duration)) +
+                    "+" + std::to_string(id(time_control_increment)) + "\"]";
 
           id(pgn_header) = header;
 
@@ -2252,63 +2206,109 @@ script:
       - lambda: |-
           if (id(halfmove_counter) > 0 ) {
             if (!id(lichess_game_running)) {
-              id(send_telegram_message).execute();
+              //id(send_telegram_message).execute();
             }            
             id(reset_all_values).execute();
+          }
+
+  - id: initial_position_state_update
+    then:
+      - lambda: |-
+          int initial_position_previous = id(initial_position_state);
+          // 0 - non, 1 - black, 2 - white, 3 - both set
+          int initial_position_current = 0b11; // 3      
+          // check black
+          for (int i = 0; i < 16; i++) {
+            if (id(raw_position_current)[i]  != id(raw_position_init)[i])
+            {
+              initial_position_current = 0b10; // 2
+              break;
+            }
+          }
+          // here 2 or 3
+          // check white
+          for (int i = 48; i < 64; i++) {
+            if (id(raw_position_current)[i]  != id(raw_position_init)[i])
+            {
+              initial_position_current &= 0b01; // 0 or 1
+              break;
+            }
+          }
+
+          id(initial_position_state) = initial_position_current; 
+
+          // do some stuff at changed init - position - state
+          if (initial_position_previous != initial_position_current) {
+            
+            // 0 - non, 1 - black, 2 - white, 3 - both set
+
+            // both colors are in init position            
+            if (initial_position_current == 0b11) { 
+              // intial position set, reset game
+              id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"Initial position set\", \"line_1\": \"Reseting game ...\"}";
+              id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"Initial position set\", \"line_1\": \"Reseting game ...\"}";
+              id(oled_white_acitve_page) = 2;
+              id(oled_black_acitve_page) = 2;
+              delay(2000);
+              // reset all values
+              id(reset_all_values).execute();
+              id(reset_display_message).execute();
+              // if we are in arena, we want to rejoin
+              id(lichess_arena_join_by_id).execute();
+            }
+
+            // white only: 2
+            if (initial_position_current == 0b10) { 
+              // intial position set, reset game
+              id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"Initial position set\", \"line_1\": \"Waiting for black ...\"}";
+              id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"Black player\", \"line_1\": \"Set initial position\"}";
+              id(oled_show_page_message).execute();              
+            }
+
+            // black only: 1
+            if (initial_position_current == 0b01) { 
+              // intial position set, reset game
+              id(display_message_black) ="{\"n_lines\": 2, \"line_0\": \"Initial position set\", \"line_1\": \"Waiting for white ...\"}"; 
+              id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"White player\", \"line_1\": \"Set initial position\"}";
+              id(oled_show_page_message).execute();
+            }
+
+            // both not in intial position and game not running 
+            if (initial_position_current == 0b00 && !id(my_menu).is_active()) {
+              // if menu is not active, inform the init position to be set
+              id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"Black player\", \"line_1\": \"Set initial position\"}";
+              id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"White player\", \"line_1\": \"Set initial position\"}";
+              id(oled_show_page_message).execute();
+            } 
+             
           }
 
   - id: reset_all_values 
     then:
       - lambda: |-
+          id(led_all_turn_off).execute(); 
           id(reset_fen_position).execute();
           id(reset_raw_position).execute();
-          id(reset_voltage_field).execute();
           id(reset_pgn_values).execute();
           id(white_to_move) = true;
           id(game_running) = false;
-          id(led_update_color_to_move).execute();          
+          id(lichess_is_my_color_white) = true;
+          id(lichess_game_running) = false;                   
           id(move_to_store_flag) = false;          
           id(halfmove_counter) = 0;
           id(halfmove_or_capture_counter) = 0;
-          id(current_move_from) = -1;
-          id(current_move_to) = -1;
-          id(current_move_type) = "";
-          id(current_move_uci) = "";
-          id(valid_move) = false;
-          id(moved_piece) = "0";
-          id(target_piece) = "0";
-
-          id(game_result) = "";
-
           id(last_move_white) = "";
-          id(last_move_black) = "";
-
-          id(lichess_is_my_color_white) = true;
-          id(lichess_game_running) = false;
-
+          id(last_move_black) = "";          
           id(sync_time_control).execute();
           id(time_control_timer_black) = id(time_control_duration);
-          id(time_control_timer_white) = id(time_control_duration);
-          
-          id(n_queens_white) = 1;
-          id(n_queens_black) = 1;
-
-          id(differences_sum) = 0;
-          id(differences_sum_abs) = 0;
-          id(differences_n_changes) = 0;
-          id(differences_n_pieces) = 0;
-          id(differences_n_black_pieces) = 0;
-          id(differences_n_white_pieces) = 0;
-
+          id(time_control_timer_white) = id(time_control_duration);  
           id(timer_black).update();
-          id(timer_white).update();
-
+          id(timer_white).update();        
+          id(n_queens_white) = 1;
+          id(n_queens_black) = 1;          
           id(lichess_game_id).publish_state(std::string("idle"));
-          id(update_lichess_token).execute();
-          
-          id(current_move_uci_lichess) = "-";
-
-          id(reset_display_message).execute();
+          id(update_lichess_token).execute();          
+          id(current_move_uci_lichess) = "-";          
 
   - id: reset_display_message
     then:
@@ -2394,11 +2394,9 @@ script:
             id(fen_position_current)[i] = curr_value;          
           };
           id(fen_position_last_string) = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
-          id(fen_position_new_string) = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
           id(update_chess_board).execute();
           id(fen_position_chessboard) = "";
           id(fen_position_last_string_sensor).update();
-          id(fen_position_new_string_sensor).update();
 
   - id: reset_raw_position
     then:
@@ -2407,20 +2405,12 @@ script:
             int curr_value = id(raw_position_init)[i];
             id(raw_position_take_back)[i] = curr_value; 
             id(raw_position_last)[i] = curr_value;   
-            id(raw_position_current)[i] = curr_value;          
           };
 
-  - id: reset_voltage_field
-    then:
-      - lambda: |-
-          for (int i = 0; i < 64; i++) {
-            float curr_value = id(voltage_field_offset)[i];
-            id(voltage_field_current)[i] = curr_value;   
-          };
 
   - id: inform_game_over
     parameters:
-      game_result: std::string
+      game_result: string
     then:
       - lambda: |-
           if (id(game_running)) {
@@ -2431,11 +2421,14 @@ script:
             bool black_won = (bool)(game_result == "0-1" || id(timer_white).state == "--:--");
             bool draw = (bool)(game_result == "1/2-1/2");
 
+            std::string message_white = "{\"n_lines\": 1, \"line_0\": \"Game finished\"}";
+            std::string message_black = "{\"n_lines\": 1, \"line_0\": \"Game finished\"}";
+
             if (white_won) { 
               id(led_white_green).execute(); // green
               id(led_black_red).execute(); // red            
-              id(display_message_black) = "{\"n_lines\": 1, \"line_0\": \"LOST\"}";
-              id(display_message_white) = "{\"n_lines\": 1, \"line_0\": \"WINNER\"}";
+              message_black = "{\"n_lines\": 1, \"line_0\": \"LOST\"}";
+              message_white = "{\"n_lines\": 1, \"line_0\": \"WINNER\"}";
               id(pgn_history) += " 1-0";
               if (id(timer_black).state == "--:--") {
                 id(pgn_history) += " {Won by time}";
@@ -2445,8 +2438,8 @@ script:
             if (black_won) {
               id(led_black_green).execute(); // green
               id(led_white_red).execute(); // red       
-              id(display_message_black) = "{\"n_lines\": 1, \"line_0\": \"WINNER\"}";
-              id(display_message_white) = "{\"n_lines\": 1, \"line_0\": \"LOST\"}";
+              message_black = "{\"n_lines\": 1, \"line_0\": \"WINNER\"}";
+              message_white = "{\"n_lines\": 1, \"line_0\": \"LOST\"}";
               id(pgn_history) += " 0-1";
               if (id(timer_white).state == "--:--") {
                 id(pgn_history) += " {Won by time}";
@@ -2456,8 +2449,8 @@ script:
             if (draw) {
               id(led_black_blue).execute(); // blue
               id(led_white_blue).execute(); // blue 
-              id(display_message_black) = "{\"n_lines\": 1, \"line_0\": \"DRAW\"}";
-              id(display_message_white) = "{\"n_lines\": 1, \"line_0\": \"DRAW\"}";
+              message_black = "{\"n_lines\": 1, \"line_0\": \"DRAW\"}";
+              message_white = "{\"n_lines\": 1, \"line_0\": \"DRAW\"}";
               id(pgn_history) += " 1/2-1/2";
             }
 
@@ -2465,12 +2458,18 @@ script:
             if (!id(lichess_game_running) && !white_won && !black_won && !draw) {
               id(led_black_red).execute(); // red
               id(led_white_red).execute(); // red 
-              id(display_message_black) = "{\"n_lines\": 1, \"line_0\": \"Aborted\"}";
-              id(display_message_white) = "{\"n_lines\": 1, \"line_0\": \"Aborted\"}";
+              message_black = "{\"n_lines\": 1, \"line_0\": \"Aborted\"}";
+              message_white = "{\"n_lines\": 1, \"line_0\": \"Aborted\"}";
             }
 
+            id(display_message_black) = message_black;
+            id(display_message_white) = message_white;
             id(oled_show_page_message).execute();
-            delay(5000);
+            delay(3000);
+            id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"Black player\", \"line_1\": \"Set initial position\"}";
+            id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"White player\", \"line_1\": \"Set initial position\"}";
+            id(oled_show_page_message).execute();
+            delay(2000);
           }
 
   - id: sync_time_control
@@ -2507,6 +2506,8 @@ script:
           call.perform();
 
   - id: store_move
+    parameters:
+      game_result: string
     mode: queued
     then:
       - lambda: |-
@@ -2554,19 +2555,14 @@ script:
             // make lichess move
             id(lichess_make_move).execute();
 
-            // overwrite game result from # to 0-1/1-0
-            if (id(white_to_move) && id(game_result) == "#") {
-                id(game_result) == "1-0";
-            } else if (!id(white_to_move) && id(game_result) == "#") {
-                id(game_result) == "0-1";
-            }
-
             // game finished on board ?
-            if (!id(lichess_game_running) && (id(game_result) == "#" || id(game_result) == "1-0" || id(game_result) == "0-1" || id(game_result) == "1/2-1/2")){
+            if (!id(lichess_game_running) && (game_result == "1-0" || game_result == "0-1" || game_result == "1/2-1/2")){
               // game over
-              id(inform_game_over)->execute(id(game_result));
+              id(inform_game_over)->execute(game_result);
               // do some post game operations
               id(post_game_operation).execute();
+              // stop game
+              id(game_running) = false;
             } else {               
               // toggle white_to_move
               id(white_to_move) = !id(white_to_move);               
@@ -2703,8 +2699,6 @@ script:
       - lambda: |-
           // define flag          
           bool valid_check = false;
-          id(last_move_pgn_additional) = "";
-          id(game_result) = "";
           
           std::string new_fen = id(fen_position_last_string);
           std::string new_uci = id(current_move_uci);
@@ -2713,6 +2707,7 @@ script:
           chess_validator::TableState table_state;
           bool valid_fen = chess_validator::get_table_state( new_fen.c_str() , &table_state );
           if (valid_fen) {
+            
             chess_validator::INVALID_REASON invalid = chess_validator::is_move_invalid( &table_state , new_uci.c_str() );
             if( invalid ){
                 std::string fen_string = ", FEN = " + id(fen_position_last_string) + ", MOVE: " + new_uci;
@@ -2758,9 +2753,12 @@ script:
 
             } else {
 
+                // reset flags, if valid move and no check / mate
+                id(game_result) = "";
+                id(last_move_pgn_additional) = "";
+
                 // apply current move and check if any checks, mates, draws (we use here UCI due to missing promotion parameter)
                 chess_validator::TableState new_table_state = chess_validator::apply_move( &table_state , new_uci.c_str() );
-                new_fen = chess_validator::to_fen_string(&new_table_state);
 
                 // king in check ?
                 if (chess_validator::is_king_in_check(&new_table_state, new_table_state.next_color_to_play)) {
@@ -2770,7 +2768,11 @@ script:
                 if (chess_validator::is_check_mate(&new_table_state))
                 {
                     id(last_move_pgn_additional) = "#";
-                    id(game_result) = "#";
+                    if (new_table_state.next_color_to_play == chess_validator::SQUARE::COLOR_BLACK ) {
+                      id(game_result) = "1-0";
+                    } else {
+                      id(game_result) = "0-1";
+                    }                    
                 }
                 // draw ?
                 chess_validator::DRAW_REASON   draw  = chess_validator::get_draw_reason(&new_table_state);
@@ -2785,8 +2787,6 @@ script:
 
           // reset flag if not valid
           id(valid_move) = valid_check;
-          id(fen_position_new_string) = new_fen;
-          id(fen_position_new_string_sensor).update();
 
   - id: calculate_position_differences
     then:
@@ -3531,8 +3531,8 @@ script:
           id(lichess_arena_withdraw_by_id).execute();
           id(lichess_tournament_id).publish_state("idle");
           id(lichess_tournament_json) = "";
-          if (id(initial_position_set).state == 3) {
-            id(lichess_stream_events).publish_state("OFF"); 
+          if (id(initial_position_state) == 3) {
+            id(lichess_stream_events).publish_state("idle"); 
           }
 
   - id: lichess_arena_join_new_tournament
@@ -3673,7 +3673,7 @@ script:
 
           // we close the stream with previous token
           if ( (previous_token != id(chessboard_token_current) ) && previous_active_stream) {
-            id(lichess_stream_events).publish_state("OFF"); 
+            id(lichess_stream_events).publish_state("idle"); 
           }
 
           // update opponents token
@@ -3705,15 +3705,15 @@ script:
       - lambda: |-
           // update sensor
           id(update_raw_position_current).execute();
-          id(initial_position_set).update();
+          id(initial_position_state_update).execute();
           // not during the gave
-          if (id(initial_position_set).state == 3) {
+          if (id(initial_position_state) == 3) {
             // stop timer, if running
             id(game_running) = false;
             // update lichess token, if not selected yet
             id(update_lichess_token).execute();
             // open the event stream
-            if (id(lichess_stream_events).state == "OFF") {
+            if (id(lichess_stream_events).state == "idle") {
               id(lichess_stream_events).publish_state("ON"); 
             }
             
@@ -3792,7 +3792,7 @@ script:
             // #######################################
 
             // ############# new game started #############
-            if (root.containsKey("color") && (root["type"].as<std::string>() == "gameStart")){
+            if (root["type"].as<std::string>() == "gameStart"){
 
               if (id(lichess_tournament_id).state.length() == 8) {
                   id(beep_long).execute();
@@ -3833,43 +3833,26 @@ script:
               // rise flag we are in lichess game
               id(lichess_game_running) = true;
 
-              std::string say_hello = "{\"type\": \"writeChatMessage\", \"text\": \"Good luck and have fun!\"}";
-              id(lichess_api_call).publish_state(say_hello);
             }
 
             // ############# game finished #############
-            if ((root["type"].as<std::string>() == "gameFinish" ) && root.containsKey("gameId") && (root["gameId"].as<std::string>() == id(lichess_game_id).state)){
-                // for the case, multiple games are running, we check the current gameId
-                std::string say_bye = "{\"type\": \"writeChatMessage\", \"text\": \"GG. Bye.\"}";
-                id(lichess_api_call).publish_state(say_bye);
-
-                std::string curr_game_result = "";
+            if ((root["type"].as<std::string>() == "gameFinish" ) && (root["gameId"].as<std::string>() == id(lichess_game_id).state)){
 
                 // store the win-state
-                std::string win = root["win"].as<std::string>();
+                std::string curr_game_result = root["win"].as<std::string>();
                 std::string state = root["status"].as<std::string>();
-
-                // white won ?
-                if (win == "w"){
-                  curr_game_result = "1-0"; 
-                }
-
-                // black won ?
-                if (win == "b"){
-                  curr_game_result = "0-1";
-                }
-
-                if (state == "draw"){
-                  curr_game_result = "1/2-1/2";
-                }
 
                 // close the event stream
                 if (id(lichess_tournament_id).state.length() != 8) {
-                  id(lichess_stream_events).publish_state("OFF"); 
+                  id(lichess_stream_events).publish_state("idle"); 
                 }
+
+                // draw ?
+                if (state == "stalemate" || state == "draw") {
+                  curr_game_result = "1/2-1/2";
+                } 
                 
                 id(lichess_game_id).publish_state("idle");
-
                 id(inform_game_over)->execute(curr_game_result);
                 id(post_game_operation).execute();
                 // should be reseted by post_game_operation, just for the case counter = 0 (i.e. resigned at first move)
@@ -3933,14 +3916,12 @@ script:
                 part_2 = part_1.substr(maxCharsPerLine, maxCharsPerLine);
                 part_1 = part_1.substr(0, maxCharsPerLine);              
               }
-
-              id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"" + part_1 + "\", \"line_1\": \"" + part_2 + "\"}";            
-              id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"" + part_1 + "\", \"line_1\": \"" + part_2 + "\"}";    
-                  
+              std::string chat_message = "{\"n_lines\": 2, \"line_0\": \"" + part_1 + "\", \"line_1\": \"" + part_2 + "\"}";
+              id(oled_show_page_temporary_message)->execute(chat_message, "otb", 3000);         
             }
 
             // ############# move on board #############
-            if ((root["type"].as<std::string>() == "gameState") && root.containsKey("win") && (root["win"].as<std::string>() != "w") && (root["win"].as<std::string>() != "b") &&  (root["id"].as<std::string>() == id(lichess_game_id).state)){
+            if ((root["type"].as<std::string>() == "gameState") && (root["state"].as<std::string>() == "started") &&  (root["id"].as<std::string>() == id(lichess_game_id).state)){
               // win - state is extracted from the event - json
               
               // let the player know about the last move of opponent
@@ -4176,7 +4157,7 @@ script:
             // show previous message
             id(redraw_displays).execute();
   
-  - id: led_update_initial_position_set
+  - id: led_update_initial_position_state
     then:
       - lambda: |-
           // if game not running only (or menu)
@@ -4185,7 +4166,7 @@ script:
             id(led_all_turn_off).execute();
             // extract the current state of init position
             // 0 - non, 1 - black, 2 - white, 3 - both are set
-            int value = id(initial_position_set).state;
+            int value = id(initial_position_state);
             // black -> red if not set
             if (value & 0b01) {
               id(led_black_blue).execute(); 

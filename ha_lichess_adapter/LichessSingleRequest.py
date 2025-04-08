@@ -118,10 +118,10 @@ class LichessSingleRequest(hass.Hass):
                 ##### no token or id required ########
                 ######################################
                 if (call_type == 'overwriteToken' and json_data.get('token')):
-                    self.token_changed(None, None, self.__class__._current_token, json_data.get('token'), None)
+                    self.token_changed(json_data.get('token'))
 
                 if (call_type == 'overwriteGameId' and json_data.get('gameId')):
-                    self.game_id_changed(None, None, self.__class__._current_game_id, json_data.get('gameId'), None)
+                    self.game_id_changed(json_data.get('gameId'))
 
                 ######################################
                 ##### token only #####################
