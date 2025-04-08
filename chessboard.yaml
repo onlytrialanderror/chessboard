@@ -65,14 +65,8 @@ web_server:
       name: "Board"
       sorting_weight: 20
     - id: sorting_group_pgn
-      name: "PGN"
+      name: "PGN / FEN"
       sorting_weight: 30
-    - id: sorting_group_sensors
-      name: "Sensors"
-      sorting_weight: 50
-    - id: sorting_group_simulation
-      name: "DEBUG"
-      sorting_weight: 100
     - id: sorting_group_lichess
       name: "Lichess"
       sorting_weight: 40
@@ -419,7 +413,7 @@ globals:
     type: std::string
     initial_value: '' 
 
-  - id: pgn_header
+  - id: full_pgn
     type: std::string
     initial_value: ''
 
@@ -1524,26 +1518,12 @@ text_sensor:
       sorting_weight: 1
 
   - platform: template
-    name: "Hall Array Part Black"
-    id: array_part_1
-    internal: false
-    web_server:
-      sorting_group_id: sorting_group_sensors
-      sorting_weight: 10
-  - platform: template
-    name: "Hall Array Part White"
-    id: array_part_2
-    internal: false
-    web_server:
-      sorting_group_id: sorting_group_sensors
-      sorting_weight: 11
-  - platform: template
-    name: FEN (last)
+    name: FEN
     id: fen_position_last_string_sensor
     internal: False
     update_interval: never
     web_server:
-      sorting_group_id: sorting_group_sensors
+      sorting_group_id: sorting_group_pgn
       sorting_weight: 12
     lambda: |-
       return id(fen_position_last_string);
@@ -1553,18 +1533,9 @@ text_sensor:
     internal: False
     update_interval: never
     web_server:
-      sorting_group_id: sorting_group_sensors
+      sorting_group_id: sorting_group_system
       sorting_weight: 14
-  - platform: template
-    name: UCI
-    id: current_move_uci_sensor
-    internal: False
-    update_interval: never
-    web_server:
-      sorting_group_id: sorting_group_sensors
-      sorting_weight: 15
-    lambda: |-
-      return id(current_move_uci);      
+  
   - platform: template
     name: "Timer (white)"
     id: timer_white
@@ -1915,35 +1886,6 @@ script:
                 id(oled_show_page_clock).execute();
             }
 
-  - id: update_array_text
-    mode: restart
-    then:
-      - lambda: |-
-          std::string part1;
-          std::string part2;
-          std::string* target = &part1;
-
-          for (size_t i = 0; i < 64; i++) {
-            // Round to 2 decimal places
-            int rounded = static_cast<int>(id(voltage_field_current)[i] * 100);
-            float rounded_val = rounded / 100.0f;
-
-            char buffer[6]; // Max "3.99\0"
-            snprintf(buffer, sizeof(buffer), "%.2f", rounded_val);
-            if (rounded >= 0) {
-              *target += '+';
-            }
-            *target += buffer;
-            *target += ((i + 1) % 8 == 0) ? '\n' : ' ';
-
-            if (i == 31) {
-              target = &part2; // Switch to second sensor
-            }
-          }
-
-          id(array_part_1).publish_state(part1);
-          id(array_part_2).publish_state(part2);
-
   - id: take_back
     then:
       - lambda: |-
@@ -2101,22 +2043,18 @@ script:
 
   - id: send_telegram_message
     then:
-      - script.execute: create_pgn_header
-      - script.wait: create_pgn_header
+      - script.execute: create_full_pgn
+      - script.wait: create_full_pgn
       - if:
           condition:
             - lambda: 'return id(halfmove_counter) > 0;'
           then:
-            - script.execute: telegram_pgn_a
-            - script.wait: telegram_pgn_a
-            - script.execute: telegram_pgn_b
-            - script.wait: telegram_pgn_b
-            - script.execute: telegram_chessboard_a
-            - script.wait: telegram_chessboard_a
-            - script.execute: telegram_chessboard_b
-            - script.wait: telegram_chessboard_b
+            - script.execute: telegram_pgn_chessboard_a
+            - script.wait: telegram_pgn_chessboard_a
+            - script.execute: telegram_pgn_chessboard_b
+            - script.wait: telegram_pgn_chessboard_b
 
-  - id: telegram_pgn_a
+  - id: telegram_pgn_chessboard_a
     then:
       - http_request.post:
           url: !secret telegram_cheesboard_url
@@ -2124,10 +2062,10 @@ script:
             Content-Type: application/json
           json:
             chat_id: !secret telegram_cheesboard_chat_id_a
-            text: !lambda |-
-                return id(pgn_header);
+            text: !lambda |-                
+                return id(full_pgn);
 
-  - id: telegram_pgn_b
+  - id: telegram_pgn_chessboard_b
     then:
       - http_request.post:
           url: !secret telegram_cheesboard_url
@@ -2135,32 +2073,10 @@ script:
             Content-Type: application/json
           json:
             chat_id: !secret telegram_cheesboard_chat_id_b
-            text: !lambda |-
-                return id(pgn_header);
+            text: !lambda |-                
+                return id(full_pgn);
 
-  - id: telegram_chessboard_a
-    then:
-      - http_request.post:
-          url: !secret telegram_cheesboard_url
-          headers:
-            Content-Type: application/json
-          json:
-            chat_id: !secret telegram_cheesboard_chat_id_a
-            text: !lambda |-
-                return id(pgn_header) + "\n" + id(fen_position_chessboard);
-
-  - id: telegram_chessboard_b
-    then:
-      - http_request.post:
-          url: !secret telegram_cheesboard_url
-          headers:
-            Content-Type: application/json
-          json:
-            chat_id: !secret telegram_cheesboard_chat_id_b
-            text: !lambda |-
-                return id(pgn_header) + "\n" + id(fen_position_chessboard);
-
-  - id: create_pgn_header
+  - id: create_full_pgn
     mode: queued
     then:
       - lambda: |-
@@ -2179,37 +2095,23 @@ script:
 
           std::string header = "[Event \"Chessboard Game\"]\n";
           header += "[Date \"" + year + "." + month + "." + day + "\"]\n";
-
-          if (id(lichess_game_running)) {
-            if (id(lichess_is_my_color_white)) {
-              header += "[White \"Chessboard-Player\"]\n";
-              header += "[Black \"" + id(lichess_opponent_name) + "\"]\n";
-            } else {
-              header += "[White \"" + id(lichess_opponent_name) + "\"]\n";
-              header += "[Black \"Chessboard-Player\"]\n";
-            }
-          } else {
-            header += "[White \"Chessboard-Player A\"]\n";
-            header += "[Black \"Chessboard-Player B\"]\n";
-          }
-
+          header += "[White \"Chessboard-Player A\"]\n";
+          header += "[Black \"Chessboard-Player B\"]\n";
           header += "[UTCDate \"" + year + "." + month + "." + day + "\"]\n";
           header += "[UTCTime \"" + hour + ":" + minute + ":" + second + "\"]\n";
           header += "[Variant \"Standard\"]\n";
           header += "[TimeControl \"" + std::to_string(id(time_control_duration)) +
                     "+" + std::to_string(id(time_control_increment)) + "\"]";
-
-          id(pgn_header) = header;
+          header += " " + id(game_result);
+          std::string full_message = header + "\n" + id(pgn_history) + "\n\n{" + id(fen_position_chessboard) + "\n}";
+          id(full_pgn) = full_message;
 
   - id: post_game_operation
     then:
       - lambda: |-
-          if (id(halfmove_counter) > 0 ) {
-            if (!id(lichess_game_running)) {
-              //id(send_telegram_message).execute();
-            }            
-            id(reset_all_values).execute();
-          }
+          if (id(halfmove_counter) > 0 && !id(lichess_game_running)) {
+              id(send_telegram_message).execute();
+          }            
 
   - id: initial_position_state_update
     then:
@@ -2371,7 +2273,7 @@ script:
           id(last_move_pgn_take_back) = "";
           id(pgn_history) = "";
           id(pgn_history_take_back) = "";
-          id(pgn_header) = "";
+          id(full_pgn) = "";
           id(pgn_history_1).update();
           id(pgn_history_2).update();
           id(pgn_history_3).update();
@@ -2640,7 +2542,6 @@ script:
             }
             
             id(current_move_uci) = uci_move;
-            id(current_move_uci_sensor).update();
           }
 
   - id: fen_position_last_arr_to_string
@@ -2907,11 +2808,12 @@ script:
             }
 
             // ON SETTING START POSITION?
-            if (id(game_running) && (id(differences_n_pieces) < -2)) { // added three and more pieces to board
+            if (id(game_running) && (id(differences_n_pieces) < -2 || id(differences_n_changes) > 6 )) { // added three and more pieces to board or moved more than 3 pieces at once
               // inform game is aborted
               id(inform_game_over)->execute(id(game_result));
               // we stop the game and send png
               id(post_game_operation).execute();
+              // abort the current game
               id(game_running) = false;
             }
           }
@@ -3855,9 +3757,7 @@ script:
                 id(lichess_game_id).publish_state("idle");
                 id(inform_game_over)->execute(curr_game_result);
                 id(post_game_operation).execute();
-                // should be reseted by post_game_operation, just for the case counter = 0 (i.e. resigned at first move)
-                id(game_running) = false;
-                id(lichess_game_running) = false; 
+                id(reset_all_values).execute(); 
                 
                 // if we are in tournament, withdraw the game to set the initial position
                 id(lichess_arena_withdraw_by_id).execute();
