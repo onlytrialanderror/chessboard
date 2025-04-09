@@ -83,7 +83,7 @@ enum DRAW_REASON : int {
     NO_DRAW = 0 ,
     STALEMATE ,
     INSUFFICIENT_MATERIAL ,
-    SEVENTYFIVE_MOVES 
+    FIFTY_MOVES 
 };
 
 struct TableState {
@@ -886,8 +886,8 @@ bool            is_check_mate( const char* fen_string ){
 }
 
 DRAW_REASON     get_draw_reason( TableState* ptr_table_state ){
-    if( ptr_table_state->move_counter >= 75 ){
-        return DRAW_REASON::SEVENTYFIVE_MOVES;
+    if( ptr_table_state->move_counter >= 50 ){
+        return DRAW_REASON::FIFTY_MOVES;
     }
     int white_even_bishops = 0;
     int white_odd_bishops = 0;
