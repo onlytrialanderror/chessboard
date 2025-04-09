@@ -10,7 +10,7 @@ esphome:
   on_boot:
     - priority: 400
       then:
-      - script.execute: reset_all_values 
+      - script.execute: reset_current_game_values 
     - priority: 700
       then:
         - lambda: |-
@@ -345,11 +345,11 @@ globals:
         "w","K","Q","k","q", "-", "0", "1"
       }
 
-  - id: fen_position_last
+  - id: fen_position_previous
     type: std::array<std::string, 72>
     initial_value: '{""}'
 
-  - id: fen_position_last_string
+  - id: fen_position_previous_string
     type: std::string
     initial_value: '""'
 
@@ -388,7 +388,7 @@ globals:
     type: std::array<int, 64>
     initial_value: '{0}'
 
-  - id: raw_position_last
+  - id: raw_position_previous
     type: std::array<int, 64>
     initial_value: '{0}'
 
@@ -897,7 +897,7 @@ graphical_display_menu:
       on_value:
         then:
           - lambda: |-
-              id(reset_all_values).execute();
+              id(reset_current_game_values).execute();
     - type: command
       text: 'Restart Board'
       on_value:
@@ -1519,14 +1519,14 @@ text_sensor:
 
   - platform: template
     name: FEN
-    id: fen_position_last_string_sensor
+    id: fen_position_previous_string_sensor
     internal: False
     update_interval: never
     web_server:
       sorting_group_id: sorting_group_pgn
       sorting_weight: 12
     lambda: |-
-      return id(fen_position_last_string);
+      return id(fen_position_previous_string);
   - platform: template
     name: Debugger
     id: debugger_sensor
@@ -1906,14 +1906,14 @@ script:
 
             // replace last fen by take back
             for (int i = 0; i < 72; i++) {
-              id(fen_position_current)[i] = id(fen_position_last)[i];
-              id(fen_position_last)[i] = id(fen_position_take_back)[i];
+              id(fen_position_current)[i] = id(fen_position_previous)[i];
+              id(fen_position_previous)[i] = id(fen_position_take_back)[i];
             };
 
             // replace last position by take back
             for (int i = 0; i < 64; i++) {              
-              id(raw_position_current)[i] = id(raw_position_last)[i];  
-              id(raw_position_last)[i] = id(raw_position_take_back)[i]; 
+              id(raw_position_current)[i] = id(raw_position_previous)[i];  
+              id(raw_position_previous)[i] = id(raw_position_take_back)[i]; 
             };
 
             // counter back
@@ -1959,7 +1959,7 @@ script:
             id(update_chess_board).execute();
             id(last_move_pgn_sensor).update();
             // update fen string
-            id(fen_position_last_arr_to_string).execute();
+            id(fen_position_previous_arr_to_string).execute();
           }
 
   - id: update_chess_board
@@ -2102,8 +2102,7 @@ script:
           header += "[Variant \"Standard\"]\n";
           header += "[TimeControl \"" + std::to_string(id(time_control_duration)) +
                     "+" + std::to_string(id(time_control_increment)) + "\"]";
-          header += " " + id(game_result);
-          std::string full_message = header + "\n" + id(pgn_history) + "\n\n{" + id(fen_position_chessboard) + "\n}";
+          std::string full_message = header + "\n" + id(pgn_history);
           id(full_pgn) = full_message;
 
   - id: post_game_operation
@@ -2149,11 +2148,10 @@ script:
               // intial position set, reset game
               id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"Initial position set\", \"line_1\": \"Reseting game ...\"}";
               id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"Initial position set\", \"line_1\": \"Reseting game ...\"}";
-              id(oled_white_acitve_page) = 2;
-              id(oled_black_acitve_page) = 2;
+              id(oled_show_page_message).execute(); 
               delay(2000);
               // reset all values
-              id(reset_all_values).execute();
+              id(reset_current_game_values).execute();
               id(reset_display_message).execute();
               // if we are in arena, we want to rejoin
               id(lichess_arena_join_by_id).execute();
@@ -2175,7 +2173,7 @@ script:
               id(oled_show_page_message).execute();
             }
 
-            // both not in intial position and game not running 
+            // both not in intial position and menu is not active
             if (initial_position_current == 0b00 && !id(my_menu).is_active()) {
               // if menu is not active, inform the init position to be set
               id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"Black player\", \"line_1\": \"Set initial position\"}";
@@ -2185,7 +2183,7 @@ script:
              
           }
 
-  - id: reset_all_values 
+  - id: reset_current_game_values 
     then:
       - lambda: |-
           id(led_all_turn_off).execute(); 
@@ -2292,13 +2290,13 @@ script:
           for (int i = 0; i < 72; i++) {
             std::string curr_value = id(fen_position_init)[i];
             id(fen_position_take_back)[i] = curr_value;
-            id(fen_position_last)[i] = curr_value;   
+            id(fen_position_previous)[i] = curr_value;   
             id(fen_position_current)[i] = curr_value;          
           };
-          id(fen_position_last_string) = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+          id(fen_position_previous_string) = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
           id(update_chess_board).execute();
           id(fen_position_chessboard) = "";
-          id(fen_position_last_string_sensor).update();
+          id(fen_position_previous_string_sensor).update();
 
   - id: reset_raw_position
     then:
@@ -2306,7 +2304,7 @@ script:
           for (int i = 0; i < 64; i++) {
             int curr_value = id(raw_position_init)[i];
             id(raw_position_take_back)[i] = curr_value; 
-            id(raw_position_last)[i] = curr_value;   
+            id(raw_position_previous)[i] = curr_value;   
           };
 
 
@@ -2316,6 +2314,8 @@ script:
     then:
       - lambda: |-
           if (id(game_running)) {
+            // beep
+            id(beep_long).execute();
             // turn all led's off
             id(led_all_turn_off).execute();
 
@@ -2431,17 +2431,17 @@ script:
 
             // replace last fen by current fen
             for (int i = 0; i < 72; i++) {
-              id(fen_position_take_back)[i] = id(fen_position_last)[i];
-              id(fen_position_last)[i] = id(fen_position_current)[i];          
+              id(fen_position_take_back)[i] = id(fen_position_previous)[i];
+              id(fen_position_previous)[i] = id(fen_position_current)[i];          
             };
 
             // update fen string current to last
-            id(fen_position_last_arr_to_string).execute();
+            id(fen_position_previous_arr_to_string).execute();
 
             // replace last position by current position
             for (int i = 0; i < 64; i++) {
-              id(raw_position_take_back)[i] = id(raw_position_last)[i];
-              id(raw_position_last)[i] = id(raw_position_current)[i];   
+              id(raw_position_take_back)[i] = id(raw_position_previous)[i];
+              id(raw_position_previous)[i] = id(raw_position_current)[i];   
             };
 
             // show clock
@@ -2491,7 +2491,7 @@ script:
           }
           // decrease number of queens
           if (id(current_move_type) == "TAKE") {
-            std::string fen_name_to = id(fen_position_last)[id(current_move_to)];
+            std::string fen_name_to = id(fen_position_previous)[id(current_move_to)];
             if (fen_name_to == "q") {
               id(n_queens_black) -= 1;
             }
@@ -2518,7 +2518,7 @@ script:
             // create uci move for lichess
             std::string field_name_from = id(chess_field_names)[id(current_move_from)];
             std::string field_name_to = id(chess_field_names)[id(current_move_to)];
-            std::string fen_name_from = id(fen_position_last)[id(current_move_from)];
+            std::string fen_name_from = id(fen_position_previous)[id(current_move_from)];
             std::string uci_move = field_name_from + field_name_to;
 
             // we have to add promotion to UCI
@@ -2544,7 +2544,7 @@ script:
             id(current_move_uci) = uci_move;
           }
 
-  - id: fen_position_last_arr_to_string
+  - id: fen_position_previous_arr_to_string
     mode: queued
     then:
       - lambda: |-
@@ -2553,7 +2553,7 @@ script:
             int emptyCount = 0;            
             for (int row = 0; row < 8; ++row) {
                 for (int col = 0; col < 8; ++col) {
-                    std::string piece = id(fen_position_last)[row * 8 + col];
+                    std::string piece = id(fen_position_previous)[row * 8 + col];
                     if (piece == "0") {
                         ++emptyCount;
                     } else {
@@ -2572,10 +2572,10 @@ script:
             }
 
             // color to move
-            raw_fen += " " + id(fen_position_last)[64];
+            raw_fen += " " + id(fen_position_previous)[64];
 
             // castling rights
-            std::string castling_part = id(fen_position_last)[65] + id(fen_position_last)[66] + id(fen_position_last)[67] + id(fen_position_last)[68];
+            std::string castling_part = id(fen_position_previous)[65] + id(fen_position_previous)[66] + id(fen_position_previous)[67] + id(fen_position_previous)[68];
             if (castling_part.length() > 0 ) {
               raw_fen += " " +  castling_part;
             } else {
@@ -2583,16 +2583,16 @@ script:
             }            
 
             // en passant
-            raw_fen += " " + id(fen_position_last)[69];
+            raw_fen += " " + id(fen_position_previous)[69];
 
             // half move since last take
-            raw_fen += " " + id(fen_position_last)[70];
+            raw_fen += " " + id(fen_position_previous)[70];
 
             // full move
-            raw_fen += " " + id(fen_position_last)[71];
+            raw_fen += " " + id(fen_position_previous)[71];
 
-            id(fen_position_last_string) = raw_fen;
-            id(fen_position_last_string_sensor).update();
+            id(fen_position_previous_string) = raw_fen;
+            id(fen_position_previous_string_sensor).update();
 
   - id: check_chess_rules
     mode: queued
@@ -2601,7 +2601,7 @@ script:
           // define flag          
           bool valid_check = false;
           
-          std::string new_fen = id(fen_position_last_string);
+          std::string new_fen = id(fen_position_previous_string);
           std::string new_uci = id(current_move_uci);
 
           // we use validator by https://github.com/rilpires/chess_fen_validator/blob/master/chess_validator.h
@@ -2611,7 +2611,7 @@ script:
             
             chess_validator::INVALID_REASON invalid = chess_validator::is_move_invalid( &table_state , new_uci.c_str() );
             if( invalid ){
-                std::string fen_string = ", FEN = " + id(fen_position_last_string) + ", MOVE: " + new_uci;
+                std::string fen_string = ", FEN = " + id(fen_position_previous_string) + ", MOVE: " + new_uci;
                 std::string invalid_reason = "";              
                 switch(invalid){
                     case chess_validator::INVALID_FEN_STRING:
@@ -2695,15 +2695,15 @@ script:
           // loop over all 64 current and last positions and store differences to global variable
           int s = (id(white_to_move))? 1 : -1;
           for (int value = 0; value < 64; value++) {
-            id(raw_position_differences)[value] = (id(raw_position_current)[value] - id(raw_position_last)[value])*s;
+            id(raw_position_differences)[value] = (id(raw_position_current)[value] - id(raw_position_previous)[value])*s;
           }
 
           int sum = 0; // holds the sum of all differences
           int sum_abs = 0; // holds the sum of all abs differences
           int n_changes = 0; // holds the number of changed fields
-          int n_pieces_last = 0; // holds number of pieces last
-          int n_black_pieces_last = 0;
-          int n_white_pieces_last = 0;
+          int n_pieces_previous = 0; // holds number of pieces last
+          int n_black_pieces_previous = 0;
+          int n_white_pieces_previous = 0;
           int n_pieces_current = 0; // holds number of pieces current
           int n_black_pieces_current = 0;
           int n_white_pieces_current = 0;
@@ -2714,12 +2714,12 @@ script:
             sum_abs += cur_pos_abs;
             n_changes += (int)((cur_pos_abs > 0) ? 1 : 0);
             // calculate n pieces last
-            if (id(raw_position_last)[value] < 0 ) {
-              n_pieces_last += 1;
-              n_black_pieces_last += 1;
-            } else if (id(raw_position_last)[value] > 0 ) {
-              n_pieces_last += 1;
-              n_white_pieces_last += 1;
+            if (id(raw_position_previous)[value] < 0 ) {
+              n_pieces_previous += 1;
+              n_black_pieces_previous += 1;
+            } else if (id(raw_position_previous)[value] > 0 ) {
+              n_pieces_previous += 1;
+              n_white_pieces_previous += 1;
             }  
             // calculate n pieces current
             if (id(raw_position_current)[value] < 0) {
@@ -2731,9 +2731,9 @@ script:
             }
           }
 
-          id(differences_n_pieces) = n_pieces_last - n_pieces_current;
-          id(differences_n_white_pieces) = n_white_pieces_last - n_white_pieces_current;
-          id(differences_n_black_pieces) = n_black_pieces_last - n_black_pieces_current;
+          id(differences_n_pieces) = n_pieces_previous - n_pieces_current;
+          id(differences_n_white_pieces) = n_white_pieces_previous - n_white_pieces_current;
+          id(differences_n_black_pieces) = n_black_pieces_previous - n_black_pieces_current;
           id(differences_sum) = sum;
           id(differences_sum_abs) = sum_abs;
           id(differences_n_changes) = n_changes;
@@ -2758,7 +2758,7 @@ script:
 
           // we have to reset FEN, to allow move correction
           for (int i = 0; i < 72; i++) {
-            id(fen_position_current)[i] = id(fen_position_last)[i];
+            id(fen_position_current)[i] = id(fen_position_previous)[i];
           };
 
   - id: move_validator
@@ -2851,8 +2851,8 @@ script:
 
           if (from > -1 && to > -1) {
             // update global variables
-            id(moved_piece) = id(fen_position_last)[from];
-            id(target_piece) = id(fen_position_last)[to];
+            id(moved_piece) = id(fen_position_previous)[from];
+            id(target_piece) = id(fen_position_previous)[to];
           }
 
           if (id(moved_piece) != "0"  && id(target_piece) == "0") {
@@ -2884,7 +2884,7 @@ script:
                   }
                   for (int i = 0; i < idx_to_check.size(); i++) {
                     // check if black pawns
-                    if (id(fen_position_last)[idx_to_check[i]] == "p") {
+                    if (id(fen_position_previous)[idx_to_check[i]] == "p") {
                       id(fen_enpassant_index) = from - 8;
                       break;
                     }
@@ -2898,7 +2898,7 @@ script:
                   }
                   for (int i = 0; i < idx_to_check.size(); i++) {
                     // check if black pawns
-                    if (id(fen_position_last)[idx_to_check[i]] == "P") {
+                    if (id(fen_position_previous)[idx_to_check[i]] == "P") {
                       id(fen_enpassant_index) = from + 8;
                       break;
                     }
@@ -2917,7 +2917,7 @@ script:
           if (id(valid_move)) {
 
             // update fen
-            id(fen_position_current)[to] = id(fen_position_last)[from];
+            id(fen_position_current)[to] = id(fen_position_previous)[from];
             id(fen_position_current)[from] = "0";
 
             id(update_chess_board).execute();  
@@ -2945,8 +2945,8 @@ script:
 
           if (from > -1 && to > -1) {
             // update global variables
-            id(moved_piece) = id(fen_position_last)[from];
-            id(target_piece) = id(fen_position_last)[to];
+            id(moved_piece) = id(fen_position_previous)[from];
+            id(target_piece) = id(fen_position_previous)[to];
           }
 
           if (id(moved_piece) != "0"  && id(target_piece) != "0") {
@@ -2963,7 +2963,7 @@ script:
           // still valid
           if (id(valid_move)) {
           // update fen
-            id(fen_position_current)[to] = id(fen_position_last)[from];
+            id(fen_position_current)[to] = id(fen_position_previous)[from];
             id(fen_position_current)[from] = "0";
 
             id(update_chess_board).execute();   
@@ -3017,8 +3017,8 @@ script:
           if (from_k > -1 && to_k > -1) {
 
             // store moved piece (we expect king)
-            id(moved_piece) = id(fen_position_last)[from_k];
-            id(target_piece) = id(fen_position_last)[to_k];
+            id(moved_piece) = id(fen_position_previous)[from_k];
+            id(target_piece) = id(fen_position_previous)[to_k];
 
             // check, if the moved piece is a king
             if ((id(moved_piece) == "K" || id(moved_piece) == "k") && id(target_piece) == "0" ) {
@@ -3040,10 +3040,10 @@ script:
           if (id(valid_move)) {
 
             // update fen
-            id(fen_position_current)[to_k] = id(fen_position_last)[from_k];
+            id(fen_position_current)[to_k] = id(fen_position_previous)[from_k];
             id(fen_position_current)[from_k] = "0";            
             
-            id(fen_position_current)[to_r] = id(fen_position_last)[from_r];   
+            id(fen_position_current)[to_r] = id(fen_position_previous)[from_r];   
             id(fen_position_current)[from_r] = "0"; 
 
             id(update_chess_board).execute();
@@ -3085,9 +3085,9 @@ script:
 
           if (from > -1 && to > -1 && from_opponent > -1) {
             // update global variables
-            id(moved_piece) = id(fen_position_last)[from];
-            id(target_piece) = id(fen_position_last)[to];
-            from_opponent_piece = id(fen_position_last)[from_opponent];
+            id(moved_piece) = id(fen_position_previous)[from];
+            id(target_piece) = id(fen_position_previous)[to];
+            from_opponent_piece = id(fen_position_previous)[from_opponent];
             std::transform(from_opponent_piece.begin(), from_opponent_piece.end(), from_opponent_piece.begin(), ::toupper);
           }
 
@@ -3107,7 +3107,7 @@ script:
           if (id(valid_move)) {
 
             // update fen
-            id(fen_position_current)[to] = id(fen_position_last)[from];
+            id(fen_position_current)[to] = id(fen_position_previous)[from];
             id(fen_position_current)[from] = "0";
             id(fen_position_current)[from_opponent] = "0";
 
@@ -3181,7 +3181,7 @@ script:
             if ((id(current_move_type) == "MOVE" ||  id(current_move_type) == "TAKE" ||  id(current_move_type) == "ENPASSANT") && id(current_move_to) > -1 && id(current_move_to) > -1) {            
               
               // from FEN-position to upper case
-              std::string fen_from = id(fen_position_last)[id(current_move_from)];
+              std::string fen_from = id(fen_position_previous)[id(current_move_from)];
               std::transform(fen_from.begin(), fen_from.end(), fen_from.begin(), ::toupper);
 
               // get type of piece has been moved
@@ -3257,7 +3257,7 @@ script:
       - lambda: |-
           id(changed_position) = false;
           for (int i = 0; i < 64; i++) {
-            if (id(raw_position_current)[i]  != id(raw_position_last)[i])
+            if (id(raw_position_current)[i]  != id(raw_position_previous)[i])
             {
               id(changed_position) = true;
               break;
@@ -3757,7 +3757,7 @@ script:
                 id(lichess_game_id).publish_state("idle");
                 id(inform_game_over)->execute(curr_game_result);
                 id(post_game_operation).execute();
-                id(reset_all_values).execute(); 
+                id(reset_current_game_values).execute(); 
                 
                 // if we are in tournament, withdraw the game to set the initial position
                 id(lichess_arena_withdraw_by_id).execute();
@@ -3829,7 +3829,7 @@ script:
               std::string from = last_move.substr(0, 2);
               std::string to = last_move.substr(2, 2);
               
-              std::string moved_piece = id(fen_position_last)[id(chess_field_indexes)[from]];
+              std::string moved_piece = id(fen_position_previous)[id(chess_field_indexes)[from]];
               std::transform(moved_piece.begin(), moved_piece.end(), moved_piece.begin(), ::toupper);
 
               if (moved_piece == "P") {
