@@ -1,0 +1,20 @@
+---
+LichessStreamBoardMainPlayer:
+  module: LichessStreamBoardMainPlayer
+  class: LichessStreamBoardMainPlayer
+
+LichessStreamEventMainPlayer:
+  module: LichessStreamEventMainPlayer
+  class: LichessStreamEventMainPlayer
+
+LichessSingleRequestMainPlayer:
+  module: LichessSingleRequestMainPlayer
+  class: LichessSingleRequestMainPlayer
+
+LichessSingleRequestOpponent:
+  module: LichessSingleRequestOpponent
+  class: LichessSingleRequestOpponent
+
+LichessStreamBoardOpponent:
+  module: LichessStreamBoardOpponent
+  class: LichessStreamBoardOpponent

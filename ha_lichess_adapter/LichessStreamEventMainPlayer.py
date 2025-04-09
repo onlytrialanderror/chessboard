@@ -16,14 +16,14 @@ URL_TEMPLATE_STREAM_EVENT = "https://lichess.org/api/stream/event"
 LICHESS_STREAM_PARAMETER_IN_SENSOR = "sensor.chessboard_lichess_stream_call"
 LICHESS_RESPONSE_OUT_SENSOR = 'sensor.chessboard_lichess_response_out'
 
-class LichessStreamEvent(hass.Hass):
+class LichessStreamEventMainPlayer(hass.Hass):
 
     _current_token = IDLE_LICHESS_TOKEN
     _stream_event = False
     _current_secret_key = IDLE_LICHESS_TOKEN
 
     def initialize(self):
-        self.log("AppDaemon LichessStreamEvent script initialized!")
+        self.log("AppDaemon LichessStreamEventMainPlayer script initialized!")
         self.__class__._current_secret_key = self.get_secret()
         self.listen_state(self.parameter_in_changed, LICHESS_STREAM_PARAMETER_IN_SENSOR)
         # we are ready to go

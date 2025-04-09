@@ -37,7 +37,7 @@ class LichessSingleRequestOpponent(hass.Hass):
         self.listen_state(self.parameter_in_changed, LICHESS_STREAM_PARAMETER_IN_SENSOR)
         self.listen_state(self.handle_call_trigger, LICHESS_SINGLE_CALL_PARAMETER_IN_SENSOR)
         # we are ready to go
-        self.log(f"Waiting for new api opponent call")
+        self.log(f"Waiting for new api call")
 
     def get_secret(self, path="/config/secrets.yaml"):
         with open(path, "r") as file:
@@ -51,20 +51,20 @@ class LichessSingleRequestOpponent(hass.Hass):
             if new_data: # valid json
                 if (new_data.get('type') == 'setGameId'):
                     self.game_id_changed(new_data.get('gameId'))
-                if (new_data.get('type') == 'initializeOpponentToken' and new_data.get('token') != IDLE_LICHESS_TOKEN):
+                if (new_data.get('type') == 'initializeTokenOpponent' and new_data.get('token') != IDLE_LICHESS_TOKEN):
                     self.token_changed(new_data.get('token'))
         else:
-            self.log("Not valid json (api opponent): {}".format(new))
+            self.log("Not valid json: {}".format(new))
 
     def game_id_changed(self, new):
         if new and new != self.__class__._current_game_id:
-            self.log(f"Game ID changed (api opponent): {self.__class__._current_game_id} -> {new}")
+            self.log(f"Game ID: {self.__class__._current_game_id} -> {new}")
             self.__class__._current_game_id = new
 
     def token_changed(self, new):
         if new and new != self.__class__._current_token and new != UNAVAILABLE_STATE and new != UNKNOWN_STATE and new != EMPTY_STRING:
             new_decrypted = self.decrypt_message(new)
-            self.log(f"Token changed (api opponent): {self.__class__._current_token} -> {new_decrypted}")
+            self.log(f"Token: {self.__class__._current_token} -> {new_decrypted}")
             self.__class__._current_token = new_decrypted
         else:
             if new is None or new == UNAVAILABLE_STATE or new == UNKNOWN_STATE: 
@@ -78,7 +78,6 @@ class LichessSingleRequestOpponent(hass.Hass):
                 encrypted_bytes = bytes.fromhex(hex_string)
                 decrypted = ''.join(chr(b ^ ord(self.__class__._current_secret_key[i % len(self.__class__._current_secret_key)])) for i, b in enumerate(encrypted_bytes))
             except ValueError as e:
-                self.log("Not valid hex-string: {}".format(hex_string))
                 self.log(f"Error: {e}")
         return decrypted
 
@@ -125,7 +124,7 @@ class LichessSingleRequestOpponent(hass.Hass):
                                     self.lichess_api_call_post()       
                             except requests.exceptions.JSONDecodeError:
                                 self.log(f"Invalid json-response: {call_type}")
-                                
+
                 valid_game_id = self.__class__._current_game_id != IDLE_GAME_ID and self.__class__._current_game_id != UNAVAILABLE_STATE and self.__class__._current_game_id != UNKNOWN_STATE
                 if (valid_token and valid_game_id):  
                     ####################################
@@ -148,7 +147,7 @@ class LichessSingleRequestOpponent(hass.Hass):
         valid = False
         if (self.__class__._current_url != EMPTY_STRING):
 
-            self.log(f"Starting the api call (opponent): {self.__class__._current_call_description}")            
+            self.log(f"Starting the api call: {self.__class__._current_call_description}")            
             self.log(f"URL: {self.__class__._current_url}")
             self.log(f"Body: {self.__class__._current_body}")
 
@@ -166,7 +165,7 @@ class LichessSingleRequestOpponent(hass.Hass):
                     response = requests.post(self.__class__._current_url , json=self.__class__._current_body, headers=self.__class__._current_header)
 
                 if (response.status_code == 200 or response.status_code == 201):
-                    self.log("Succsessed api post call (opponent)")
+                    self.log("Succsessed api post call")
                     valid = True
                 else:
                     self.log(f"Error: {response.status_code}, Response: {response.text}")
@@ -180,7 +179,7 @@ class LichessSingleRequestOpponent(hass.Hass):
             self.__class__._current_call_description = EMPTY_STRING
 
             # we are ready to go
-            self.log(f"Waiting for new api call (opponent)")
+            self.log(f"Waiting for new api call")
         return valid
 
 
@@ -188,7 +187,7 @@ class LichessSingleRequestOpponent(hass.Hass):
         response = ""
         if (self.__class__._current_url != EMPTY_STRING):
 
-            self.log(f"Starting the api call (opponent): {self.__class__._current_call_description}")            
+            self.log(f"Starting the api call: {self.__class__._current_call_description}")            
             self.log(f"URL: {self.__class__._current_url}")
             self.log(f"Body: {self.__class__._current_body}")
 
@@ -206,7 +205,7 @@ class LichessSingleRequestOpponent(hass.Hass):
                     response = requests.get(self.__class__._current_url , json=self.__class__._current_body, headers=self.__class__._current_header)  
 
                 if (response.status_code == 200):
-                    self.log("Succsessed api get call (opponent)")
+                    self.log("Succsessed api get call")
                 else:
                     self.log(f"Error: {response.status_code}, Response: {response.text}")
 
@@ -219,6 +218,6 @@ class LichessSingleRequestOpponent(hass.Hass):
             self.__class__._current_call_description = EMPTY_STRING
 
             # we are ready to go
-            self.log(f"Waiting for new api call (opponent)")
+            self.log(f"Waiting for new api call")
         return response
 

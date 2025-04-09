@@ -26,7 +26,7 @@ class LichessStreamBoardOpponent(hass.Hass):
         self.__class__._current_secret_key = self.get_secret()
         self.listen_state(self.parameter_in_changed, LICHESS_STREAM_PARAMETER_IN_SENSOR)
         # we are ready to go
-        self.log(f"Waiting for new stream (opponent)")
+        self.log(f"Waiting for new stream")
 
     def get_secret(self, path="/config/secrets.yaml"):
         with open(path, "r") as file:
@@ -40,25 +40,27 @@ class LichessStreamBoardOpponent(hass.Hass):
             if new_data: # valid json
                 if (new_data.get('type') == 'setGameId'):
                     self.game_id_changed(new_data.get('gameId'))
-                if (new_data.get('type') == 'initializeOpponentToken' and new_data.get('token') != IDLE_LICHESS_TOKEN):
+                if (new_data.get('type') == 'initializeTokenOpponent' and new_data.get('token') != IDLE_LICHESS_TOKEN):
                     self.token_changed(new_data.get('token'))
         else:
             self.log("Not valid json: {}".format(new))
+            if (new == UNAVAILABLE_STATE or new == UNKNOWN_STATE):
+                self.__class__._current_game_id = IDLE_GAME_ID
 
     def game_id_changed(self, new):
         if new and new != self.__class__._current_game_id:
-            self.log(f"Game ID changed (opponent): {self.__class__._current_game_id} -> {new}")
+            self.log(f"Game ID: {self.__class__._current_game_id} -> {new}")
             self.__class__._current_game_id = new
             self.stream_opponent_game()
 
     def token_changed(self, new):
         if new and new != self.__class__._current_token and new != UNAVAILABLE_STATE and new != UNKNOWN_STATE and new != EMPTY_STRING:
             new_decrypted = self.decrypt_message(new)
-            self.log(f"Token changed (opponent): {self.__class__._current_token} -> {new_decrypted}")
+            self.log(f"Token: {self.__class__._current_token} -> {new_decrypted}")
             self.__class__._current_token = new_decrypted
         else:
             if new is None or new == UNAVAILABLE_STATE or new == UNKNOWN_STATE: 
-                self.log("Not allowed token (opponent): {}".format(new))
+                self.log("Not allowed token: {}".format(new))
 
     def check_game_over(self, dat):
         break_game = False
@@ -80,7 +82,6 @@ class LichessStreamBoardOpponent(hass.Hass):
                 encrypted_bytes = bytes.fromhex(hex_string)
                 decrypted = ''.join(chr(b ^ ord(self.__class__._current_secret_key[i % len(self.__class__._current_secret_key)])) for i, b in enumerate(encrypted_bytes))
             except ValueError as e:
-                self.log("Not valid hex-string): {}".format(hex_string))
                 self.log(f"Error: {e}")
         return decrypted
 
@@ -90,7 +91,7 @@ class LichessStreamBoardOpponent(hass.Hass):
         valid_token =   self.__class__._current_token != IDLE_LICHESS_TOKEN and self.__class__._current_token != UNAVAILABLE_STATE and self.__class__._current_token != UNKNOWN_STATE
         if (valid_game_id and valid_token):
 
-            self.log(f"Starting the stream (opponent): {self.__class__._current_game_id}")
+            self.log(f"Starting the stream: {self.__class__._current_game_id}")
             headers = {
                     "Content-Type": "application/x-ndjson",
                     "Authorization": f"Bearer {self.__class__._current_token}",
@@ -107,16 +108,16 @@ class LichessStreamBoardOpponent(hass.Hass):
                         data = json.loads(line)
                         
                         if data and self.check_game_over(data):
-                            self.log(f"Terminating the stream (opponent): {self.__class__._current_game_id}")
+                            self.log(f"Terminating the stream: {self.__class__._current_game_id}")
                             # close the stream
                             break
             # reset stream for board on HA (esphome needs to do it as well)
             self.__class__._current_game_id = IDLE_GAME_ID
             off_json = {
-                        "type": "streamOpponentBoardResponse",
+                        "type": "LichessStreamBoardOpponent",
                         "state": IDLE_GAME_ID
                     }
             off_json_str = json.dumps(off_json)
             self.set_state(LICHESS_RESPONSE_OUT_SENSOR, state=off_json_str)
             # we are ready to go
-            self.log(f"Waiting for new stream (opponent)")
+            self.log(f"Waiting for new stream")

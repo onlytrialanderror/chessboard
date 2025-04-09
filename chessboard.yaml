@@ -1323,6 +1323,10 @@ select:
       - "AI_7"
       - "AI_8"
     initial_option: random
+    on_value: 
+      then:
+        lambda: |-
+          id(update_lichess_token).execute();
     web_server:
       sorting_group_id: sorting_group_lichess
       sorting_weight: 3
@@ -3436,9 +3440,10 @@ script:
           std::string key = id(secret_key);
           std::string encrypted = "";
           // Convert to hex for safe transmission
-          std::string hex = "";
+          std::string hex = input_string;
 
           if (input_string != "" && input_string != "idle") {
+            hex = "";
             for (size_t i = 0; i < input_string.size(); i++) {
               encrypted += (char)(input_string[i] ^ key[i % key.size()]);
             }
@@ -3718,7 +3723,7 @@ script:
 
             // accept the game by the opponents, if both lichess-players are on board
             if ( id(lichess_opponent_at_board).state == "yes" ) {
-              delay(1000);
+              delay(3000);
               id(lichess_accept_challenge).execute();
             }
 
@@ -3915,6 +3920,9 @@ script:
                   // always beep, so we know, the move is accepted by lichess
                   id(beep_short).execute();
                 }
+              } else if (id(lichess_opponent_at_board).state == "yes") {
+                // always beep, so we know, the move is accepted by lichess
+                id(beep_short).execute();
               }
 
               // store lichess move
@@ -3980,7 +3988,7 @@ script:
 
                 // wait a second (we have to list all available challenges, send the request to accept the right one,
                 // and then, we have to recieve "startGame" event, which overwrites the gameID, so we know, challenge is accepted
-                delay(1000); 
+                delay(2000); 
                 
                 // we expect length of ID = 8 : unknown & unavailble are not 8 chars long
                 if ((id(lichess_game_id).state).length() == 8) {

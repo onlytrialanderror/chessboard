@@ -15,14 +15,14 @@ URL_TEMPLATE_STREAM_BOARD = "https://lichess.org/api/board/game/stream/{}"
 LICHESS_STREAM_PARAMETER_IN_SENSOR = "sensor.chessboard_lichess_stream_call"
 LICHESS_RESPONSE_OUT_SENSOR = 'sensor.chessboard_lichess_response_out'
 
-class LichessStreamBoard(hass.Hass):
+class LichessStreamBoardMainPlayer(hass.Hass):
 
     _current_game_id = IDLE_GAME_ID
     _current_token = IDLE_LICHESS_TOKEN
     _current_secret_key = IDLE_LICHESS_TOKEN
 
     def initialize(self):
-        self.log("AppDaemon LichessStreamBoard script initialized!")
+        self.log("AppDaemon LichessStreamBoardMainPlayer script initialized!")
         self.__class__._current_secret_key = self.get_secret()
         self.listen_state(self.parameter_in_changed, LICHESS_STREAM_PARAMETER_IN_SENSOR)
         # we are ready to go
@@ -44,6 +44,9 @@ class LichessStreamBoard(hass.Hass):
                     self.token_changed(new_data.get('token'))
         else:
             self.log("Not valid json: {}".format(new))
+            if (new == UNAVAILABLE_STATE or new == UNKNOWN_STATE):
+                self.__class__._current_game_id = IDLE_GAME_ID
+
 
     def game_id_changed(self, new):
         if new and new != self.__class__._current_game_id:

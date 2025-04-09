@@ -31,7 +31,7 @@ URL_TEMPLATE_TOURNAMENT_JOIN = "https://lichess.org/api/tournament/{}/join"
 URL_TEMPLATE_TOURNAMENT_WITHDRAW = "https://lichess.org/api/tournament/{}/withdraw"
 
 
-class LichessSingleRequest(hass.Hass):
+class LichessSingleRequestMainPlayer(hass.Hass):
 
     _current_game_id = IDLE_GAME_ID
     _current_token = EMPTY_STRING
@@ -42,7 +42,7 @@ class LichessSingleRequest(hass.Hass):
     _current_secret_key = EMPTY_STRING
 
     def initialize(self):        
-        self.log("AppDaemon LichessSingleRequest script initialized!")
+        self.log("AppDaemon LichessSingleRequestMainPlayer script initialized!")
         self.__class__._current_secret_key = self.get_secret()
         self.listen_state(self.parameter_in_changed, LICHESS_STREAM_PARAMETER_IN_SENSOR)
         self.listen_state(self.handle_call_trigger, LICHESS_SINGLE_CALL_PARAMETER_IN_SENSOR)
