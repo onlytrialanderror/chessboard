@@ -116,7 +116,7 @@ class LichessStreamEvent(hass.Hass):
                     "opponent": "{}: {}".format(dat.get('game', {}).get("opponent", {}).get("username", "player"), dat.get('game', {}).get("opponent", {}).get("rating", 0)),
                     "rated": dat.get('game', {}).get("rated", False),
                     "speed": dat.get('game', {}).get("speed", ""),
-                    "status": {"draw": "1/2-1/2"}.get(dat.get('game', {}).get('status', {}).get("name", ""), dat.get('game', {}).get('status', {}).get("name", "")),
+                    "status": dat.get('game', {}).get('status', {}).get("name", ""),
                     "win": {"white": "1-0", "black": "0-1"}.get(dat.get('game', {}).get("winner", ""), "")
                 }
             else :

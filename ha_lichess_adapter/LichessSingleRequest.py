@@ -26,8 +26,6 @@ URL_TEMPLATE_CLAIM_VICTORY = "https://lichess.org/api/board/game/{}/claim-victor
 URL_TEMPLATE_DRAW = "https://lichess.org/api/board/game/{}/draw/{}"
 URL_TEMPLATE_TAKEBACK = "https://lichess.org/api/board/game/{}/takeback/{}"
 URL_TEMPLATE_CHALLENGE = "https://lichess.org/api/challenge/{}"
-URL_TEMPLATE_CHALLENGE_LIST = "https://lichess.org/api/challenge"
-URL_TEMPLATE_CHALLENGE_ACCEPT = "https://lichess.org/api/challenge/{}/accept"
 URL_TEMPLATE_TOURNAMENT_LIST = "https://lichess.org/api/tournament"
 URL_TEMPLATE_TOURNAMENT_JOIN = "https://lichess.org/api/tournament/{}/join"
 URL_TEMPLATE_TOURNAMENT_WITHDRAW = "https://lichess.org/api/tournament/{}/withdraw"
@@ -169,35 +167,6 @@ class LichessSingleRequest(hass.Hass):
 
                         # post api body                    
                         self.lichess_api_call_post()
-
-                    if (call_type == 'acceptChallenge' and json_data.get('parameter')):
-              
-                        self.__class__._current_call_description = call_type + ": list of " + json_data.get('parameter')
-                        self.__class__._current_url = URL_TEMPLATE_CHALLENGE_LIST
-                        self.__class__._current_body = EMPTY_CALL 
-                        response = self.lichess_api_call_get()
-
-                        # Load JSON data
-                        if 'application/json' in response.headers.get('Content-Type', ''):
-
-                            try: 
-                                json_response = response.json()  # This will raise an exception if invalid
-
-                                curr_challenge_id = ""
-                                # Loop through each item in the "in" list
-                                for in_challenge in json_response['in']:
-                                    if in_challenge['challenger']['name'] == json_data.get('parameter'):
-                                        curr_challenge_id = in_challenge['id'] # we found the challenger from the board
-                                        break
-
-                                if curr_challenge_id != "":
-                                    # we accept challenge with this ID
-                                    self.__class__._current_url = URL_TEMPLATE_CHALLENGE_ACCEPT.format(curr_challenge_id)
-                                    self.__class__._current_call_description = call_type + ": accept " + curr_challenge_id
-                                    # post api body                    
-                                    self.lichess_api_call_post()       
-                            except requests.exceptions.JSONDecodeError:
-                                self.log(f"Invalid json-response: {call_type}")
 
                     if (call_type == 'withdrawTornament' and json_data.get('id')):
               

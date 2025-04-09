@@ -788,6 +788,16 @@ graphical_display_menu:
                   id(oled_show_page_clock).execute();
               - display_menu.hide:  my_menu 
         - type: command
+          text: 'Resign Opponent'
+          on_value:
+            then:
+              - lambda: |-
+                  // force changed state, to be able to call the same request 
+                  id(lichess_api_call).publish_state("idle"); 
+                  id(lichess_api_call).publish_state("{\"type\": \"resignOpponent\"}");
+                  id(oled_show_page_clock).execute();
+              - display_menu.hide:  my_menu 
+        - type: command
           text: 'Claim victory'
           on_value:
             then:
@@ -1931,10 +1941,9 @@ script:
             };
 
             // replace last position by take back
-            for (int i = 0; i < 64; i++) {              
-              id(raw_position_current)[i] = id(raw_position_previous)[i];  
-              id(raw_position_previous)[i] = id(raw_position_take_back)[i]; 
-            };
+            std::memcpy(id(raw_position_current).data(), id(raw_position_previous).data(), sizeof(int)*64);
+            std::memcpy(id(raw_position_previous).data(), id(raw_position_take_back).data(), sizeof(int)*64);
+
 
             // counter back
             id(halfmove_counter) -= 1;
@@ -2325,11 +2334,8 @@ script:
   - id: reset_raw_position
     then:
       - lambda: |-
-          for (int i = 0; i < 64; i++) {
-            int curr_value = id(raw_position_init)[i];
-            id(raw_position_take_back)[i] = curr_value; 
-            id(raw_position_previous)[i] = curr_value;   
-          };
+          std::memcpy(id(raw_position_take_back).data(), id(raw_position_init).data(), sizeof(int)*64);
+          std::memcpy(id(raw_position_previous).data(), id(raw_position_init).data(), sizeof(int)*64);
 
 
   - id: inform_game_over
@@ -2465,10 +2471,9 @@ script:
               id(fen_position_previous_arr_to_string).execute();
 
               // replace last position by current position
-              for (int i = 0; i < 64; i++) {
-                id(raw_position_take_back)[i] = id(raw_position_previous)[i];
-                id(raw_position_previous)[i] = id(raw_position_current)[i];   
-              };
+              std::memcpy(id(raw_position_take_back).data(), id(raw_position_previous).data(), sizeof(int)*64);
+              std::memcpy(id(raw_position_previous).data(), id(raw_position_current).data(), sizeof(int)*64);
+
 
               // show clock
               id(oled_show_page_clock).execute();
@@ -3430,16 +3435,20 @@ script:
       - lambda: |-
           std::string key = id(secret_key);
           std::string encrypted = "";
-          for (size_t i = 0; i < input_string.size(); i++) {
-            encrypted += (char)(input_string[i] ^ key[i % key.size()]);
-          }
-
           // Convert to hex for safe transmission
           std::string hex = "";
-          const char* hex_chars = "0123456789ABCDEF";
-          for (char c : encrypted) {
-            hex += hex_chars[(c >> 4) & 0xF];
-            hex += hex_chars[c & 0xF];
+
+          if (input_string != "" && input_string != "idle") {
+            for (size_t i = 0; i < input_string.size(); i++) {
+              encrypted += (char)(input_string[i] ^ key[i % key.size()]);
+            }
+
+            
+            const char* hex_chars = "0123456789ABCDEF";
+            for (char c : encrypted) {
+              hex += hex_chars[(c >> 4) & 0xF];
+              hex += hex_chars[c & 0xF];
+            }
           }
 
           id(encrypted_message) = hex;
@@ -3577,22 +3586,16 @@ script:
           if (id(current_move_uci) != "") {                                 
             // do lichess calls and updates 
             if (id(lichess_game_running) ) {
-              // let lichess know about my move
-              std::string move_body = "{\"type\": \"makeMove\", \"move\": \"" + id(current_move_uci) + "\"}";
-              if( (id(white_to_move) && id(lichess_is_my_color_white)) || (!id(white_to_move) && !id(lichess_is_my_color_white))) {   
+              // let lichess know about my move              
+              if( (id(white_to_move) && id(lichess_is_my_color_white)) || (!id(white_to_move) && !id(lichess_is_my_color_white))) {  
+                std::string move_body = "{\"type\": \"makeMove\", \"move\": \"" + id(current_move_uci) + "\"}"; 
                 // send the move to lichess           
                 id(lichess_api_call).publish_state(move_body);              
               } else if( id(lichess_opponent_at_board).state == "yes") {
                 // switch to oppoents token
-                std::string token_body = "{\"type\": \"overwriteToken\", \"token\": \"" + id(chessboard_token_opponent) + "\"}";
-                id(lichess_api_call).publish_state(token_body);
-                delay(100); // do a short delay 
+                std::string move_body_opponent = "{\"type\": \"makeMoveOpponent\", \"move\": \"" + id(current_move_uci) + "\"}";
                 // make a move for the opponent
-                id(lichess_api_call).publish_state(move_body); 
-                delay(100); // do a short delay 
-                // switch token back
-                token_body = "{\"type\": \"overwriteToken\", \"token\": \"" + id(chessboard_token_current) + "\"}";
-                id(lichess_api_call).publish_state(token_body);                    
+                id(lichess_api_call).publish_state(move_body_opponent); 
               }                
             }
           }  
@@ -3633,7 +3636,7 @@ script:
           } else if (index.value() == 2) {
             id(chessboard_token_opponent) = id(chessboard_token_c);
           } else {
-            id(chessboard_token_opponent) = "";
+            id(chessboard_token_opponent) = "idle";
           }
 
           // encrypt token
@@ -3641,6 +3644,7 @@ script:
           id(chessboard_token_opponent) = id(encrypted_message);
 
           id(lichess_stream_call).publish_state("{\"type\": \"initializeToken\", \"token\": \"" + id(chessboard_token_current) + "\"}");
+          id(lichess_stream_call).publish_state("{\"type\": \"initializeTokenOpponent\", \"token\": \"" + id(chessboard_token_opponent) + "\"}");
 
           // we reopen the stream with new token
           if ( (previous_token != id(chessboard_token_current) ) && previous_active_stream) {
@@ -3714,6 +3718,7 @@ script:
 
             // accept the game by the opponents, if both lichess-players are on board
             if ( id(lichess_opponent_at_board).state == "yes" ) {
+              delay(1000);
               id(lichess_accept_challenge).execute();
             }
 
@@ -3906,7 +3911,10 @@ script:
                     id(oled_white_acitve_page) = 2;
                     id(beep_short).execute();
                   }
-                } 
+                } else {
+                  // always beep, so we know, the move is accepted by lichess
+                  id(beep_short).execute();
+                }
               }
 
               // store lichess move
@@ -3963,11 +3971,8 @@ script:
             // here we have to accept the game for the opponent   
             if (id(lichess_opponent).state != "random" && (id(lichess_opponent).state).compare(0, 3, "AI_") != 0 ) {         
               bool challenge_accepted = false;
-              std::string token_body = "{\"type\": \"overwriteToken\", \"token\": \"" + id(chessboard_token_opponent) + "\"}";
-              // switch to oppoents token
-              id(lichess_api_call).publish_state(token_body);
+
               for ( int i = 0; i < 10; i++) { // we try 10 times to find the current challenge
-                
                 // sent opponents (in this case, "me" name)
                 std::string challenge_body = "{\"type\": \"acceptChallenge\", \"parameter\": \"" + id(lichess_account).state + "\"}";
                 // accept the current challenge
@@ -3996,9 +4001,6 @@ script:
                 id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"Challenge not accepted\"}";   
                 id(oled_show_page_message).execute();
               }
-              // switch token back
-              token_body = "{\"type\": \"overwriteToken\", \"token\": \"" + id(chessboard_token_current) + "\"}";
-              id(lichess_api_call).publish_state(token_body);
             }
 
   - id: oled_show_page_clock
