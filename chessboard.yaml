@@ -25,7 +25,7 @@ esp32:
 
 # Enable logging
 logger:
-  level: WARN
+  level: ERROR
 #debug:
 #  update_interval: 5s
 
@@ -83,18 +83,18 @@ time:
 
 substitutions:
   # shorter delay and high amount of samples works best
-  adc_n_sampels: '50' 
+  adc_n_sampels: '35' 
   attenuation_value: 12dB
-  hall_sensor_intervall_game: 350ms 
+  hall_sensor_intervall_game: 3330ms 
   hall_sensor_intervall_idle: 600ms
-  delay_before_adc_reading: '3'
+  delay_before_adc_reading: '2' 
 
 i2c:
   sda: GPIO21
   scl: GPIO22
   id: i2c0
   scan: false
-  frequency: 400kHz 
+  frequency: 100kHz 
   # max frequency of pcf8574 is 100kHz, we try higher frequencies for faster display update
   
 
@@ -290,7 +290,7 @@ globals:
     type: std::array<float, 64>
     initial_value: |-
       {
-        2.40, 2.54, 2.50, 2.46, 2.43, 2.53, 2.42, 2.38,
+        2.39, 2.54, 2.50, 2.46, 2.43, 2.53, 2.42, 2.38,
         2.48, 2.45, 2.50, 2.44, 2.48, 2.44, 2.43, 2.43,
         2.52, 2.47, 2.42, 2.43, 2.45, 2.51, 2.45, 2.47,
         2.46, 2.44, 2.53, 2.55, 2.35, 2.41, 2.39, 2.50, 
@@ -304,14 +304,14 @@ globals:
     type: std::array<float, 64>
     initial_value: |-
       {
-        0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25,
-        0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25,
-        0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25,
-        0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25,
-        0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25,
-        0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25,
-        0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25,
-        0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25
+        0.20, 0.20, 0.20, 0.20, 0.20, 0.20, 0.20, 0.20,
+        0.20, 0.20, 0.20, 0.20, 0.20, 0.20, 0.20, 0.20,
+        0.20, 0.20, 0.20, 0.20, 0.20, 0.20, 0.20, 0.20,
+        0.20, 0.20, 0.20, 0.20, 0.20, 0.20, 0.20, 0.20,
+        0.20, 0.20, 0.20, 0.20, 0.20, 0.20, 0.20, 0.20,
+        0.20, 0.20, 0.20, 0.20, 0.20, 0.20, 0.20, 0.20,
+        0.20, 0.20, 0.20, 0.20, 0.20, 0.20, 0.20, 0.20,
+        0.20, 0.20, 0.20, 0.20, 0.20, 0.20, 0.20, 0.20
       }
 
   - id: voltage_field_drift
@@ -618,6 +618,37 @@ globals:
     type: bool
     initial_value: 'false'
 
+  - id: loop_durations_hall
+    type: uint32_t[11]
+    initial_value: '{0,0,0,0,0,0,0,0,0,0,0}'
+
+  - id: loop_durations_calc
+    type: uint32_t[11]
+    initial_value: '{0,0,0,0,0,0,0,0,0,0,0}'
+
+  - id: loop_min_voltage_occupied
+    type: float[11]
+    initial_value: '{0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0}'
+
+  - id: loop_max_voltage_non_occupied
+    type: float[11]
+    initial_value: '{0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0}'
+
+  - id: loop_max_deviation_field_idx
+    type: int[11]
+    initial_value: '{0,0,0,0,0,0,0,0,0,0,0}'
+
+  - id: median_array_index
+    type: int
+    initial_value: '0'
+
+  - id: validator_enabled
+    type: bool
+    initial_value: 'true'
+
+  - id: lichess_opponent_at_board
+    type: bool
+    initial_value: 'false'
 
 # we updating all the time the values of hall sensors
 interval:
@@ -628,6 +659,8 @@ interval:
             lambda: 'return id(game_running);'
           then:
             - script.execute: main_loop
+            - lambda: |-
+                id(median_array_index) = (id(median_array_index) + 1) % 11;
   - interval: $hall_sensor_intervall_idle
     then:
       - if:
@@ -635,13 +668,11 @@ interval:
             lambda: 'return !id(game_running);'
           then:
             - script.execute: update_all_hall_sensors
-            #- script.wait: update_all_hall_sensors
             - script.execute: update_raw_position_current
-            #- script.wait: update_raw_position_current
             - script.execute: initial_position_state_update
-            #- script.wait: initial_position_state_update
             - script.execute: led_update_initial_position_state
-            #- script.wait: led_update_initial_position_state
+            - lambda: |-
+                id(median_array_index) = (id(median_array_index) + 1) % 11;
   - interval: 1000ms
     then:
       - script.execute: update_timer
@@ -871,7 +902,7 @@ graphical_display_menu:
         - type: select
           immediate_edit: False
           text: 'Opponent at board'
-          select: lichess_opponent_at_board
+          select: lichess_opponent_at_board_select
         - type: select
           immediate_edit: False
           text: 'Tournament'
@@ -900,6 +931,10 @@ graphical_display_menu:
       immediate_edit: false
       text: 'PROMOTION'
       select: pawn_promotion
+    - type: select
+      immediate_edit: false
+      text: 'Move validator'
+      select: chess_move_validator
     - type: command
       text: 'TAKE BACK'
       on_value:
@@ -1416,16 +1451,64 @@ select:
       sorting_weight: 11
   - platform: template
     name: "Opponent at board"
-    id: lichess_opponent_at_board
+    id: lichess_opponent_at_board_select
     internal: False
     optimistic: true
     options:
       - "yes"
       - "no"
+    on_value: 
+      then:
+        lambda: |-
+          if (x == "yes") {
+            id(lichess_opponent_at_board) = true;
+          } else {
+            id(lichess_opponent_at_board) = false;
+          }  
     initial_option: "no"
     web_server:
       sorting_group_id: sorting_group_lichess
       sorting_weight: 4
+  - platform: template
+    name: "Move validator"
+    id: chess_move_validator
+    internal: False
+    optimistic: true
+    options:
+      - "enabled"
+      - "disabled"
+    initial_option: "enabled"
+    on_value: 
+      then:
+        lambda: |-
+          if (x == "disabled") {
+            id(validator_enabled) = false;
+          } else {
+            id(validator_enabled) = true;
+          }   
+    web_server:
+      sorting_group_id: sorting_group_system
+      sorting_weight: -1
+  - platform: template
+    name: "Debugger"
+    id: debugger_selector
+    internal: False
+    optimistic: true
+    options:
+      - "enabled"
+      - "disabled"
+    initial_option: "disabled"
+    on_value: 
+      then:
+        lambda: |-
+          if (x == "enabled") {
+            id(debug_mode) = true;
+          } else {
+            id(debug_mode) = false;
+          }   
+    web_server:
+      sorting_group_id: sorting_group_system
+      sorting_weight: -1
 sensor:
   - platform: adc
     pin: GPIO34
@@ -1460,6 +1543,105 @@ sensor:
     samples: $adc_n_sampels
     update_interval: never
 
+  - platform: template
+    name: "Loop Duration Hall"
+    id: median_duration_hall
+    unit_of_measurement: "ms"
+    update_interval: 3s
+    internal: false
+    accuracy_decimals: 0
+    web_server:
+      sorting_group_id: sorting_group_system
+      sorting_weight: 8
+    lambda: |-
+      if (id(debug_mode)){
+          // Make a local copy and sort
+          uint32_t sorted[11];
+          memcpy(sorted, id(loop_durations_hall), sizeof(sorted));
+          std::sort(sorted, sorted + 11);
+          // Median (middle value of sorted list)
+          return sorted[5];
+      } else {
+        return uint32_t(0);
+      }
+  - platform: template
+    name: "Loop Duration Calc"
+    id: median_duration_calc
+    unit_of_measurement: "ms"
+    update_interval: 3s
+    accuracy_decimals: 0
+    internal: false
+    web_server:
+      sorting_group_id: sorting_group_system
+      sorting_weight: 9
+    lambda: |-
+      if (id(debug_mode)){
+          // Make a local copy and sort
+          uint32_t sorted[11];
+          memcpy(sorted, id(loop_durations_calc), sizeof(sorted));
+          std::sort(sorted, sorted + 11);
+          // Median (middle value of sorted list)
+          return sorted[5];
+      } else {
+        return uint32_t(0);
+      }
+  - platform: template
+    name: "Hall min voltage occupied"
+    id: hall_min_voltage_occupied
+    unit_of_measurement: "V"
+    accuracy_decimals: 2
+    update_interval: 3s
+    internal: false
+    web_server:
+      sorting_group_id: sorting_group_system
+      sorting_weight: 10
+    lambda: |-
+      if (id(debug_mode)){
+          // Make a local copy and sort
+          float sorted[11];
+          memcpy(sorted, id(loop_min_voltage_occupied), sizeof(sorted));
+          int min_val = *std::min_element(std::begin(sorted), std::end(sorted));
+          return min_val;
+      } else {
+        return float(0.0);
+      }
+
+  - platform: template
+    name: "Hall max deviation non occupied"
+    id: hall_max_voltage_non_occupied
+    unit_of_measurement: "V"
+    accuracy_decimals: 3
+    update_interval: 3s
+    internal: false
+    web_server:
+      sorting_group_id: sorting_group_system
+      sorting_weight: 11
+    lambda: |-
+      if (id(debug_mode)){
+          // Make a local copy and sort by abs
+          float sorted[11];
+          memcpy(sorted, id(loop_max_voltage_non_occupied), sizeof(sorted));
+          std::sort(std::begin(sorted), std::end(sorted), [](int a, int b) {
+            return abs(a) > abs(b);
+          });
+          return sorted[0]; 
+      } else {
+        return float(0.0);
+      }
+
+  - platform: template
+    name: "Voltage Drift"
+    id: voltage_drift
+    unit_of_measurement: "V"
+    accuracy_decimals: 3
+    update_interval: 3s
+    internal: false
+    web_server:
+      sorting_group_id: sorting_group_system
+      sorting_weight: 10
+    lambda: |-
+        return id(voltage_field_drift);
+
 #  - platform: debug
 #    free:
 #      name: "Heap Free"
@@ -1477,6 +1659,28 @@ text_sensor:
 #      name: "Reset Reason"
 
     # used just to define out-sensor for ha to be set as ha-input sensor
+  - platform: template
+    name: "Hall max deviation field"
+    id: hall_max_deviation_field
+    update_interval: 3s
+    internal: false
+    web_server:
+      sorting_group_id: sorting_group_system
+      sorting_weight: 12
+    lambda: |-
+          // Find field-name
+          // Make a local copy and sort
+          int sorted_idx[11];
+          memcpy(sorted_idx, id(loop_max_deviation_field_idx), sizeof(sorted_idx));
+          std::sort(sorted_idx, sorted_idx + 11);
+          // Median (middle value of sorted list)
+          int max_deviation_idx = sorted_idx[5];
+          std::string max_deviation_field = "-";
+          if (max_deviation_idx > -1){
+            max_deviation_field = id(chess_field_names)[max_deviation_idx];
+          }
+          return max_deviation_field;
+
   - platform: template
     name: "lichess_response_out"
     id: lichess_response_dummy
@@ -1561,7 +1765,7 @@ text_sensor:
     lambda: |-
       return id(fen_position_previous_string);
   - platform: template
-    name: Debugger
+    name: Debug Log
     id: debugger_sensor
     internal: False
     update_interval: never
@@ -1853,8 +2057,18 @@ script:
     mode: single 
     then:
       - lambda: |-
+          uint32_t tic = millis();
+          uint32_t toc  = 0;
+          uint32_t tic_toc = 0;
           // read hall sensors
-          id(update_all_hall_sensors).execute();          
+          id(update_all_hall_sensors).execute();   
+          // Store in circular buffer
+          if (id(debug_mode)) {
+            toc  = millis(); 
+            tic_toc = toc - tic;
+            id(loop_durations_hall)[id(median_array_index)] = tic_toc;
+            tic = millis(); 
+          }     
           // transform voltage to position flags (-1, 0, 1)
           id(update_raw_position_current).execute();
           // check, if we have new position in comparison to the previous
@@ -1877,7 +2091,13 @@ script:
           }
           // reset display messages, if any
           id(clear_display_messages).execute();
-       
+          // Store in circular buffer
+          if (id(debug_mode)) {
+            toc  = millis(); 
+            tic_toc = toc - tic;
+            id(loop_durations_calc)[id(median_array_index)] = tic_toc;
+          }
+                 
   - id: button_black_finished_script
     mode: single
     then: 
@@ -2637,92 +2857,97 @@ script:
       - lambda: |-
           // define flag          
           bool valid_check = false;
+
+          if (id(validator_enabled)) {
           
-          std::string new_fen = id(fen_position_previous_string);
-          std::string new_uci = id(current_move_uci);
+            std::string new_fen = id(fen_position_previous_string);
+            std::string new_uci = id(current_move_uci);
 
-          // we use validator by https://github.com/rilpires/chess_fen_validator/blob/master/chess_validator.h
-          chess_validator::TableState table_state;
-          bool valid_fen = chess_validator::get_table_state( new_fen.c_str() , &table_state );
-          if (valid_fen && (new_uci.length() == 4 || new_uci.length() == 5)) {
-            
-            chess_validator::INVALID_REASON invalid = chess_validator::is_move_invalid( &table_state , new_uci.c_str() );
-            if( invalid ){
-                // we have to reset store flag, if since we pressed the button, the position become invalid
-                id(move_to_store_flag) = false;
-                std::string fen_string = ", FEN = " + id(fen_position_previous_string) + ", MOVE: " + new_uci;
-                std::string invalid_reason = "";              
-                switch(invalid){
-                    case chess_validator::INVALID_FEN_STRING:
-                        ESP_LOGW("Validator", "Invalid move... reason: INVALID_FEN_STRING %s",  fen_string.c_str() );
-                        invalid_reason = "INVALID_FEN_STRING";
-                        break;
-                    case chess_validator::NOT_PLAYER_TURN:
-                        ESP_LOGW("Validator", "Invalid move... reason: NOT_PLAYER_TURN %s",  fen_string.c_str() );
-                        invalid_reason = "NOT_PLAYER_TURN";
-                        break;
-                    case chess_validator::NO_UNIT:
-                        ESP_LOGW("Validator", "Invalid move... reason: NO_UNIT %s",  fen_string.c_str() );
-                        break;
-                    case chess_validator::SAME_PLACE:
-                        ESP_LOGW("Validator", "Invalid move... reason: SAME_PLACE %s",  fen_string.c_str() );
-                        break;
-                    case chess_validator::CAPTURING_SAME_COLOR:
-                        ESP_LOGW("Validator", "Invalid move... reason: CAPTURING_SAME_COLOR %s",  fen_string.c_str() );
-                        invalid_reason = "CAPTURING_SAME_COLOR";
-                        break;
-                    case chess_validator::INVALID_UNIT_MOVE:
-                        ESP_LOGW("Validator", "Invalid move... reason: INVALID_UNIT_MOVE %s",  fen_string.c_str() );
-                        invalid_reason = "INVALID_UNIT_MOVE";
-                        break;
-                    case chess_validator::KING_IN_CHECK:
-                        ESP_LOGW("Validator", "Invalid move... reason: KING_IN_CHECK %s",  fen_string.c_str() );
-                        invalid_reason = "KING_IN_CHECK";
-                        break;
-                }
-                if (invalid_reason != "") {
-                  if (id(white_to_move)) {
-                    id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"" + invalid_reason + "\"}";
-                    id(oled_white_acitve_page) = 2;
-                  } else {
-                    id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"" + invalid_reason + "\"}";
-                    id(oled_black_acitve_page) = 2;
+            // we use validator by https://github.com/rilpires/chess_fen_validator/blob/master/chess_validator.h
+            chess_validator::TableState table_state;
+            bool valid_fen = chess_validator::get_table_state( new_fen.c_str() , &table_state );
+            if (valid_fen && (new_uci.length() == 4 || new_uci.length() == 5)) {
+              
+              chess_validator::INVALID_REASON invalid = chess_validator::is_move_invalid( &table_state , new_uci.c_str() );
+              if( invalid ){
+                  // we have to reset store flag, if since we pressed the button, the position become invalid
+                  id(move_to_store_flag) = false;
+                  std::string fen_string = ", FEN = " + id(fen_position_previous_string) + ", MOVE: " + new_uci;
+                  std::string invalid_reason = "";              
+                  switch(invalid){
+                      case chess_validator::INVALID_FEN_STRING:
+                          ESP_LOGW("Validator", "Invalid move... reason: INVALID_FEN_STRING %s",  fen_string.c_str() );
+                          invalid_reason = "INVALID_FEN_STRING";
+                          break;
+                      case chess_validator::NOT_PLAYER_TURN:
+                          ESP_LOGW("Validator", "Invalid move... reason: NOT_PLAYER_TURN %s",  fen_string.c_str() );
+                          invalid_reason = "NOT_PLAYER_TURN";
+                          break;
+                      case chess_validator::NO_UNIT:
+                          ESP_LOGW("Validator", "Invalid move... reason: NO_UNIT %s",  fen_string.c_str() );
+                          break;
+                      case chess_validator::SAME_PLACE:
+                          ESP_LOGW("Validator", "Invalid move... reason: SAME_PLACE %s",  fen_string.c_str() );
+                          break;
+                      case chess_validator::CAPTURING_SAME_COLOR:
+                          ESP_LOGW("Validator", "Invalid move... reason: CAPTURING_SAME_COLOR %s",  fen_string.c_str() );
+                          invalid_reason = "CAPTURING_SAME_COLOR";
+                          break;
+                      case chess_validator::INVALID_UNIT_MOVE:
+                          ESP_LOGW("Validator", "Invalid move... reason: INVALID_UNIT_MOVE %s",  fen_string.c_str() );
+                          invalid_reason = "INVALID_UNIT_MOVE";
+                          break;
+                      case chess_validator::KING_IN_CHECK:
+                          ESP_LOGW("Validator", "Invalid move... reason: KING_IN_CHECK %s",  fen_string.c_str() );
+                          invalid_reason = "KING_IN_CHECK";
+                          break;
                   }
-                  id(redraw_displays).execute();
-                }
-
-            } else {
-
-                // reset flags, if valid move and no check / mate
-                id(game_result) = "";
-                id(last_move_pgn_additional) = "";
-
-                // apply current move and check if any checks, mates, draws (we use here UCI due to missing promotion parameter)
-                chess_validator::TableState new_table_state = chess_validator::apply_move( &table_state , new_uci.c_str() );
-
-                // king in check ?
-                if (chess_validator::is_king_in_check(&new_table_state, new_table_state.next_color_to_play)) {
-                    id(last_move_pgn_additional) = "+";
-                }
-                // kind in mate?
-                if (chess_validator::is_check_mate(&new_table_state))
-                {
-                    id(last_move_pgn_additional) = "#";
-                    if (new_table_state.next_color_to_play == chess_validator::SQUARE::COLOR_BLACK ) {
-                      id(game_result) = "1-0";
+                  if (invalid_reason != "") {
+                    if (id(white_to_move)) {
+                      id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"" + invalid_reason + "\"}";
+                      id(oled_white_acitve_page) = 2;
                     } else {
-                      id(game_result) = "0-1";
-                    }                    
-                }
-                // draw ?
-                chess_validator::DRAW_REASON   draw  = chess_validator::get_draw_reason(&new_table_state);
-                if (draw != chess_validator::DRAW_REASON::NO_DRAW) {
-                    id(last_move_pgn_additional) = " 1/2-1/2";
-                    id(game_result) = "1/2-1/2";
-                }
+                      id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"" + invalid_reason + "\"}";
+                      id(oled_black_acitve_page) = 2;
+                    }
+                    id(redraw_displays).execute();
+                  }
 
-                valid_check = true;
+              } else {
+
+                  // reset flags, if valid move and no check / mate
+                  id(game_result) = "";
+                  id(last_move_pgn_additional) = "";
+
+                  // apply current move and check if any checks, mates, draws (we use here UCI due to missing promotion parameter)
+                  chess_validator::TableState new_table_state = chess_validator::apply_move( &table_state , new_uci.c_str() );
+
+                  // king in check ?
+                  if (chess_validator::is_king_in_check(&new_table_state, new_table_state.next_color_to_play)) {
+                      id(last_move_pgn_additional) = "+";
+                  }
+                  // kind in mate?
+                  if (chess_validator::is_check_mate(&new_table_state))
+                  {
+                      id(last_move_pgn_additional) = "#";
+                      if (new_table_state.next_color_to_play == chess_validator::SQUARE::COLOR_BLACK ) {
+                        id(game_result) = "1-0";
+                      } else {
+                        id(game_result) = "0-1";
+                      }                    
+                  }
+                  // draw ?
+                  chess_validator::DRAW_REASON   draw  = chess_validator::get_draw_reason(&new_table_state);
+                  if (draw != chess_validator::DRAW_REASON::NO_DRAW) {
+                      id(last_move_pgn_additional) = " 1/2-1/2";
+                      id(game_result) = "1/2-1/2";
+                  }
+
+                  valid_check = true;
+              }
             }
+          } else {
+            valid_check = true;
           }
 
           // reset flag if not valid
@@ -2807,6 +3032,10 @@ script:
     then:
       - lambda: |-
           if (id(game_running) && !id(move_to_store_flag)) {
+
+            // flag if lichess game and opponent to move
+            bool lichess_opponents_move =  id(lichess_game_running) && !id(lichess_opponent_at_board) && (id(white_to_move) && !id(lichess_is_my_color_white) || !id(white_to_move) && id(lichess_is_my_color_white));
+
             // reset flags
             id(reset_validator_flags).execute();
 
@@ -2815,28 +3044,28 @@ script:
 
               // MOVE
               if (id(differences_sum_abs) == 2 && id(differences_sum) == 0 && id(differences_n_changes) == 2 ) {
-                id(validate_move).execute();
+                id(validate_move)->execute(lichess_opponents_move);
               }
 
               // CASTLING
               if (id(differences_sum_abs) == 4 && id(differences_sum) == 0 && id(differences_n_changes) == 4 ) {
-                id(validate_castling).execute();
+                id(validate_castling)->execute(lichess_opponents_move);
               }
             } else if (id(differences_n_pieces) == 1 && ((id(differences_n_white_pieces) == 1 && id(differences_n_black_pieces) == 0) || (id(differences_n_white_pieces) == 0 && id(differences_n_black_pieces) == 1))) { // take or enpassant
 
               // TAKE
               if (id(differences_sum_abs) == 3 && id(differences_sum) == 1 && id(differences_n_changes) == 2 ) {
-                id(validate_take).execute();
+                id(validate_take)->execute(lichess_opponents_move);
               }
 
               // EN PASSANT
               if (id(differences_sum_abs) == 3 && id(differences_sum) == 1 && id(differences_n_changes) == 3 ) {
-                id(validate_enpassant).execute();
+                id(validate_enpassant)->execute(lichess_opponents_move);
               }
             }
 
             // LICHESS MOVE
-            if (id(valid_move) && id(lichess_game_running) && id(lichess_opponent_at_board).state == "no" && (id(white_to_move) && !id(lichess_is_my_color_white) || !id(white_to_move) && id(lichess_is_my_color_white))) {
+            if (lichess_opponents_move && id(valid_move)) {
               // we check here, if the move made and the opponents lichess move are the same, and press "finished-button" for the opponent
               id(valid_move) = (id(current_move_uci_lichess) == id(current_move_uci));
               if (id(valid_move)) { 
@@ -3317,6 +3546,10 @@ script:
             float n_empty_fields = n_empty_fields_init;
             float sum_voltage_drift = 0.0;
 
+            float max_voltage_non_occupied = 0.0;
+            float min_voltage_occupied = 3.0;
+            int max_deviation_field_idx = -1;
+
             // Read all 64 hall sensor values
             for (int value = 0; value < 64; value++) {
 
@@ -3331,9 +3564,23 @@ script:
                 // we have to substract the drift, to get uncorrected value
                 sum_voltage_drift += curr_field + id(voltage_field_drift);
                 n_empty_fields += 1.00;
+                if (id(debug_mode) && (fabsf(curr_field) > fabsf(max_voltage_non_occupied))) {
+                   max_voltage_non_occupied = curr_field;
+                   max_deviation_field_idx = value;
+                }
+              } else {
+                  if (id(debug_mode) && (fabsf(curr_field) < min_voltage_occupied)) {
+                    min_voltage_occupied = fabsf(curr_field);
+                  }
               }
               // set position -1, 0 or 1
               id(raw_position_current)[value] = field_occupied * sign;
+            }
+
+            if (id(debug_mode)){ 
+              id(loop_min_voltage_occupied)[id(median_array_index)] = min_voltage_occupied;
+              id(loop_max_voltage_non_occupied)[id(median_array_index)] = max_voltage_non_occupied;
+              id(loop_max_deviation_field_idx)[id(median_array_index)] = max_deviation_field_idx;
             }
 
             // calc mean deviation
@@ -3462,9 +3709,9 @@ script:
     then:
       - lambda: |- 
           bool otb_player = (id(lichess_opponent).state == id(lichess_opponent).at(0) || id(lichess_opponent).state == id(lichess_opponent).at(1) || id(lichess_opponent).state == id(lichess_opponent).at(2));
-          if ( id(lichess_opponent_at_board).state == "yes" && !otb_player ) {
+          if ( id(lichess_opponent_at_board) && !otb_player ) {
             // not possible to play "on board"
-            auto call = id(lichess_opponent_at_board).make_call();
+            auto call = id(lichess_opponent_at_board_select).make_call();
             call.set_option("no");
             call.perform();          
           }
@@ -3596,7 +3843,7 @@ script:
                 std::string move_body = "{\"type\": \"makeMove\", \"move\": \"" + id(current_move_uci) + "\"}"; 
                 // send the move to lichess           
                 id(lichess_api_call).publish_state(move_body);              
-              } else if( id(lichess_opponent_at_board).state == "yes") {
+              } else if( id(lichess_opponent_at_board)) {
                 // switch to oppoents token
                 std::string move_body_opponent = "{\"type\": \"makeMoveOpponent\", \"move\": \"" + id(current_move_uci) + "\"}";
                 // make a move for the opponent
@@ -3722,7 +3969,7 @@ script:
             id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"waiting for new game ...\", \"line_1\": \"" + id(chess_time_control).state + "\"}"; 
 
             // accept the game by the opponents, if both lichess-players are on board
-            if ( id(lichess_opponent_at_board).state == "yes" ) {
+            if ( id(lichess_opponent_at_board) ) {
               delay(3000);
               id(lichess_accept_challenge).execute();
             }
@@ -3903,7 +4150,7 @@ script:
               bool is_my_turn = (bool)( (n % 2) == int(id(lichess_is_my_color_white)));            
 
               if (!is_my_turn) { // we want the opponents move
-                if( id(lichess_opponent_at_board).state == "no") {
+                if( !id(lichess_opponent_at_board)) {
                   // opponent is white and its turn
                   if (!id(lichess_is_my_color_white)){ 
                     id(display_message_black) = "{\"n_lines\": 1, \"line_0\": \"" + moved_piece +  last_move + "\"}";                
@@ -3920,7 +4167,7 @@ script:
                   // always beep, so we know, the move is accepted by lichess
                   id(beep_short).execute();
                 }
-              } else if (id(lichess_opponent_at_board).state == "yes") {
+              } else if (id(lichess_opponent_at_board)) {
                 // always beep, so we know, the move is accepted by lichess
                 id(beep_short).execute();
               }
@@ -4020,7 +4267,7 @@ script:
             - display_menu.show_main:   my_menu
             - display_menu.hide:  my_menu
       - lambda: |-
-            if (!id(lichess_game_running) || id(lichess_opponent_at_board).state == "yes" || !id(game_running)) {
+            if (!id(lichess_game_running) || id(lichess_opponent_at_board) || !id(game_running)) {
               id(oled_white_acitve_page) = 1;
               id(oled_black_acitve_page) = 1;
             } else { // at lichess game with online opponent, we dont want to show clock
@@ -4085,7 +4332,7 @@ script:
                 color = "black";
               }
               // we dont really need that case, makes not so much sence
-              if(id(lichess_game_running) && id(lichess_opponent_at_board).state == "yes") {
+              if(id(lichess_game_running) && id(lichess_opponent_at_board)) {
                 color = "both";
               }
             }
@@ -4163,25 +4410,26 @@ script:
     then:
       - lambda: |-
           // update only if game is running
-          if (id(game_running)) {
-            // turn all leds off
-            id(led_all_turn_off).execute();            
-            // if no valid move found, rise flag
-            if (id(valid_move)) {
-              // update leds
-              if (id(white_to_move)) {
-                id(led_white_green).execute();
-              } else {
-                id(led_black_green).execute();           
-              }
+          // if no valid move found, rise flag
+          if (id(valid_move)) {
+            // update leds
+            if (id(white_to_move)) {
+              id(led_black_turn_off).execute();
+              id(led_white_green).execute();
             } else {
-              if (id(white_to_move)) {
-                id(led_white_red).execute();
-              } else {
-                id(led_black_red).execute();               
-              }
+              id(led_black_green).execute(); 
+              id(led_white_turn_off).execute();          
+            }
+          } else {
+            if (id(white_to_move)) {
+              id(led_white_red).execute();
+              id(led_black_turn_off).execute();
+            } else {
+              id(led_black_red).execute();  
+              id(led_white_turn_off).execute();             
             }
           }
+
 
   - id: led_white_red
     then: 
