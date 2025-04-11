@@ -83,10 +83,10 @@ time:
 
 substitutions:
   # shorter delay and high amount of samples works best
-  adc_n_sampels: '35' 
+  adc_n_sampels: '40' 
   attenuation_value: 12dB
-  hall_sensor_intervall_game: 3330ms 
-  hall_sensor_intervall_idle: 600ms
+  hall_sensor_intervall_game: 300ms 
+  hall_sensor_intervall_idle: 500ms
   delay_before_adc_reading: '2' 
 
 i2c:
@@ -94,7 +94,7 @@ i2c:
   scl: GPIO22
   id: i2c0
   scan: false
-  frequency: 100kHz 
+  frequency: 200kHz 
   # max frequency of pcf8574 is 100kHz, we try higher frequencies for faster display update
   
 
@@ -357,6 +357,10 @@ globals:
     type: std::string
     initial_value: '""'
 
+  - id: fen_position_current_string
+    type: std::string
+    initial_value: '""'
+
   - id: fen_position_current
     type: std::array<std::string, 72>
     initial_value: '{""}'
@@ -393,6 +397,10 @@ globals:
     initial_value: '{0}'
 
   - id: raw_position_previous
+    type: std::array<int, 64>
+    initial_value: '{0}'
+
+  - id: raw_position_last_valid
     type: std::array<int, 64>
     initial_value: '{0}'
 
@@ -438,6 +446,10 @@ globals:
     initial_value: 'false'
 
   - id: changed_position
+    type: bool
+    initial_value: 'false'
+
+  - id: changed_last_valid_position
     type: bool
     initial_value: 'false'
 
@@ -1600,8 +1612,9 @@ sensor:
           // Make a local copy and sort
           float sorted[11];
           memcpy(sorted, id(loop_min_voltage_occupied), sizeof(sorted));
-          int min_val = *std::min_element(std::begin(sorted), std::end(sorted));
-          return min_val;
+          std::sort(sorted, sorted + 11);
+          // Median (middle value of sorted list)
+          return sorted[5];
       } else {
         return float(0.0);
       }
@@ -2058,30 +2071,29 @@ script:
     then:
       - lambda: |-
           uint32_t tic = millis();
-          uint32_t toc  = 0;
-          uint32_t tic_toc = 0;
           // read hall sensors
           id(update_all_hall_sensors).execute();   
           // Store in circular buffer
-          if (id(debug_mode)) {
-            toc  = millis(); 
-            tic_toc = toc - tic;
-            id(loop_durations_hall)[id(median_array_index)] = tic_toc;
-            tic = millis(); 
-          }     
+          id(loop_durations_hall)[id(median_array_index)] = millis() - tic;
+          tic = millis(); 
           // transform voltage to position flags (-1, 0, 1)
           id(update_raw_position_current).execute();
           // check, if we have new position in comparison to the previous
           id(compare_raw_position).execute();
           // if any changes in position
           if (id(changed_position) || id(move_to_store_flag)) {
-            // calculate differences in position, to be able to calculate the move
-            id(calculate_position_differences).execute();
-            // transform position - differences to a move (coordinate from - to)
-            id(move_validator).execute(); // update from, to, uci, valid_flag, new_fen
-            // update led's valid / non valid move
-            id(led_update_valid_move).execute();
-            // we check, if we should store the move (i.e. button pressed, or lichess-move is applied)
+            // check, if we have new position in comparison to the last valid
+            id(compare_last_valid_position).execute();
+            // we check changed positions only
+            if (id(changed_last_valid_position)) {
+              // calculate differences in position, to be able to calculate the move
+              id(calculate_position_differences).execute();
+              // transform position - differences to a move (coordinate from - to)
+              id(move_validator).execute(); // update from, to, uci, valid_flag, new_fen
+              // update led's valid / non valid move
+              id(led_update_valid_move).execute();
+              // we check, if we should store the move (i.e. button pressed, or lichess-move is applied)
+            }
             id(store_move)->execute(id(game_result));            
           } else {            
             // reset flags
@@ -2092,11 +2104,7 @@ script:
           // reset display messages, if any
           id(clear_display_messages).execute();
           // Store in circular buffer
-          if (id(debug_mode)) {
-            toc  = millis(); 
-            tic_toc = toc - tic;
-            id(loop_durations_calc)[id(median_array_index)] = tic_toc;
-          }
+          id(loop_durations_calc)[id(median_array_index)] = millis() - tic;
                  
   - id: button_black_finished_script
     mode: single
@@ -2105,11 +2113,8 @@ script:
           // only during the gave
           if (id(game_running)) {
             // if our turn, we store the move and let opponent play
-            if (!id(white_to_move))
-            {
-              if (id(valid_move)) {                
+            if (!id(white_to_move) && id(valid_move)) {                
                 id(move_to_store_flag) = true;
-              }    
             }
           } else if (id(halfmove_counter) == 0) {
             // at the begin of the game black can start the clock by button
@@ -2125,9 +2130,9 @@ script:
     then: 
       - lambda: |-
             // only during the gave
-            if (id(game_running) && id(white_to_move) ) {
+            if (id(game_running)){
               // if our turn, we store the move and let opponent play
-              if (id(valid_move)) {
+              if (id(white_to_move) && id(valid_move)) {
                 id(move_to_store_flag) = true; 
               }
             // we assume here, initial-position-set is updated by the idle iteration loop
@@ -2212,7 +2217,7 @@ script:
             id(update_chess_board).execute();
             id(last_move_pgn_sensor).update();
             // update fen string
-            id(fen_position_previous_arr_to_string).execute();
+            id(fen_array_to_string).execute();
           }
 
   - id: update_chess_board
@@ -2551,6 +2556,7 @@ script:
             id(fen_position_current)[i] = curr_value;          
           };
           id(fen_position_previous_string) = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+          id(fen_position_current_string) = "";
           id(update_chess_board).execute();
           id(fen_position_chessboard) = "";
           id(fen_position_previous_string_sensor).update();
@@ -2560,6 +2566,7 @@ script:
       - lambda: |-
           std::memcpy(id(raw_position_take_back).data(), id(raw_position_init).data(), sizeof(int)*64);
           std::memcpy(id(raw_position_previous).data(), id(raw_position_init).data(), sizeof(int)*64);
+          std::memcpy(id(raw_position_last_valid).data(), id(raw_position_init).data(), sizeof(int)*64);
 
 
   - id: inform_game_over
@@ -2673,66 +2680,66 @@ script:
             if (id(valid_move) && id(game_running)) {
               // turn off the LED ... we are storing ....
               id(led_all_turn_off).execute();
-              // store previous pgn history
-              id(pgn_history_take_back) = id(pgn_history);
-
-              //update pgn sensors
-              id(update_pgn_history).execute();
 
               // update fen move, castling, enpassant, move counts
               id(update_fen_additional_fields).execute();
 
-              // update n queens
-              id(update_number_of_queens).execute();
-
-              // replace last fen by current fen
-              for (int i = 0; i < 72; i++) {
-                id(fen_position_take_back)[i] = id(fen_position_previous)[i];
-                id(fen_position_previous)[i] = id(fen_position_current)[i];          
-              };
-
               // update fen string current to last
-              id(fen_position_previous_arr_to_string).execute();
+              id(fen_array_to_string).execute();
 
-              // replace last position by current position
-              std::memcpy(id(raw_position_take_back).data(), id(raw_position_previous).data(), sizeof(int)*64);
-              std::memcpy(id(raw_position_previous).data(), id(raw_position_current).data(), sizeof(int)*64);
+              // do we have a valid FEN so far ?
+              if (id(fen_position_current_string) != "") {
 
+                // overwrite previous data by current data
+                std::memcpy(id(raw_position_previous).data(), id(raw_position_last_valid).data(), sizeof(int)*64);                
+                id(fen_position_previous_string) = id(fen_position_current_string);
 
+                // replace last fen by current fen
+                for (int i = 0; i < 72; i++) {
+                  id(fen_position_previous)[i] = id(fen_position_current)[i];          
+                };
+
+                //update pgn sensors
+                id(update_pgn_history).execute();
+                // update n queens
+                id(update_number_of_queens).execute();
+                // update fen sensor
+                id(fen_position_previous_string_sensor).update();
+
+                // update last move
+                if (id(white_to_move)) {
+                  id(last_move_white) = id(current_move_uci);
+                } else {
+                  id(last_move_black) = id(current_move_uci);
+                }
+
+                // make lichess move
+                id(lichess_make_move).execute();
+
+                // game finished on board ?
+                if (!id(lichess_game_running) && (game_result == "1-0" || game_result == "0-1" || game_result == "1/2-1/2")){
+                  // game over
+                  id(inform_game_over)->execute(game_result);
+                  // do some post game operations
+                  id(post_game_operation).execute();
+                  // stop game
+                  id(game_running) = false;
+                } else {               
+                  // toggle white_to_move
+                  id(white_to_move) = !id(white_to_move);               
+                  // increase coutner of halfmoves
+                  id(halfmove_counter) += 1;
+                  // update timer
+                  id(time_control_add_increment).execute();              
+                  // reset flags
+                  id(reset_validator_flags).execute();
+                }            
+              }
+              id(valid_move) = false;
+              id(move_to_store_flag) = false;
               // show clock
               id(oled_show_page_clock).execute();
-
-              // update last move
-              if (id(white_to_move)) {
-                id(last_move_white) = id(current_move_uci);
-              } else {
-                id(last_move_black) = id(current_move_uci);
-              }
-
-              // make lichess move
-              id(lichess_make_move).execute();
-
-              // game finished on board ?
-              if (!id(lichess_game_running) && (game_result == "1-0" || game_result == "0-1" || game_result == "1/2-1/2")){
-                // game over
-                id(inform_game_over)->execute(game_result);
-                // do some post game operations
-                id(post_game_operation).execute();
-                // stop game
-                id(game_running) = false;
-              } else {               
-                // toggle white_to_move
-                id(white_to_move) = !id(white_to_move);               
-                // increase coutner of halfmoves
-                id(halfmove_counter) += 1;
-                // update timer
-                id(time_control_add_increment).execute();              
-                // reset flags
-                id(reset_validator_flags).execute();
-              }            
             }
-            id(valid_move) = false;
-            id(move_to_store_flag) = false;
           }
 
   - id: update_number_of_queens
@@ -2801,7 +2808,7 @@ script:
             id(current_move_uci) = uci_move;
           }
 
-  - id: fen_position_previous_arr_to_string
+  - id: fen_array_to_string
     mode: queued
     then:
       - lambda: |-
@@ -2810,7 +2817,7 @@ script:
             int emptyCount = 0;            
             for (int row = 0; row < 8; ++row) {
                 for (int col = 0; col < 8; ++col) {
-                    std::string piece = id(fen_position_previous)[row * 8 + col];
+                    std::string piece = id(fen_position_current)[row * 8 + col];
                     if (piece == "0") {
                         ++emptyCount;
                     } else {
@@ -2829,10 +2836,10 @@ script:
             }
 
             // color to move
-            raw_fen += " " + id(fen_position_previous)[64];
+            raw_fen += " " + id(fen_position_current)[64];
 
             // castling rights
-            std::string castling_part = id(fen_position_previous)[65] + id(fen_position_previous)[66] + id(fen_position_previous)[67] + id(fen_position_previous)[68];
+            std::string castling_part = id(fen_position_current)[65] + id(fen_position_current)[66] + id(fen_position_current)[67] + id(fen_position_current)[68];
             if (castling_part.length() > 0 ) {
               raw_fen += " " +  castling_part;
             } else {
@@ -2840,16 +2847,23 @@ script:
             }            
 
             // en passant
-            raw_fen += " " + id(fen_position_previous)[69];
+            raw_fen += " " + id(fen_position_current)[69];
 
             // half move since last take
-            raw_fen += " " + id(fen_position_previous)[70];
+            raw_fen += " " + id(fen_position_current)[70];
 
             // full move
-            raw_fen += " " + id(fen_position_previous)[71];
+            raw_fen += " " + id(fen_position_current)[71];
 
-            id(fen_position_previous_string) = raw_fen;
-            id(fen_position_previous_string_sensor).update();
+            // let us check the fen
+            chess_validator::TableState table_state;
+            if (chess_validator::get_table_state( raw_fen.c_str() , &table_state )) {
+              // we have valid FEN
+              id(fen_position_current_string) = raw_fen;
+            } else {
+              // reset current fen string
+              id(fen_position_current_string) = "";
+            }
 
   - id: check_chess_rules
     mode: queued
@@ -2860,45 +2874,44 @@ script:
 
           if (id(validator_enabled)) {
           
-            std::string new_fen = id(fen_position_previous_string);
+            std::string previous_fen = id(fen_position_previous_string);
             std::string new_uci = id(current_move_uci);
 
-            // we use validator by https://github.com/rilpires/chess_fen_validator/blob/master/chess_validator.h
             chess_validator::TableState table_state;
-            bool valid_fen = chess_validator::get_table_state( new_fen.c_str() , &table_state );
+            bool valid_fen = chess_validator::get_table_state( previous_fen.c_str() , &table_state );
             if (valid_fen && (new_uci.length() == 4 || new_uci.length() == 5)) {
               
               chess_validator::INVALID_REASON invalid = chess_validator::is_move_invalid( &table_state , new_uci.c_str() );
-              if( invalid ){
+              if( invalid ){                  
                   // we have to reset store flag, if since we pressed the button, the position become invalid
                   id(move_to_store_flag) = false;
                   std::string fen_string = ", FEN = " + id(fen_position_previous_string) + ", MOVE: " + new_uci;
                   std::string invalid_reason = "";              
                   switch(invalid){
                       case chess_validator::INVALID_FEN_STRING:
-                          ESP_LOGW("Validator", "Invalid move... reason: INVALID_FEN_STRING %s",  fen_string.c_str() );
+                          ESP_LOGE("Validator", "Invalid move... reason: INVALID_FEN_STRING %s",  fen_string.c_str() );
                           invalid_reason = "INVALID_FEN_STRING";
                           break;
                       case chess_validator::NOT_PLAYER_TURN:
-                          ESP_LOGW("Validator", "Invalid move... reason: NOT_PLAYER_TURN %s",  fen_string.c_str() );
+                          ESP_LOGE("Validator", "Invalid move... reason: NOT_PLAYER_TURN %s",  fen_string.c_str() );
                           invalid_reason = "NOT_PLAYER_TURN";
                           break;
                       case chess_validator::NO_UNIT:
-                          ESP_LOGW("Validator", "Invalid move... reason: NO_UNIT %s",  fen_string.c_str() );
+                          ESP_LOGE("Validator", "Invalid move... reason: NO_UNIT %s",  fen_string.c_str() );
                           break;
                       case chess_validator::SAME_PLACE:
-                          ESP_LOGW("Validator", "Invalid move... reason: SAME_PLACE %s",  fen_string.c_str() );
+                          ESP_LOGE("Validator", "Invalid move... reason: SAME_PLACE %s",  fen_string.c_str() );
                           break;
                       case chess_validator::CAPTURING_SAME_COLOR:
-                          ESP_LOGW("Validator", "Invalid move... reason: CAPTURING_SAME_COLOR %s",  fen_string.c_str() );
+                          ESP_LOGE("Validator", "Invalid move... reason: CAPTURING_SAME_COLOR %s",  fen_string.c_str() );
                           invalid_reason = "CAPTURING_SAME_COLOR";
                           break;
                       case chess_validator::INVALID_UNIT_MOVE:
-                          ESP_LOGW("Validator", "Invalid move... reason: INVALID_UNIT_MOVE %s",  fen_string.c_str() );
+                          ESP_LOGE("Validator", "Invalid move... reason: INVALID_UNIT_MOVE %s",  fen_string.c_str() );
                           invalid_reason = "INVALID_UNIT_MOVE";
                           break;
                       case chess_validator::KING_IN_CHECK:
-                          ESP_LOGW("Validator", "Invalid move... reason: KING_IN_CHECK %s",  fen_string.c_str() );
+                          ESP_LOGE("Validator", "Invalid move... reason: KING_IN_CHECK %s",  fen_string.c_str() );
                           invalid_reason = "KING_IN_CHECK";
                           break;
                   }
@@ -2910,7 +2923,6 @@ script:
                       id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"" + invalid_reason + "\"}";
                       id(oled_black_acitve_page) = 2;
                     }
-                    id(redraw_displays).execute();
                   }
 
               } else {
@@ -2942,7 +2954,6 @@ script:
                       id(last_move_pgn_additional) = " 1/2-1/2";
                       id(game_result) = "1/2-1/2";
                   }
-
                   valid_check = true;
               }
             }
@@ -2956,7 +2967,7 @@ script:
   - id: calculate_position_differences
     then:
       - lambda: |-
-          if (!id(move_to_store_flag)) {
+          if (!id(move_to_store_flag) || id(changed_last_valid_position)) {
             // loop over all 64 current and last positions and store differences to global variable
             int s = (id(white_to_move))? 1 : -1;
             for (int value = 0; value < 64; value++) {
@@ -3031,54 +3042,60 @@ script:
     mode: queued 
     then:
       - lambda: |-
-          if (id(game_running) && !id(move_to_store_flag)) {
-
-            // flag if lichess game and opponent to move
-            bool lichess_opponents_move =  id(lichess_game_running) && !id(lichess_opponent_at_board) && (id(white_to_move) && !id(lichess_is_my_color_white) || !id(white_to_move) && id(lichess_is_my_color_white));
+          if (id(game_running) && (!id(move_to_store_flag) || id(changed_last_valid_position))) {
 
             // reset flags
             id(reset_validator_flags).execute();
 
+            // flag if lichess game and opponent to move
+            bool lichess_opponents_move =  id(lichess_game_running) && !id(lichess_opponent_at_board) && (id(white_to_move) && !id(lichess_is_my_color_white) || !id(white_to_move) && id(lichess_is_my_color_white));
             // Update from / to indexes
             if (id(differences_n_pieces) == 0 && id(differences_n_white_pieces) == 0 && id(differences_n_black_pieces) == 0) { // move or castling
-
               // MOVE
               if (id(differences_sum_abs) == 2 && id(differences_sum) == 0 && id(differences_n_changes) == 2 ) {
                 id(validate_move)->execute(lichess_opponents_move);
-              }
-
-              // CASTLING
-              if (id(differences_sum_abs) == 4 && id(differences_sum) == 0 && id(differences_n_changes) == 4 ) {
-                id(validate_castling)->execute(lichess_opponents_move);
+              } else {
+                // CASTLING
+                if (id(differences_sum_abs) == 4 && id(differences_sum) == 0 && id(differences_n_changes) == 4 ) {
+                  id(validate_castling)->execute(lichess_opponents_move);
+                }
               }
             } else if (id(differences_n_pieces) == 1 && ((id(differences_n_white_pieces) == 1 && id(differences_n_black_pieces) == 0) || (id(differences_n_white_pieces) == 0 && id(differences_n_black_pieces) == 1))) { // take or enpassant
-
               // TAKE
               if (id(differences_sum_abs) == 3 && id(differences_sum) == 1 && id(differences_n_changes) == 2 ) {
                 id(validate_take)->execute(lichess_opponents_move);
-              }
-
-              // EN PASSANT
-              if (id(differences_sum_abs) == 3 && id(differences_sum) == 1 && id(differences_n_changes) == 3 ) {
-                id(validate_enpassant)->execute(lichess_opponents_move);
-              }
-            }
-
-            // LICHESS MOVE
-            if (lichess_opponents_move && id(valid_move)) {
-              // we check here, if the move made and the opponents lichess move are the same, and press "finished-button" for the opponent
-              id(valid_move) = (id(current_move_uci_lichess) == id(current_move_uci));
-              if (id(valid_move)) { 
-                if (id(lichess_is_my_color_white)) {
-                  id(button_black_finished_script).execute();
-                } else {
-                  id(button_white_finished_script).execute();             
+              } else {
+                // EN PASSANT
+                if (id(differences_sum_abs) == 3 && id(differences_sum) == 1 && id(differences_n_changes) == 3 ) {
+                  id(validate_enpassant)->execute(lichess_opponents_move);
                 }
               }
             }
 
+            
+            if (id(valid_move)) {
+              // store last valid position
+              std::memcpy(id(raw_position_last_valid).data(), id(raw_position_current).data(), sizeof(int)*64); 
+            } else {
+              // we have an invalid move ? so, we have to rest last valid, otherwiese we wont get "valid"-flag after correction of the move
+              // example: we make a valid move (that one is stored), then we move an other piece -> invalid, so we move it back (valid position)
+              // but, the flag is not updated and still invalid, since we already checked this position
+              std::memcpy(id(raw_position_last_valid).data(), id(raw_position_init).data(), sizeof(int)*64);
+            }
+
+            // LICHESS MOVE
+            if (lichess_opponents_move && id(valid_move)) {
+              delay(100); // do small break
+              // press "finished-button" for the opponent
+              if (id(lichess_is_my_color_white)) {
+                id(button_black_finished_script).execute();
+              } else {
+                id(button_white_finished_script).execute();             
+              }
+            }
+
             // ON SETTING START POSITION?
-            if (id(game_running) && (id(differences_n_pieces) < -2 || id(differences_n_changes) > 6 )) { // added three and more pieces to board or moved more than 3 pieces at once
+            if (id(game_running) && (id(differences_n_pieces) < -2 || id(differences_n_changes) > 6 || id(differences_n_pieces) > 4)) { // added three and more pieces to board or moved more than 3 pieces at once
               // inform game is aborted
               id(inform_game_over)->execute(id(game_result));
               // we stop the game and send png
@@ -3103,6 +3120,8 @@ script:
           }
  
   - id: validate_move
+    parameters:
+      lichess_opponents_move: bool
     then:
       - lambda: |-
           int from = -1;
@@ -3177,8 +3196,14 @@ script:
 
                 // prepare uci notation
                 id(update_uci_notation).execute();
-                // check if move is legal
-                id(check_chess_rules).execute();
+                // validate move
+                if (!lichess_opponents_move) {
+                  // check if move is legal
+                  id(check_chess_rules).execute();
+                } else {
+                  // we dont need to validate lichess moves
+                  id(valid_move) = (id(current_move_uci_lichess) == id(current_move_uci));
+                }
               }
             }
 
@@ -3197,6 +3222,8 @@ script:
           }
 
   - id: validate_take
+    parameters:
+      lichess_opponents_move: bool
     then:
       - lambda: |-
           int from = -1;
@@ -3225,8 +3252,14 @@ script:
 
               // prepare uci notation
               id(update_uci_notation).execute();
-              // check if move is legal
-              id(check_chess_rules).execute();
+              // validate move
+              if (!lichess_opponents_move) {
+                // check if move is legal
+                id(check_chess_rules).execute();
+              } else {
+                // we dont need to validate lichess moves
+                id(valid_move) = (id(current_move_uci_lichess) == id(current_move_uci));
+              }
             } 
 
             // still valid
@@ -3243,6 +3276,8 @@ script:
           }
 
   - id: validate_castling
+    parameters:
+      lichess_opponents_move: bool
     then:
       - lambda: |-
           int from_k = -1;
@@ -3298,8 +3333,15 @@ script:
 
               // prepare uci notation
               id(update_uci_notation).execute();
-              // check if move is legal
-              id(check_chess_rules).execute();
+
+              // validate move
+              if (!lichess_opponents_move) {
+                // check if move is legal
+                id(check_chess_rules).execute();
+              } else {
+                // we dont need to validate lichess moves
+                id(valid_move) = (id(current_move_uci_lichess) == id(current_move_uci));
+              }
             } else {
               // reset moved piece if not the king
               id(moved_piece) = "";
@@ -3323,6 +3365,8 @@ script:
           }
         
   - id: validate_enpassant
+    parameters:
+      lichess_opponents_move: bool
     then:
       - lambda: |-
           int from = -1;
@@ -3369,8 +3413,15 @@ script:
 
             // prepare uci notation
             id(update_uci_notation).execute();
-            // check if move is legal
-            id(check_chess_rules).execute();
+
+            // validate move
+            if (!lichess_opponents_move) {
+              // check if move is legal
+              id(check_chess_rules).execute();
+            } else {
+              // we dont need to validate lichess moves
+              id(valid_move) = (id(current_move_uci_lichess) == id(current_move_uci));
+            }
 
             // still valid
             if (id(valid_move)) {
@@ -3434,11 +3485,10 @@ script:
 
           // update fen move counters
           if (id(current_move_type) == "TAKE" || id(moved_piece) == "p" || id(moved_piece) == "P") {
-            id(halfmove_or_capture_counter) = 0;
+            id(fen_position_current)[70] = std::to_string(id(halfmove_or_capture_counter));
           } else {
-            id(halfmove_or_capture_counter) += 1;
+            id(fen_position_current)[70] = std::to_string(id(halfmove_or_capture_counter) + 1);
           }
-          id(fen_position_current)[70] = std::to_string(id(halfmove_or_capture_counter));
           id(fen_position_current)[71] = id(white_to_move) ? std::to_string((int)(id(halfmove_counter) / 2.) + 1) : std::to_string((int)(id(halfmove_counter) / 2.) + 2);
 
   - id: update_pgn
@@ -3536,6 +3586,18 @@ script:
             }
           }
 
+  - id: compare_last_valid_position
+    then:
+      - lambda: |-
+          id(changed_last_valid_position) = false;
+          for (int i = 0; i < 64; i++) {
+            if (id(raw_position_current)[i]  != id(raw_position_last_valid)[i])
+            {
+              id(changed_last_valid_position) = true;
+              break;
+            }
+          }
+
   - id: update_raw_position_current
     mode: queued
     then:
@@ -3584,7 +3646,7 @@ script:
             }
 
             // calc mean deviation
-            if ((n_empty_fields > n_empty_fields_init) && !id(move_to_store_flag)) {
+            if ((n_empty_fields > n_empty_fields_init)) {
               id(voltage_field_drift) = sum_voltage_drift / n_empty_fields;
             }
           }
@@ -3627,7 +3689,7 @@ script:
               // all outputs are set
 
               // if, during the reading of sensors, the flag for storing is set, we abbort the loop
-              // so, we dont need to wait in worst case ~300ms 
+              // so, we dont need to wait in worst case ~200ms 
               if(id(move_to_store_flag)) {
                 break;
               }
@@ -3658,10 +3720,6 @@ script:
               for (int i = 0; i < 64; i++) {
                 id(voltage_field_current)[i] = adc_values[id(hall_sensor_order)[i]] - id(voltage_field_offset)[i] - id(voltage_field_drift);
               }
-            }
-
-            if(id(debug_mode)) {
-              // id(update_array_text).execute();
             }
           }
 
