@@ -654,6 +654,10 @@ globals:
     type: int
     initial_value: '0'
 
+  - id: invalid_move_counter
+    type: int
+    initial_value: '-1'
+
   - id: validator_enabled
     type: bool
     initial_value: 'true'
@@ -807,19 +811,22 @@ graphical_display_menu:
               - display_menu.hide:  my_menu 
               - lambda: |-
                   id(lichess_create_new_game).execute();
-        - type: command
-          text: 'Join arena'
-          on_value:
-            then:
-              - display_menu.hide:  my_menu 
-              - lambda: |-
-                  id(lichess_arena_join_new_tournament).execute();
-        - type: command
-          text: 'Quit arena'
-          on_value: 
-            then:
-              - lambda: |-
-                  id(lichess_arena_quit_tournament).execute();
+        - type: select
+          immediate_edit: false
+          text: 'User'
+          select: lichess_account
+        - type: select
+          immediate_edit: false
+          text: 'Opponent'
+          select: lichess_opponent
+        - type: select
+          immediate_edit: False
+          text: 'Rated'
+          select: lichess_seek_rated
+        - type: select
+          immediate_edit: False
+          text: 'Opponent at board'
+          select: lichess_opponent_at_board_select
         - type: command
           text: 'Resign'
           on_value:
@@ -838,16 +845,6 @@ graphical_display_menu:
                   // force changed state, to be able to call the same request 
                   id(lichess_api_call).publish_state("idle"); 
                   id(lichess_api_call).publish_state("{\"type\": \"resignOpponent\"}");
-                  id(oled_show_page_clock).execute();
-              - display_menu.hide:  my_menu 
-        - type: command
-          text: 'Claim victory'
-          on_value:
-            then:
-              - lambda: |-
-                  // force changed state, to be able to call the same request 
-                  id(lichess_api_call).publish_state("idle"); 
-                  id(lichess_api_call).publish_state("{\"type\": \"claim-victory\"}");
                   id(oled_show_page_clock).execute();
               - display_menu.hide:  my_menu 
         - type: command
@@ -870,6 +867,17 @@ graphical_display_menu:
                   id(lichess_api_call).publish_state("{\"type\": \"draw\", \"parameter\": \"no\"}");
                   id(oled_show_page_clock).execute();
               - display_menu.hide:  my_menu 
+        - type: command
+          text: 'Claim victory'
+          on_value:
+            then:
+              - lambda: |-
+                  // force changed state, to be able to call the same request 
+                  id(lichess_api_call).publish_state("idle"); 
+                  id(lichess_api_call).publish_state("{\"type\": \"claim-victory\"}");
+                  id(oled_show_page_clock).execute();
+              - display_menu.hide:  my_menu 
+
         - type: command
           text: 'Takeback (yes)'
           on_value:
@@ -899,22 +907,19 @@ graphical_display_menu:
                   id(lichess_api_call).publish_state("{\"type\": \"abort\"}");
                   id(oled_show_page_clock).execute();
               - display_menu.hide:  my_menu 
-        - type: select
-          immediate_edit: false
-          text: 'User'
-          select: lichess_account
-        - type: select
-          immediate_edit: false
-          text: 'Opponent'
-          select: lichess_opponent
-        - type: select
-          immediate_edit: False
-          text: 'Rated'
-          select: lichess_seek_rated
-        - type: select
-          immediate_edit: False
-          text: 'Opponent at board'
-          select: lichess_opponent_at_board_select
+        - type: command
+          text: 'Join arena'
+          on_value:
+            then:
+              - display_menu.hide:  my_menu 
+              - lambda: |-
+                  id(lichess_arena_join_new_tournament).execute();
+        - type: command
+          text: 'Quit arena'
+          on_value: 
+            then:
+              - lambda: |-
+                  id(lichess_arena_quit_tournament).execute();
         - type: select
           immediate_edit: False
           text: 'Tournament'
@@ -2467,7 +2472,8 @@ script:
           id(timer_black).update();
           id(timer_white).update();        
           id(n_queens_white) = 1;
-          id(n_queens_black) = 1;          
+          id(n_queens_black) = 1;   
+          id(invalid_move_counter) = -1;       
           id(lichess_game_id).publish_state(std::string("idle"));
           id(update_lichess_token).execute();          
           id(current_move_uci_lichess) = "-";          
@@ -2958,6 +2964,9 @@ script:
               }
             }
           } else {
+            // reset flags, if valid move and no check / mate
+            id(game_result) = "";
+            id(last_move_pgn_additional) = "";
             valid_check = true;
           }
 
@@ -3077,10 +3086,18 @@ script:
               // store last valid position
               std::memcpy(id(raw_position_last_valid).data(), id(raw_position_current).data(), sizeof(int)*64); 
             } else {
+              // reset flags, if valid move and no check / mate
+              id(game_result) = "";
+              id(last_move_pgn_additional) = "";
+              id(invalid_move_counter) += 1;
               // we have an invalid move ? so, we have to rest last valid, otherwiese we wont get "valid"-flag after correction of the move
               // example: we make a valid move (that one is stored), then we move an other piece -> invalid, so we move it back (valid position)
               // but, the flag is not updated and still invalid, since we already checked this position
-              std::memcpy(id(raw_position_last_valid).data(), id(raw_position_init).data(), sizeof(int)*64);
+              if (id(invalid_move_counter) == 3) {
+                std::memcpy(id(raw_position_last_valid).data(), id(raw_position_init).data(), sizeof(int)*64);
+                id(invalid_move_counter) = -1; // we dont want to reset every iteration
+              }
+              
             }
 
             // LICHESS MOVE
@@ -4026,14 +4043,13 @@ script:
             id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"waiting for new game ...\", \"line_1\": \"" + id(chess_time_control).state + "\"}";
             id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"waiting for new game ...\", \"line_1\": \"" + id(chess_time_control).state + "\"}"; 
 
+            id(oled_show_page_message).execute();
+
             // accept the game by the opponents, if both lichess-players are on board
             if ( id(lichess_opponent_at_board) ) {
               delay(3000);
               id(lichess_accept_challenge).execute();
             }
-
-            id(oled_show_page_message).execute();
-
           } else {
               id(beep_long).execute();
               id(oled_show_page_temporary_message)->execute("{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"Set initial position\"}", "both", 2000);                     
@@ -4041,14 +4057,25 @@ script:
 
   - id: lichess_handle_response
     mode: queued
+    max_runs: 10
     then:
       - lambda: |-
           std::string json_str = id(lichess_response).state;
 
+          if (id(debug_mode)) {
+              id(debugger_sensor).publish_state("jsom from response: " + json_str);
+          }
+
           StaticJsonDocument<512> root;
           deserializeJson(root, json_str);
 
-          if (root.containsKey("type")) {
+          if (root.containsKey("type") && root["type"].as<std::string>().length() > 0) {
+
+            if (id(debug_mode)) {
+              std::string serialized_json_str;
+              serializeJson(root, serialized_json_str);
+              id(debugger_sensor).publish_state("with type: " + serialized_json_str);
+            }
 
             // #######################################
             // ########### EVENTS ####################
@@ -4056,6 +4083,10 @@ script:
 
             // ############# new game started #############
             if (root["type"].as<std::string>() == "gameStart"){
+
+              if (id(debug_mode)) {
+                  id(debugger_sensor).publish_state("Triggered by gameStart");
+              }
 
               if (id(lichess_tournament_id).state.length() == 8) {
                   id(beep_long).execute();
@@ -4100,6 +4131,10 @@ script:
 
             // ############# game finished #############
             if ((root["type"].as<std::string>() == "gameFinish" ) && (root["gameId"].as<std::string>() == id(lichess_game_id).state)){
+
+                if (id(debug_mode)) {
+                    id(debugger_sensor).publish_state("Triggered by gameFinish");
+                }
 
                 // store the win-state
                 std::string curr_game_result = root["win"].as<std::string>();
@@ -4182,7 +4217,11 @@ script:
             }
 
             // ############# move on board #############
-            if ((root["type"].as<std::string>() == "gameState") && (root["state"].as<std::string>() == "started") &&  (root["id"].as<std::string>() == id(lichess_game_id).state)){
+            if ((root["type"].as<std::string>() == "gameState") && root.containsKey("state") && (root["state"].as<std::string>() == "started") &&  (root["id"].as<std::string>() == id(lichess_game_id).state)){
+
+              if (id(debug_mode)) {
+                  id(debugger_sensor).publish_state("Triggered by gameState: " + root["last"].as<std::string>());
+              }
               // win - state is extracted from the event - json
               
               // let the player know about the last move of opponent
@@ -4281,40 +4320,13 @@ script:
   - id: lichess_accept_challenge
     then:
       - lambda: |-
-            // here we have to accept the game for the opponent   
-            if (id(lichess_opponent).state != "random" && (id(lichess_opponent).state).compare(0, 3, "AI_") != 0 ) {         
-              bool challenge_accepted = false;
-
-              for ( int i = 0; i < 10; i++) { // we try 10 times to find the current challenge
-                // sent opponents (in this case, "me" name)
-                std::string challenge_body = "{\"type\": \"acceptChallenge\", \"parameter\": \"" + id(lichess_account).state + "\"}";
-                // accept the current challenge
-                id(lichess_api_call).publish_state(challenge_body); 
-
-                // wait a second (we have to list all available challenges, send the request to accept the right one,
-                // and then, we have to recieve "startGame" event, which overwrites the gameID, so we know, challenge is accepted
-                delay(2000); 
-                
-                // we expect length of ID = 8 : unknown & unavailble are not 8 chars long
-                if ((id(lichess_game_id).state).length() == 8) {
-                  id(beep_long).execute();
-                  challenge_accepted = true;
-                  // we can break the loop
-                  break;
-                } else {
-                  std::string dots(i+1, '.');
-                  id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"Accepting challenge " + dots + "\"}";            
-                  id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"Accepting challenge " + dots + "\"}";   
-                  id(oled_show_page_message).execute();
-                }
-
-              }
-              if (!challenge_accepted) {
-                id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"Challenge not accepted\"}";            
-                id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"Challenge not accepted\"}";   
-                id(oled_show_page_message).execute();
-              }
-            }
+          // here we have to accept the game for the opponent   
+          if (id(lichess_opponent).state != "random" && (id(lichess_opponent).state).compare(0, 3, "AI_") != 0 ) {         
+              // sent opponents (in this case, "me" name)
+              std::string challenge_body = "{\"type\": \"acceptChallenge\", \"parameter\": \"" + id(lichess_account).state + "\"}";
+              // accept the current challenge
+              id(lichess_api_call).publish_state(challenge_body); 
+          }
 
   - id: oled_show_page_clock
     then:

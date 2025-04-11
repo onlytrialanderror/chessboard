@@ -114,7 +114,7 @@ class LichessStreamBoardOpponent(hass.Hass):
             # reset stream for board on HA (esphome needs to do it as well)
             self.__class__._current_game_id = IDLE_GAME_ID
             off_json = {
-                        "type": "LichessStreamBoardOpponent",
+                        "type": "streamBoardResponseOpponent",
                         "state": IDLE_GAME_ID
                     }
             off_json_str = json.dumps(off_json)
