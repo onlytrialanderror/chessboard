@@ -29,6 +29,7 @@ URL_TEMPLATE_CHALLENGE = "https://lichess.org/api/challenge/{}"
 URL_TEMPLATE_TOURNAMENT_LIST = "https://lichess.org/api/tournament"
 URL_TEMPLATE_TOURNAMENT_JOIN = "https://lichess.org/api/tournament/{}/join"
 URL_TEMPLATE_TOURNAMENT_WITHDRAW = "https://lichess.org/api/tournament/{}/withdraw"
+URL_TEMPLATE_ACCOUNT = "https://lichess.org/api/account"
 
 
 class LichessSingleRequestMainPlayer(hass.Hass):
@@ -265,6 +266,34 @@ class LichessSingleRequestMainPlayer(hass.Hass):
                                 json_data = json.dumps(data)
                             # let chessboard know about the tournament id
                             self.set_state(LICHESS_RESPONSE_OUT_SENSOR, state=json_data)
+
+                    if (call_type == 'getAccountInfoMain'):
+                          
+                        # try to join
+                        self.__class__._current_call_description = call_type
+                        self.__class__._current_url = URL_TEMPLATE_ACCOUNT
+                        self.__class__._current_body = EMPTY_CALL 
+
+                        response = self.lichess_api_call_get()
+
+                        if 'application/json' in response.headers.get('Content-Type', ''):
+                            try: 
+                                json_response = response.json()  # This will raise an exception if invalid
+                                data = {
+                                    "type": "accountInfoMain",
+                                    "name": json_response["username"],
+                                    "blitz": json_response["perfs"]["blitz"]["rating"],
+                                    "rapid": json_response["perfs"]["rapid"]["rating"],
+                                    "classical": json_response["perfs"]["classical"]["rating"]
+                                }
+                                json_data = json.dumps(data)
+                                # let chessboard know about the tournament id
+                                self.set_state(LICHESS_RESPONSE_OUT_SENSOR, state=json_data)
+
+                            except requests.exceptions.JSONDecodeError:
+                                print("Invalid json-response")
+
+
 
                 ######################################
                 ##### no token and id required ########

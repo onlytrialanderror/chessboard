@@ -465,6 +465,10 @@ globals:
     type: std::string
     initial_value: '""'
 
+  - id: lichess_main_json
+    type: std::string
+    initial_value: '""'
+
   - id: lichess_tournament_json
     type: std::string
     initial_value: '""'
@@ -805,12 +809,100 @@ graphical_display_menu:
       text: 'LICHESS'
       items:
         - type: command
-          text: 'New game'
+          text: 'Start new game'
           on_value:
             then:
               - display_menu.hide:  my_menu 
               - lambda: |-
                   id(lichess_create_new_game).execute();
+        - type: command
+          text: 'Preset: Lichess OTB'
+          on_value:
+            then:
+              - lambda: |-
+                  // set main player
+                  auto call_1 = id(lichess_account).make_call();
+                  call_1.set_option(id(lichess_account).at(1).value());
+                  call_1.perform();
+                  // set opponent
+                  auto call_2 = id(lichess_opponent).make_call();
+                  call_2.set_option(id(lichess_opponent).at(0).value());
+                  call_2.perform();
+                  // set otb
+                  auto call_3 = id(lichess_opponent_at_board_select).make_call();
+                  call_3.set_option("yes");
+                  call_3.perform();            
+                  // set if rated
+                  auto call_4 = id(lichess_seek_rated).make_call();
+                  call_4.set_option("not rated");
+                  call_4.perform();
+                  // start lichess game
+                  id(lichess_create_new_game).execute();
+
+        - type: command
+          text: 'Preset: Wait Daily Arena'
+          on_value:
+            then:
+              - lambda: |-
+                  // set opponent
+                  auto call_1 = id(lichess_opponent).make_call();
+                  call_1.set_option("random");
+                  call_1.perform();
+                  // set otb
+                  auto call_2 = id(lichess_opponent_at_board_select).make_call();
+                  call_2.set_option("no");
+                  call_2.perform();            
+                  // set if rated
+                  auto call_3 = id(lichess_seek_rated).make_call();
+                  call_3.set_option("rated");
+                  call_3.perform();
+                  // set arena clock
+                  auto call_4 = id(lichess_tournament).make_call();
+                  call_4.set_option("Daily");
+                  call_4.perform();
+                  // set arena clock
+                  auto call_5 = id(lichess_tournament_speed).make_call();
+                  call_5.set_option("Rapid (10+0)");
+                  call_5.perform();
+                  // join or new
+                  auto call_6 = id(lichess_tournament_start).make_call();
+                  call_6.set_option("Wait for next");
+                  call_6.perform();
+                  // start lichess game
+                  id(lichess_arena_join_new_tournament).execute();
+
+        - type: command
+          text: 'Preset: Join Daily Arena'
+          on_value:
+            then:
+              - lambda: |-
+                  // set opponent
+                  auto call_1 = id(lichess_opponent).make_call();
+                  call_1.set_option("random");
+                  call_1.perform();
+                  // set otb
+                  auto call_2 = id(lichess_opponent_at_board_select).make_call();
+                  call_2.set_option("no");
+                  call_2.perform();            
+                  // set if rated
+                  auto call_3 = id(lichess_seek_rated).make_call();
+                  call_3.set_option("rated");
+                  call_3.perform();
+                  // set arena clock
+                  auto call_4 = id(lichess_tournament).make_call();
+                  call_4.set_option("Daily");
+                  call_4.perform();
+                  // set arena clock
+                  auto call_5 = id(lichess_tournament_speed).make_call();
+                  call_5.set_option("Rapid (10+0)");
+                  call_5.perform();
+                  // join or new
+                  auto call_6 = id(lichess_tournament_start).make_call();
+                  call_6.set_option("Join now");
+                  call_6.perform();
+                  // start lichess game
+                  id(lichess_arena_join_new_tournament).execute();
+
         - type: select
           immediate_edit: false
           text: 'User'
@@ -1361,10 +1453,6 @@ select:
     options:
       - !secret chessboard_opponent_a
       - !secret chessboard_opponent_b
-      - !secret chessboard_opponent_c
-      - !secret chessboard_opponent_d
-      - !secret chessboard_opponent_e
-      - !secret chessboard_opponent_f
       - "random"
       - "AI_1"
       - "AI_2"
@@ -1374,6 +1462,10 @@ select:
       - "AI_6"
       - "AI_7"
       - "AI_8"
+      - !secret chessboard_opponent_c
+      - !secret chessboard_opponent_d
+      - !secret chessboard_opponent_e
+      - !secret chessboard_opponent_f
     initial_option: random
     on_value: 
       then:
@@ -1660,21 +1752,7 @@ sensor:
     lambda: |-
         return id(voltage_field_drift);
 
-#  - platform: debug
-#    free:
-#      name: "Heap Free"
-#    block:
-#      name: "Heap Max Block"
-#    loop_time:
-#      name: "Loop Time"
-
 text_sensor:
-
-#  - platform: debug
-#    device:
-#      name: "Device Info"
-#    reset_reason:
-#      name: "Reset Reason"
 
     # used just to define out-sensor for ha to be set as ha-input sensor
   - platform: template
@@ -3783,7 +3861,7 @@ script:
   - id: check_opponent_otb_select
     then:
       - lambda: |- 
-          bool otb_player = (id(lichess_opponent).state == id(lichess_opponent).at(0) || id(lichess_opponent).state == id(lichess_opponent).at(1) || id(lichess_opponent).state == id(lichess_opponent).at(2));
+          bool otb_player = (id(lichess_opponent).state == id(lichess_opponent).at(0) || id(lichess_opponent).state == id(lichess_opponent).at(1) || id(lichess_opponent).state == id(lichess_opponent).at(11));
           if ( id(lichess_opponent_at_board) && !otb_player ) {
             // not possible to play "on board"
             auto call = id(lichess_opponent_at_board_select).make_call();
@@ -3950,7 +4028,7 @@ script:
           id(chessboard_token_current) = id(encrypted_message);
 
           // we close the stream with previous token
-          if ( (previous_token != id(chessboard_token_current) ) && previous_active_stream) {
+          if ( (previous_token != id(chessboard_token_current) ) && previous_active_stream && api::global_api_server->is_connected()) {
             id(lichess_stream_events).publish_state("idle"); 
           }
 
@@ -3970,12 +4048,18 @@ script:
           id(encrypt_message)->execute(id(chessboard_token_opponent));
           id(chessboard_token_opponent) = id(encrypted_message);
 
-          id(lichess_stream_call).publish_state("{\"type\": \"initializeToken\", \"token\": \"" + id(chessboard_token_current) + "\"}");
-          id(lichess_stream_call).publish_state("{\"type\": \"initializeTokenOpponent\", \"token\": \"" + id(chessboard_token_opponent) + "\"}");
+          if (api::global_api_server->is_connected()) {
 
-          // we reopen the stream with new token
-          if ( (previous_token != id(chessboard_token_current) ) && previous_active_stream) {
-            id(lichess_stream_events).publish_state("ON"); 
+            id(lichess_stream_call).publish_state("{\"type\": \"initializeToken\", \"token\": \"" + id(chessboard_token_current) + "\"}");
+            id(lichess_stream_call).publish_state("{\"type\": \"initializeTokenOpponent\", \"token\": \"" + id(chessboard_token_opponent) + "\"}");
+
+            // we reopen the stream with new token
+            if ( (previous_token != id(chessboard_token_current) ) && previous_active_stream) {
+              id(lichess_stream_events).publish_state("ON"); 
+            }
+
+            // get account info
+            id(lichess_api_call).publish_state("{\"type\": \"getAccountInfoMain\"}");
           }
 
   - id: lichess_create_new_game
@@ -3986,7 +4070,7 @@ script:
           id(update_raw_position_current).execute();
           id(initial_position_state_update).execute();
           // not during the gave
-          if (id(initial_position_state) == 3) {
+          if (id(initial_position_state) == 3 && api::global_api_server->is_connected()) {
             // stop timer, if running
             id(game_running) = false;
             // update lichess token, if not selected yet
@@ -4052,7 +4136,11 @@ script:
             }
           } else {
               id(beep_long).execute();
-              id(oled_show_page_temporary_message)->execute("{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"Set initial position\"}", "both", 2000);                     
+              if (api::global_api_server->is_connected()) {
+                id(oled_show_page_temporary_message)->execute("{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"Set initial position\"}", "both", 2000);   
+              } else {
+                id(oled_show_page_temporary_message)->execute("{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"No lichess-api connection\"}", "both", 2000); 
+              }                  
           }
 
   - id: lichess_handle_response
@@ -4106,7 +4194,20 @@ script:
               std::string game_id = root["gameId"].as<std::string>();
 
               // we start board stream
-              id(lichess_game_id).publish_state(game_id);            
+              id(lichess_game_id).publish_state(game_id);      
+
+              if (id(lichess_main_json) != "" ) {
+                StaticJsonDocument<256> root_me;
+                deserializeJson(root_me, id(lichess_main_json));
+                std::string chess_time = id(chess_time_control).state;
+                if (chess_time.find("Blitz") != std::string::npos) {
+                  me += ": " + std::to_string(root_me["blitz"].as<int>());
+                } else if (chess_time.find("Classical") != std::string::npos) {
+                  me += ": " + std::to_string(root_me["classical"].as<int>());
+                } else {
+                  me += ": " + std::to_string(root_me["rapid"].as<int>());
+                }              
+              }
 
               // we check the white color
               if ( root["color"].as<std::string>() == "white"){ 
@@ -4193,6 +4294,12 @@ script:
             // ########### BOARD API #################
             // #######################################
 
+            // ############# account info ########
+            if ((root["type"].as<std::string>() == "accountInfoMain")){
+              std::string serialized_json_str = "";
+              serializeJson(root, serialized_json_str);  
+              id(lichess_main_json) = serialized_json_str;
+            }
 
             // ############# opponent gone #############
             if ((root["type"].as<std::string>() == "opponentGone") && (root["gone"].as<bool>() == true ) && (root["claimWinInSeconds"].as<int>() == 0) &&  (root["id"].as<std::string>() == id(lichess_game_id).state)  ){
@@ -4213,7 +4320,8 @@ script:
                 part_1 = part_1.substr(0, maxCharsPerLine);              
               }
               std::string chat_message = "{\"n_lines\": 2, \"line_0\": \"" + part_1 + "\", \"line_1\": \"" + part_2 + "\"}";
-              id(oled_show_page_temporary_message)->execute(chat_message, "otb", 3000);         
+              id(oled_show_page_temporary_message)->execute(chat_message, "otb", 3000);   
+              id(beep_short).execute();      
             }
 
             // ############# move on board #############
