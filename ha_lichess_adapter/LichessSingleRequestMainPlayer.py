@@ -296,7 +296,7 @@ class LichessSingleRequestMainPlayer(hass.Hass):
 
 
                 ######################################
-                ##### no token and id required ########
+                ##### token and id required ########
                 ######################################
                 valid_game_id = self.__class__._current_game_id != IDLE_GAME_ID and self.__class__._current_game_id != UNAVAILABLE_STATE and self.__class__._current_game_id != UNKNOWN_STATE
                 if (valid_token and valid_game_id):  

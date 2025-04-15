@@ -940,6 +940,18 @@ graphical_display_menu:
                   id(oled_show_page_clock).execute();
               - display_menu.hide:  my_menu 
         - type: command
+          text: 'Draw both (otb)'
+          on_value:
+            then:
+              - lambda: |-
+                  // force changed state, to be able to call the same request 
+                  id(lichess_api_call).publish_state("idle"); 
+                  id(lichess_api_call).publish_state("{\"type\": \"draw\", \"parameter\": \"yes\"}");
+                  delay(100);
+                  id(lichess_api_call).publish_state("{\"type\": \"drawOpponent\", \"parameter\": \"yes\"}");
+                  id(oled_show_page_clock).execute();
+              - display_menu.hide:  my_menu 
+        - type: command
           text: 'Draw (yes)'
           on_value:
             then:
@@ -3540,34 +3552,42 @@ script:
           // update who to move
           id(fen_position_current)[64] = (id(white_to_move) ? "b" : "w");
 
-          // update castling part
-          if (std::string("KRkr").find(id(moved_piece)) != std::string::npos){ // Kind or rook move
-            if (id(white_to_move) && (id(fen_position_current)[65] == "K" || id(fen_position_current)[66] == "Q") ) { // white
-              // king
-              if (id(moved_piece) == "K"){
-                id(fen_position_current)[65] = "";
-                id(fen_position_current)[66] = "";
-              } else { // rook
-                  // short
-                  if (id(current_move_from) == 63) {
-                    id(fen_position_current)[65] = "";
-                  } else { // long
-                    id(fen_position_current)[66] = "";
-                  }
-              }
-            } else if (!id(white_to_move) && (id(fen_position_current)[67] == "k" || id(fen_position_current)[68] == "q")) {
-              // king
-              if (id(moved_piece) == "k"){
-                id(fen_position_current)[67] = "";
-                id(fen_position_current)[68] = "";
-              } else { // rook
-                  // short
-                  if (id(current_move_from) == 7) {
-                    id(fen_position_current)[67] = "";
-                  } else { // long
-                    id(fen_position_current)[68] = "";
-                  }
-              }
+          // update castling part (white)
+          if ((id(moved_piece) == "K" || id(moved_piece) == "R") && (id(fen_position_current)[65] == "K" || id(fen_position_current)[66] == "Q") ) { // white
+            // king
+            if (id(moved_piece) == "K"){
+              id(fen_position_current)[65] = "";
+              id(fen_position_current)[66] = "";
+            } else { // rook
+                // K-rook
+                if (id(current_move_from) == 63) {
+                  id(fen_position_current)[65] = "";
+                }
+                // Q-rook 
+                if (id(current_move_from) == 56) {
+                  id(fen_position_current)[66] = "";
+                } 
+                
+                else { // long
+                  id(fen_position_current)[66] = "";
+                }
+            }
+          }
+          // update castling part (black) 
+          if ((id(moved_piece) == "k" || id(moved_piece) == "r") && (id(fen_position_current)[67] == "k" || id(fen_position_current)[68] == "q")) {
+            // king
+            if (id(moved_piece) == "k"){
+              id(fen_position_current)[67] = "";
+              id(fen_position_current)[68] = "";
+            } else { // rook
+                // k-rook
+                if (id(current_move_from) == 7) {
+                  id(fen_position_current)[67] = "";
+                } 
+                // q-rook
+                if (id(current_move_from) == 0) {
+                  id(fen_position_current)[68] = "";
+                }                   
             }
           }
 
@@ -4079,7 +4099,13 @@ script:
             if (id(lichess_stream_events).state == "idle") {
               id(lichess_stream_events).publish_state("ON"); 
             }
-            
+
+            // if we have a game running, try to abort
+            if (id(lichess_game_id).state.length() == 8) {
+              id(lichess_api_call).publish_state("idle"); 
+              id(lichess_api_call).publish_state("{\"type\": \"abort\"}");
+            }
+ 
             // Create JSON object
             StaticJsonDocument<512> root;  
             root["type"] = "createGame";   
@@ -4170,6 +4196,7 @@ script:
             // #######################################
 
             // ############# new game started #############
+            // #######################################
             if (root["type"].as<std::string>() == "gameStart"){
 
               if (id(debug_mode)) {
@@ -4231,6 +4258,7 @@ script:
             }
 
             // ############# game finished #############
+            // #######################################
             if ((root["type"].as<std::string>() == "gameFinish" ) && (root["gameId"].as<std::string>() == id(lichess_game_id).state)){
 
                 if (id(debug_mode)) {
@@ -4261,6 +4289,7 @@ script:
             }
 
             // ############# joined new arena tournament #############
+            // #######################################
             if ((root["type"].as<std::string>() == "tournamentJoinedByName") && root.containsKey("id") && (root["id"].as<std::string>().length() == 8)){
               if (root["status"].as<std::string>() == "success") {
                 id(lichess_tournament_id).publish_state(root["id"].as<std::string>());
@@ -4274,6 +4303,7 @@ script:
             }
             
             // ############# rejoined arena tournament #############
+            // #######################################
             if ((root["type"].as<std::string>() == "tournamentJoinedById") && root.containsKey("id") && (root["id"].as<std::string>().length() == 8)){
                 id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"Joined: " + id(lichess_tournament_id).state + "\", \"line_1\": \"Waiting for new game\"}";
                 id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"Joined: " + id(lichess_tournament_id).state + "\", \"line_1\": \"Waiting for new game\"}";
@@ -4281,11 +4311,13 @@ script:
             }
 
             // ############# stream event off #############
+            // #######################################
             if ((root["type"].as<std::string>() == "streamEventsResponse") && root.containsKey("state")){
                 id(lichess_stream_events).publish_state(root["state"].as<std::string>());
             }
 
             // ############# stream event off #############
+            // #######################################
             if ((root["type"].as<std::string>() == "streamBoardResponse") && root.containsKey("state")){
                 id(lichess_game_id).publish_state(root["state"].as<std::string>());
             }
@@ -4295,6 +4327,7 @@ script:
             // #######################################
 
             // ############# account info ########
+            // #######################################
             if ((root["type"].as<std::string>() == "accountInfoMain")){
               std::string serialized_json_str = "";
               serializeJson(root, serialized_json_str);  
@@ -4302,6 +4335,7 @@ script:
             }
 
             // ############# opponent gone #############
+            // #######################################
             if ((root["type"].as<std::string>() == "opponentGone") && (root["gone"].as<bool>() == true ) && (root["claimWinInSeconds"].as<int>() == 0) &&  (root["id"].as<std::string>() == id(lichess_game_id).state)  ){
               delay(1000);  // Wait 1s to sync
               // claim victory
@@ -4310,6 +4344,7 @@ script:
             }
 
             // ############# chat line #############
+            // #######################################
             if ((root["type"].as<std::string>() == "chatLine") && (root["text"].as<std::string>() != "" ) &&  (root["id"].as<std::string>() == id(lichess_game_id).state) ){
 
               int maxCharsPerLine = 32;
@@ -4325,6 +4360,7 @@ script:
             }
 
             // ############# move on board #############
+            // #######################################
             if ((root["type"].as<std::string>() == "gameState") && root.containsKey("state") && (root["state"].as<std::string>() == "started") &&  (root["id"].as<std::string>() == id(lichess_game_id).state)){
 
               if (id(debug_mode)) {
@@ -4351,8 +4387,7 @@ script:
               }
 
               // get number of moves
-              int n = root["n"].as<int>();           
-              bool is_my_turn = (bool)( (n % 2) == int(id(lichess_is_my_color_white)));            
+              bool is_my_turn = (bool)( (root["n"].as<int>() % 2) == int(id(lichess_is_my_color_white)));            
 
               if (!is_my_turn) { // we want the opponents move
                 if( !id(lichess_opponent_at_board)) {
@@ -4369,11 +4404,11 @@ script:
                     id(beep_short).execute();
                   }
                 } else {
-                  // always beep, so we know, the move is accepted by lichess
+                  // always beep, so we know, the otb-opponent move is accepted by lichess
                   id(beep_short).execute();
                 }
               } else if (id(lichess_opponent_at_board)) {
-                // always beep, so we know, the move is accepted by lichess
+                // always beep, so we know, our  move is accepted by lichess
                 id(beep_short).execute();
               }
 

@@ -20,6 +20,7 @@ URL_TEMPLATE_MOVE = "https://lichess.org/api/board/game/{}/move/{}"
 URL_TEMPLATE_RESIGN = "https://lichess.org/api/board/game/{}/resign"
 URL_TEMPLATE_CHALLENGE_LIST = "https://lichess.org/api/challenge"
 URL_TEMPLATE_CHALLENGE_ACCEPT = "https://lichess.org/api/challenge/{}/accept"
+URL_TEMPLATE_DRAW = "https://lichess.org/api/board/game/{}/draw/{}"
 
 class LichessSingleRequestOpponent(hass.Hass):
 
@@ -142,6 +143,18 @@ class LichessSingleRequestOpponent(hass.Hass):
 
                         # post api body                    
                         self.lichess_api_call_post()
+
+                    # handle draw / tackback offers or send offers
+                    if (call_type in {'drawOpponent'} and json_data.get('parameter')):
+                        if (call_type == 'drawOpponent'):
+                            self.__class__._current_url = URL_TEMPLATE_DRAW.format(self.__class__._current_game_id, json_data.get('parameter'))
+                        self.__class__._current_call_description = call_type + " " + json_data.get('parameter')
+                        self.__class__._current_body = EMPTY_CALL  
+
+                        # post api body                    
+                        self.lichess_api_call_post()
+
+
 
     # function to post the request to lichess api
     def lichess_api_call_post(self):
