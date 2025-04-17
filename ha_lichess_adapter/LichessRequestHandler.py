@@ -25,9 +25,7 @@ class LichessRequestHandler(hass.Hass):
     _current_token_opponent = IDLE_LICHESS_TOKEN
     _current_secret_key = IDLE_LICHESS_TOKEN
     _client_main = EMPTY_STRING
-    _session_main = EMPTY_STRING
     _client_opponent = EMPTY_STRING
-    _session_opponent = EMPTY_STRING
     _current_secret_key = EMPTY_STRING
 
     def initialize(self):        
@@ -50,9 +48,9 @@ class LichessRequestHandler(hass.Hass):
             if new_data: # valid json
                 if (new_data.get('type') == 'setGameId'):
                     self.game_id_changed(new_data.get('gameId'))
-                if (new_data.get('type') == 'initializeToken' and new_data.get('token') != IDLE_LICHESS_TOKEN):
+                if (new_data.get('type') == 'initializeToken'):
                     self.token_changed_main(new_data.get('token'))
-                if (new_data.get('type') == 'initializeTokenOpponent' and new_data.get('token') != IDLE_LICHESS_TOKEN):
+                if (new_data.get('type') == 'initializeTokenOpponent'):
                     self.token_changed_opponent(new_data.get('token'))
         else:
             self.log("Not valid json: {}".format(new))
@@ -66,23 +64,31 @@ class LichessRequestHandler(hass.Hass):
             self.__class__._current_game_id = new
 
     def token_changed_main(self, new):
-        if new and new != self.__class__._current_token_main and new != UNAVAILABLE_STATE and new != UNKNOWN_STATE and new != EMPTY_STRING:
+        if new and new != UNAVAILABLE_STATE and new != UNKNOWN_STATE and new != EMPTY_STRING:
             new_decrypted = self.decrypt_message(new)
-            self.log(f"Token changed (request main): {self.__class__._current_token_main} -> {new_decrypted}")
-            self.__class__._current_token_main = new_decrypted
-            self.__class__._session_main = berserk.TokenSession(self.__class__._current_token_main)
-            self.__class__._client_main = berserk.Client(self.__class__._session_main)
+            if (new_decrypted != self.__class__._current_token_main):
+                self.log(f"Token changed (request main): {self.__class__._current_token_main} -> {new_decrypted}")
+                self.__class__._current_token_main = new_decrypted
+                if (self.__class__._current_token_main != IDLE_LICHESS_TOKEN):
+                    session_main = berserk.TokenSession(self.__class__._current_token_main)
+                    self.__class__._client_main = berserk.Client(session_main)
+                else:
+                    self.__class__._client_main = EMPTY_STRING
         else:
             if new is None or new == UNAVAILABLE_STATE or new == UNKNOWN_STATE: 
                 self.log("Not allowed token (request main): {}".format(new))
 
     def token_changed_opponent(self, new):
-        if new and new != self.__class__._current_token_opponent and new != UNAVAILABLE_STATE and new != UNKNOWN_STATE and new != EMPTY_STRING:
+        if new and new != UNAVAILABLE_STATE and new != UNKNOWN_STATE and new != EMPTY_STRING:
             new_decrypted = self.decrypt_message(new)
-            self.log(f"Token changed (request opponent): {self.__class__._current_token_opponent} -> {new_decrypted}")
-            self.__class__._current_token_opponent = new_decrypted
-            self.__class__._session_opponent = berserk.TokenSession(self.__class__._current_token_opponent)
-            self.__class__._client_opponent = berserk.Client(self.__class__._session_opponent)
+            if (new_decrypted != self.__class__._current_token_opponent):
+                self.log(f"Token changed (request opponent): {self.__class__._current_token_opponent} -> {new_decrypted}")
+                self.__class__._current_token_opponent = new_decrypted
+                if (self.__class__._client_opponent != IDLE_LICHESS_TOKEN):
+                    session_opponent = berserk.TokenSession(self.__class__._current_token_opponent)
+                    self.__class__._client_opponent = berserk.Client(session_opponent)
+                else:
+                    self.__class__._client_opponent = EMPTY_STRING
         else:
             if new is None or new == UNAVAILABLE_STATE or new == UNKNOWN_STATE: 
                 self.log("Not allowed token (request opponent): {}".format(new))
@@ -147,26 +153,29 @@ class LichessRequestHandler(hass.Hass):
                             self.log(f"Seek new challenge with {json_data.get('opponentname')} ({json_data.get('time_s')}+{json_data.get('increment')}), otb={json_data.get('otb')}")                     
                             if (level == 0): 
                                 if (json_data.get('otb') == 'yes'):
-                                    # challenge a fried by name otb                       
-                                    self.__class__._client_main.challenges.create_with_accept(
-                                        username = username, 
-                                        token = self.__class__._current_token_opponent,
+                                    # challenge a friend by name otb                       
+                                    game_data = self.__class__._client_main.challenges.create(
+                                        username = username,
                                         rated = json_data.get('rated', False), 
                                         clock_limit = json_data.get('time_s', 600), 
                                         clock_increment =  json_data.get('increment', 0), 
                                         color = json_data.get('color'), 
-                                        variant =  "standard"
-                                    )                                    
+                                        variant =  "standard"                                        
+                                    )
+                                    # accept challenge by the firend otb
+                                    if (len(game_data["id"])):
+                                        self.__class__._client_opponent.challenges.accept(game_data["id"])
+                               
                                 else:
                                     # challenge a fried by name online                       
-                                    self.__class__._client_main.challenges.create(
+                                    game_data = self.__class__._client_main.challenges.create(
                                         username = username, 
                                         rated = json_data.get('rated', False), 
                                         clock_limit = json_data.get('time_s', 600), 
                                         clock_increment =  json_data.get('increment', 0), 
                                         color = json_data.get('color'), 
                                         variant =  "standard"
-                                    )                                
+                                    )                             
                             else:
                                 # challenge AI
                                 self.__class__._client_main.challenges.create_ai(

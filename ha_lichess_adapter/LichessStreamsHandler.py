@@ -24,9 +24,7 @@ class LichessStreamsHandler(hass.Hass):
     _current_token_opponent = IDLE_LICHESS_TOKEN
     _current_secret_key = IDLE_LICHESS_TOKEN
     _client_main = EMPTY_STRING
-    _session_main = EMPTY_STRING
     _client_opponent = EMPTY_STRING
-    _session_opponent = EMPTY_STRING
     _stream_event = False
     _stop_event = EMPTY_STRING
 
@@ -50,9 +48,9 @@ class LichessStreamsHandler(hass.Hass):
             if new_data: # valid json
                 if (new_data.get('type') == 'setGameId'):
                     self.game_id_changed(new_data.get('gameId'))
-                if (new_data.get('type') == 'initializeToken' and new_data.get('token') != IDLE_LICHESS_TOKEN):
+                if (new_data.get('type') == 'initializeToken'):
                     self.token_changed_main(new_data.get('token'))
-                if (new_data.get('type') == 'initializeTokenOpponent' and new_data.get('token') != IDLE_LICHESS_TOKEN):
+                if (new_data.get('type') == 'initializeTokenOpponent'):
                     self.token_changed_opponent(new_data.get('token'))
                 if (new_data.get('type') == 'streamEvents' and new_data.get('state')):
                     self.stream_events_trigger(new_data.get('state'))
@@ -69,25 +67,33 @@ class LichessStreamsHandler(hass.Hass):
             self.stream_game()
 
     def token_changed_main(self, new):
-        if new and new != self.__class__._current_token_main and new != UNAVAILABLE_STATE and new != UNKNOWN_STATE and new != EMPTY_STRING:
+        if new and new != UNAVAILABLE_STATE and new != UNKNOWN_STATE and new != EMPTY_STRING:
             new_decrypted = self.decrypt_message(new)
-            self.log(f"Token changed (main): {self.__class__._current_token_main} -> {new_decrypted}")
-            self.__class__._current_token_main = new_decrypted
-            self._stop_event.set()
-            self.__class__._session_main = berserk.TokenSession(self.__class__._current_token_main)
-            self.__class__._client_main = berserk.Client(self.__class__._session_main)
+            if (new_decrypted != self.__class__._current_token_main):
+                self.log(f"Token changed (main): {self.__class__._current_token_main} -> {new_decrypted}")
+                self.__class__._current_token_main = new_decrypted
+                self._stop_event.set()
+                if (self.__class__._current_token_main != IDLE_LICHESS_TOKEN):
+                    session_main = berserk.TokenSession(self.__class__._current_token_main)
+                    self.__class__._client_main = berserk.Client(session_main)
+                else:
+                    self.__class__._client_main = EMPTY_STRING
         else:
             if new is None or new == UNAVAILABLE_STATE or new == UNKNOWN_STATE: 
                 self.log("Not allowed token (main): {}".format(new))
 
     def token_changed_opponent(self, new):
-        if new and new != self.__class__._current_token_opponent and new != UNAVAILABLE_STATE and new != UNKNOWN_STATE and new != EMPTY_STRING:
+        if new  and new != UNAVAILABLE_STATE and new != UNKNOWN_STATE and new != EMPTY_STRING:
             new_decrypted = self.decrypt_message(new)
-            self.log(f"Token changed (opponent): {self.__class__._current_token_opponent} -> {new_decrypted}")
-            self._stop_event.set()
-            self.__class__._current_token_opponent = new_decrypted
-            self.__class__._session_opponent = berserk.TokenSession(self.__class__._current_token_opponent)
-            self.__class__._client_opponent = berserk.Client(self.__class__._session_opponent)
+            if (new_decrypted != self.__class__._current_token_opponent):
+                self.log(f"Token changed (opponent): {self.__class__._current_token_opponent} -> {new_decrypted}")
+                self._stop_event.set()
+                self.__class__._current_token_opponent = new_decrypted
+                if (self.__class__._current_token_opponent != IDLE_LICHESS_TOKEN):
+                    session_opponent = berserk.TokenSession(self.__class__._current_token_opponent)
+                    self.__class__._client_opponent = berserk.Client(session_opponent)
+                else:
+                    self.__class__._client_opponent = EMPTY_STRING
         else:
             if new is None or new == UNAVAILABLE_STATE or new == UNKNOWN_STATE: 
                 self.log("Not allowed token (opponent): {}".format(new))
@@ -236,7 +242,7 @@ class LichessStreamsHandler(hass.Hass):
     
     def handle_incoming_events(self):
         
-        if (self.__class__._stream_event == True and self.__class__._current_token_main != UNAVAILABLE_STATE and self.__class__._current_token_main != UNKNOWN_STATE):
+        if (self.__class__._stream_event == True and self.__class__._current_token_main != UNAVAILABLE_STATE and self.__class__._current_token_main != UNKNOWN_STATE and self.__class__._current_token_main != IDLE_LICHESS_TOKEN):
 
             self.log(f"Starting the stream (event): {self.__class__._current_token_main}")
             self._stop_event.clear()
@@ -276,6 +282,7 @@ class LichessStreamsHandler(hass.Hass):
             self.log(f"Starting the stream (main): {self.__class__._current_game_id}")
             for line in self.__class__._client_main.board.stream_game_state(self.__class__._current_game_id):
                 if line: # valid dic
+                    # self.log("line main: " + str(line))
                     reduced_data = json.dumps(self.reduce_response_board(line))
                     # let ha know about the move
                     self.set_state(LICHESS_RESPONSE_OUT_SENSOR, state=reduced_data)
@@ -306,6 +313,7 @@ class LichessStreamsHandler(hass.Hass):
         if (valid_game_id and valid_token):
             self.log(f"Starting the stream (opponent): {self.__class__._current_game_id}")
             for line in self.__class__._client_opponent.board.stream_game_state(self.__class__._current_game_id):
+                # self.log("line opponent: " + str(line))
                 if line: # valid dic
                     # check if we have to abort the game
                     if self.check_game_over(line):
