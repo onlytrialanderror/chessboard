@@ -1,20 +1,8 @@
 ---
-LichessStreamBoardMainPlayer:
-  module: LichessStreamBoardMainPlayer
-  class: LichessStreamBoardMainPlayer
+LichessStreamsHandler:
+  module: LichessStreamsHandler
+  class: LichessStreamsHandler
 
-LichessStreamEventMainPlayer:
-  module: LichessStreamEventMainPlayer
-  class: LichessStreamEventMainPlayer
-
-LichessSingleRequestMainPlayer:
-  module: LichessSingleRequestMainPlayer
-  class: LichessSingleRequestMainPlayer
-
-LichessSingleRequestOpponent:
-  module: LichessSingleRequestOpponent
-  class: LichessSingleRequestOpponent
-
-LichessStreamBoardOpponent:
-  module: LichessStreamBoardOpponent
-  class: LichessStreamBoardOpponent
+LichessRequestHandler:
+  module: LichessRequestHandler
+  class: LichessRequestHandler

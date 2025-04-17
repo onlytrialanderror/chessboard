@@ -319,21 +319,6 @@ globals:
     initial_value: '0.00'
 
   # Variables for FEN
-  - id: fen_black
-    type: std::array<std::string, 6>
-    initial_value: |-
-      {
-        "p","n","b","q","r","k"
-      }
-
-  - id: fen_white
-    type: std::array<std::string, 6>
-    initial_value: |-
-      {
-        "P","N","B","Q","R","K"
-      }
-
-  # Variables for FEN
   - id: fen_position_init
     type: std::array<std::string, 72>
     initial_value: |-
@@ -946,9 +931,9 @@ graphical_display_menu:
               - lambda: |-
                   // force changed state, to be able to call the same request 
                   id(lichess_api_call).publish_state("idle"); 
-                  id(lichess_api_call).publish_state("{\"type\": \"draw\", \"parameter\": \"yes\"}");
+                  id(lichess_api_call).publish_state("{\"type\": \"draw\", \"parameter\": true}");
                   delay(100);
-                  id(lichess_api_call).publish_state("{\"type\": \"drawOpponent\", \"parameter\": \"yes\"}");
+                  id(lichess_api_call).publish_state("{\"type\": \"drawOpponent\", \"parameter\": true}");
                   id(oled_show_page_clock).execute();
               - display_menu.hide:  my_menu 
         - type: command
@@ -958,7 +943,7 @@ graphical_display_menu:
               - lambda: |-
                   // force changed state, to be able to call the same request 
                   id(lichess_api_call).publish_state("idle"); 
-                  id(lichess_api_call).publish_state("{\"type\": \"draw\", \"parameter\": \"yes\"}");
+                  id(lichess_api_call).publish_state("{\"type\": \"draw\", \"parameter\": true}");
                   id(oled_show_page_clock).execute();
               - display_menu.hide:  my_menu 
         - type: command
@@ -968,7 +953,7 @@ graphical_display_menu:
               - lambda: |-
                   // force changed state, to be able to call the same request 
                   id(lichess_api_call).publish_state("idle"); 
-                  id(lichess_api_call).publish_state("{\"type\": \"draw\", \"parameter\": \"no\"}");
+                  id(lichess_api_call).publish_state("{\"type\": \"draw\", \"parameter\": false}");
                   id(oled_show_page_clock).execute();
               - display_menu.hide:  my_menu 
         - type: command
@@ -3047,7 +3032,6 @@ script:
                   // draw ?
                   chess_validator::DRAW_REASON   draw  = chess_validator::get_draw_reason(&new_table_state);
                   if (draw != chess_validator::DRAW_REASON::NO_DRAW) {
-                      id(last_move_pgn_additional) = " 1/2-1/2";
                       id(game_result) = "1/2-1/2";
                   }
                   valid_check = true;
@@ -3180,7 +3164,7 @@ script:
               id(game_result) = "";
               id(last_move_pgn_additional) = "";
               id(invalid_move_counter) += 1;
-              // we have an invalid move ? so, we have to rest last valid, otherwiese we wont get "valid"-flag after correction of the move
+              // we have an invalid move ? so, we have to reset last valid, otherwiese we wont get "valid"-flag after correction of the move
               // example: we make a valid move (that one is stored), then we move an other piece -> invalid, so we move it back (valid position)
               // but, the flag is not updated and still invalid, since we already checked this position
               if (id(invalid_move_counter) == 3) {
@@ -3818,16 +3802,11 @@ script:
               id(current_hall_sensor_3).update(); // update adc value
               id(current_hall_sensor_4).update(); // update adc value
 
-              int value_4_0 = value*4;
-              int value_4_1 = value_4_0 + 1;
-              int value_4_2 = value_4_0 + 2;
-              int value_4_3 = value_4_0 + 3;
-
               // read and write values into array
-              adc_values[value_4_0] = id(current_hall_sensor_1).state;
-              adc_values[value_4_1] = id(current_hall_sensor_2).state;
-              adc_values[value_4_2] = id(current_hall_sensor_3).state;
-              adc_values[value_4_3] = id(current_hall_sensor_4).state;
+              adc_values[value*4    ] = id(current_hall_sensor_1).state;
+              adc_values[value*4 + 1] = id(current_hall_sensor_2).state;
+              adc_values[value*4 + 2] = id(current_hall_sensor_3).state;
+              adc_values[value*4 + 3] = id(current_hall_sensor_4).state;
             }
 
             if (!id(move_to_store_flag)) {
@@ -4119,6 +4098,7 @@ script:
               root["rated"] = false;
             }
             root["opponentname"] = id(lichess_opponent).state;
+            root["otb"] = id(lichess_opponent_at_board_select).state;
 
             // the shortest seek posible is 10+0, so we set this time, if shorter time - control is choosen
             if (id(lichess_opponent).state == "random" && id(time_control_duration) < 600 ){              
@@ -4156,10 +4136,10 @@ script:
             id(oled_show_page_message).execute();
 
             // accept the game by the opponents, if both lichess-players are on board
-            if ( id(lichess_opponent_at_board) ) {
-              delay(3000);
-              id(lichess_accept_challenge).execute();
-            }
+            //if ( id(lichess_opponent_at_board) ) {
+            //  delay(3000);
+            //  id(lichess_accept_challenge).execute();
+            //}
           } else {
               id(beep_long).execute();
               if (api::global_api_server->is_connected()) {
