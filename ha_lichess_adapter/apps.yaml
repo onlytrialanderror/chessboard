@@ -1,8 +1,4 @@
 ---
-LichessStreamsHandler:
-  module: LichessStreamsHandler
-  class: LichessStreamsHandler
-
-LichessRequestHandler:
-  module: LichessRequestHandler
-  class: LichessRequestHandler
+LichessApiHandler:
+  module: LichessApiHandler
+  class: LichessApiHandler

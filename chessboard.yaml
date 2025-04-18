@@ -1797,14 +1797,6 @@ text_sensor:
       sorting_weight: 4
 
   - platform: template
-    name: "Lichess Stream Call"
-    id: lichess_stream_call
-    update_interval: never
-    web_server:
-      sorting_group_id: sorting_group_system
-      sorting_weight: 3
-  
-  - platform: template
     name: "Lichess Api Call"
     id: lichess_api_call
     update_interval: never
@@ -1820,7 +1812,7 @@ text_sensor:
     on_value:
       then:
         - lambda: |-
-            id(lichess_stream_call).publish_state("{\"type\": \"setGameId\", \"gameId\": \"" + x + "\"}");
+            id(lichess_api_call).publish_state("{\"type\": \"setGameId\", \"gameId\": \"" + x + "\"}");
     web_server:
       sorting_group_id: sorting_group_lichess
       sorting_weight: 7
@@ -1841,7 +1833,7 @@ text_sensor:
     on_value:
       then:
         - lambda: |-
-            id(lichess_stream_call).publish_state("{\"type\": \"streamEvents\", \"state\": \"" + x + "\"}");
+            id(lichess_api_call).publish_state("{\"type\": \"streamEvents\", \"state\": \"" + x + "\"}");
     update_interval: never
     web_server:
       sorting_group_id: sorting_group_system
@@ -3915,7 +3907,7 @@ script:
           // join tournament
           if (id(lichess_tournament_json) != "") {
             // open the event stream
-            id(lichess_stream_call).publish_state("{\"type\": \"streamEvents\", \"state\": \"ON\"}");            
+            id(lichess_api_call).publish_state("{\"type\": \"streamEvents\", \"state\": \"ON\"}");            
             // deserialize for messaging
             StaticJsonDocument<256> root;
             deserializeJson(root, id(lichess_tournament_json));
@@ -4037,7 +4029,7 @@ script:
             id(chessboard_token_opponent) = id(chessboard_token_a);
           } else if (index.value() == 1) {
             id(chessboard_token_opponent) = id(chessboard_token_b);
-          } else if (index.value() == 2) {
+          } else if (index.value() == 11) {
             id(chessboard_token_opponent) = id(chessboard_token_c);
           } else {
             id(chessboard_token_opponent) = "idle";
@@ -4049,8 +4041,8 @@ script:
 
           if (api::global_api_server->is_connected()) {
 
-            id(lichess_stream_call).publish_state("{\"type\": \"initializeToken\", \"token\": \"" + id(chessboard_token_current) + "\"}");
-            id(lichess_stream_call).publish_state("{\"type\": \"initializeTokenOpponent\", \"token\": \"" + id(chessboard_token_opponent) + "\"}");
+            id(lichess_api_call).publish_state("{\"type\": \"initializeToken\", \"token\": \"" + id(chessboard_token_current) + "\"}");
+            id(lichess_api_call).publish_state("{\"type\": \"initializeTokenOpponent\", \"token\": \"" + id(chessboard_token_opponent) + "\"}");
 
             // we reopen the stream with new token
             if ( (previous_token != id(chessboard_token_current) ) && previous_active_stream) {
@@ -4135,11 +4127,6 @@ script:
 
             id(oled_show_page_message).execute();
 
-            // accept the game by the opponents, if both lichess-players are on board
-            //if ( id(lichess_opponent_at_board) ) {
-            //  delay(3000);
-            //  id(lichess_accept_challenge).execute();
-            //}
           } else {
               id(beep_long).execute();
               if (api::global_api_server->is_connected()) {
@@ -4292,13 +4279,14 @@ script:
 
             // ############# stream event off #############
             // #######################################
-            if ((root["type"].as<std::string>() == "streamEventsResponse") && root.containsKey("state")){
+            if ((root["type"].as<std::string>() == "streamEvents") && root.containsKey("state")){
                 id(lichess_stream_events).publish_state(root["state"].as<std::string>());
             }
 
             // ############# stream event off #############
             // #######################################
-            if ((root["type"].as<std::string>() == "streamBoardResponse") && root.containsKey("state")){
+            if ((root["type"].as<std::string>() == "streamBoardMain") && root.containsKey("state")){
+                // api reseted game_id already within handler, we do it for the board
                 id(lichess_game_id).publish_state(root["state"].as<std::string>());
             }
 
@@ -4439,17 +4427,6 @@ script:
           }
 
           id(redraw_displays).execute();
-
-  - id: lichess_accept_challenge
-    then:
-      - lambda: |-
-          // here we have to accept the game for the opponent   
-          if (id(lichess_opponent).state != "random" && (id(lichess_opponent).state).compare(0, 3, "AI_") != 0 ) {         
-              // sent opponents (in this case, "me" name)
-              std::string challenge_body = "{\"type\": \"acceptChallenge\", \"parameter\": \"" + id(lichess_account).state + "\"}";
-              // accept the current challenge
-              id(lichess_api_call).publish_state(challenge_body); 
-          }
 
   - id: oled_show_page_clock
     then:
