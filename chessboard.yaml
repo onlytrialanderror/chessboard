@@ -265,23 +265,40 @@ globals:
 
   # Variables for FEN
   - id: fen_position_init
-    type: std::array<std::string, 72>
+    type: std::array<char, 76>
     initial_value: |-
       {
-        "r","n","b","q","k","b","n","r",
-        "p","p","p","p","p","p","p","p",
-        "0","0","0","0","0","0","0","0",
-        "0","0","0","0","0","0","0","0",
-        "0","0","0","0","0","0","0","0",
-        "0","0","0","0","0","0","0","0",
-        "P","P","P","P","P","P","P","P",
-        "R","N","B","Q","K","B","N","R",
-        "w","K","Q","k","q", "-", "0", "1"
+        'r','n','b','q','k','b','n','r',
+        'p','p','p','p','p','p','p','p',
+        '0','0','0','0','0','0','0','0',
+        '0','0','0','0','0','0','0','0',
+        '0','0','0','0','0','0','0','0',
+        '0','0','0','0','0','0','0','0',
+        'P','P','P','P','P','P','P','P',
+        'R','N','B','Q','K','B','N','R',
+        'w','K','Q','k','q', 
+        '-', '-', 
+        '0', '0',
+        '0', '0', '1'
       }
 
   - id: fen_position_previous
-    type: std::array<std::string, 72>
-    initial_value: '{""}'
+    type: std::array<char, 76>
+    initial_value: |-
+      {
+        'r','n','b','q','k','b','n','r',
+        'p','p','p','p','p','p','p','p',
+        '0','0','0','0','0','0','0','0',
+        '0','0','0','0','0','0','0','0',
+        '0','0','0','0','0','0','0','0',
+        '0','0','0','0','0','0','0','0',
+        'P','P','P','P','P','P','P','P',
+        'R','N','B','Q','K','B','N','R',
+        'w','K','Q','k','q', 
+        '-', '-', 
+        '0', '0',
+        '0', '0', '1'
+      }
 
   - id: fen_position_previous_string
     type: std::string
@@ -292,8 +309,22 @@ globals:
     initial_value: '""'
 
   - id: fen_position_current
-    type: std::array<std::string, 72>
-    initial_value: '{""}'
+    type: std::array<char, 76>
+    initial_value: |-
+      {
+        'r','n','b','q','k','b','n','r',
+        'p','p','p','p','p','p','p','p',
+        '0','0','0','0','0','0','0','0',
+        '0','0','0','0','0','0','0','0',
+        '0','0','0','0','0','0','0','0',
+        '0','0','0','0','0','0','0','0',
+        'P','P','P','P','P','P','P','P',
+        'R','N','B','Q','K','B','N','R',
+        'w','K','Q','k','q', 
+        '-', '-', 
+        '0', '0',
+        '0', '0', '1'
+      }
 
   - id: fen_enpassant_index
     type: int
@@ -387,12 +418,12 @@ globals:
     initial_value: '""'
 
   - id: moved_piece
-    type: std::string
-    initial_value: '"0"'  
+    type: char
+    initial_value: "'0'"  
 
   - id: target_piece
-    type: std::string
-    initial_value: '"0"' 
+    type: char
+    initial_value: "'0'"  
 
   - id: initial_position_state
     type: int
@@ -464,7 +495,7 @@ globals:
 
   - id: default_pawn_promotion_to
     type: std::string
-    initial_value: '"Q"' 
+    initial_value: '"Q"'
 
   - id: secret_key
     type: std::string
@@ -2154,9 +2185,7 @@ script:
             id(white_to_move) = !id(white_to_move);
 
             // replace last fen by take back
-            for (int i = 0; i < 72; i++) {
-              id(fen_position_current)[i] = id(fen_position_previous)[i];
-            };
+            std::memcpy(id(fen_position_current).data(), id(fen_position_previous).data(), sizeof(char)*76);
 
             // replace last position by take back
             std::memcpy(id(raw_position_current).data(), id(raw_position_previous).data(), sizeof(int)*64);
@@ -2218,11 +2247,9 @@ script:
             // iterate over current fen raw position  
             for (int i=0; i<64; i++) {
               // extend current line
-              // Select first char from fen string
-              std::string curr_fen_field = id(fen_position_current)[i];
               char curr_fen_char = 'x';
-              if (curr_fen_field.length() > 0){
-                curr_fen_char = id(fen_position_current)[i].at(0);
+              if (id(fen_position_current)[i] != '\0'){
+                curr_fen_char = id(fen_position_current)[i];
               }
               line_representation += id(chess_symbols)[curr_fen_char] + "|";
 
@@ -2527,11 +2554,8 @@ script:
   - id: reset_fen_position
     then:
       - lambda: |-
-          for (int i = 0; i < 72; i++) {
-            std::string curr_value = id(fen_position_init)[i];
-            id(fen_position_previous)[i] = curr_value;   
-            id(fen_position_current)[i] = curr_value;          
-          };
+          std::memcpy(id(fen_position_current).data(), id(fen_position_init).data(), sizeof(char)*76);
+          std::memcpy(id(fen_position_previous).data(), id(fen_position_init).data(), sizeof(char)*76);
           id(fen_position_previous_string) = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
           id(fen_position_current_string) = "";
           id(update_chess_board).execute();
@@ -2669,9 +2693,7 @@ script:
                 id(fen_position_previous_string) = id(fen_position_current_string);
 
                 // replace last fen by current fen
-                for (int i = 0; i < 72; i++) {
-                  id(fen_position_previous)[i] = id(fen_position_current)[i];          
-                };
+                std::memcpy(id(fen_position_previous).data(), id(fen_position_current).data(), sizeof(char)*76); 
 
                 //update pgn sensors
                 id(update_pgn_history).execute();
@@ -2729,11 +2751,11 @@ script:
           }
           // decrease number of queens
           if (id(current_move_type) == "TAKE" && id(current_move_to) > -1 ) {
-            std::string fen_name_to = id(fen_position_previous)[id(current_move_to)];
-            if (fen_name_to == "q") {
+            char fen_name_to = id(fen_position_previous)[id(current_move_to)];
+            if (fen_name_to == 'q') {
               id(n_queens_black) -= 1;
             }
-            if (fen_name_to == "Q") {
+            if (fen_name_to == 'Q') {
               id(n_queens_white) -= 1;
             }
           }
@@ -2756,12 +2778,12 @@ script:
             // create uci move for lichess
             std::string field_name_from = id(chess_field_names)[id(current_move_from)];
             std::string field_name_to = id(chess_field_names)[id(current_move_to)];
-            std::string fen_name_from = id(fen_position_previous)[id(current_move_from)];
+            char fen_name_from = id(fen_position_previous)[id(current_move_from)];
             std::string uci_move = field_name_from + field_name_to;
 
             // we have to add promotion to UCI
             bool move_or_take = (bool)(id(current_move_type) == "MOVE" ||  id(current_move_type) == "TAKE");
-            bool promotion_move = (bool)(fen_name_from  == "P" || fen_name_from  == "p" );
+            bool promotion_move = (bool)(fen_name_from  == 'P' || fen_name_from  == 'p' );
             if (move_or_take && promotion_move) {  
 
               // white
@@ -2791,8 +2813,8 @@ script:
             int emptyCount = 0;            
             for (int row = 0; row < 8; ++row) {
                 for (int col = 0; col < 8; ++col) {
-                    std::string piece = id(fen_position_current)[row * 8 + col];
-                    if (piece == "0") {
+                    char piece = id(fen_position_current)[row * 8 + col];
+                    if (piece == '0') {
                         ++emptyCount;
                     } else {
                         if (emptyCount > 0) {
@@ -2810,34 +2832,67 @@ script:
             }
 
             // color to move
-            raw_fen += " " + id(fen_position_current)[64];
+            raw_fen += " ";
+            raw_fen += id(fen_position_current)[64];
 
             // castling rights
-            std::string castling_part = id(fen_position_current)[65] + id(fen_position_current)[66] + id(fen_position_current)[67] + id(fen_position_current)[68];
-            if (castling_part.length() > 0 ) {
+            std::string castling_part = "";
+            for (int i=65; i<69; i++){
+              if (id(fen_position_current)[i] != '-'){
+                castling_part += id(fen_position_current)[i];
+              }              
+            }
+            if (castling_part.length() > 0) {
               raw_fen += " " +  castling_part;
-            } else {
+            }
+            else {
               raw_fen += " -";
             }            
 
-            // en passant
-            raw_fen += " " + id(fen_position_current)[69];
+            // en passant (idx 69 and 70)
+            raw_fen += " ";
+            if (id(fen_position_current)[69] == '-') {
+              raw_fen += "-";
+            } else {
+              // add en-passant field
+              raw_fen += id(fen_position_current)[69];
+              raw_fen += id(fen_position_current)[70];
+            }
+            
 
-            // half move since last take
-            raw_fen += " " + id(fen_position_current)[70];
+            // half move since last take (idx 71 and 72)
+            raw_fen += " ";
+            if (id(fen_position_current)[71] != '0') {
+              raw_fen += id(fen_position_current)[71];
+            }
+            raw_fen += id(fen_position_current)[72];
 
-            // full move
-            raw_fen += " " + id(fen_position_current)[71];
+            // full move (idx 73, 74 and 75)
+            raw_fen += " ";
+            if (id(fen_position_current)[73] != '0') {
+              raw_fen += id(fen_position_current)[73];
+            }
+            if (id(fen_position_current)[74] != '0') {
+              raw_fen += id(fen_position_current)[74];
+            }
+            raw_fen += id(fen_position_current)[75];
 
             // let us check the fen
             chess_validator::TableState table_state;
             if (chess_validator::get_table_state( raw_fen.c_str() , &table_state )) {
               // we have valid FEN
               id(fen_position_current_string) = raw_fen;
+              if (id(debug_mode)) {
+                id(debugger_sensor).publish_state("FEN (valid): " + raw_fen);
+              }
             } else {
               // reset current fen string
               id(fen_position_current_string) = "";
+              if (id(debug_mode)) {
+                id(debugger_sensor).publish_state("FEN (invalid): " + raw_fen);
+              }
             }
+            
 
   - id: check_chess_rules
     mode: queued
@@ -3000,8 +3055,8 @@ script:
           id(current_move_to) = -1;
           id(fen_enpassant_index) = -1;
           // there is no moved piece
-          id(moved_piece) = "0";
-          id(target_piece) = "0";
+          id(moved_piece) = '0';
+          id(target_piece) = '0';
           // reset valid move
           id(valid_move) = false;
           // reset move type
@@ -3010,9 +3065,7 @@ script:
           id(last_move_pgn_additional) = "";
 
           // we have to reset FEN, to allow move correction
-          for (int i = 0; i < 72; i++) {
-            id(fen_position_current)[i] = id(fen_position_previous)[i];
-          };
+          std::memcpy(id(fen_position_current).data(), id(fen_position_previous).data(), sizeof(char)*76);
 
   - id: move_validator
     mode: queued 
@@ -3127,12 +3180,12 @@ script:
             id(moved_piece) = id(fen_position_previous)[from];
             id(target_piece) = id(fen_position_previous)[to];
 
-            if (id(moved_piece) != "0"  && id(target_piece) == "0") {
+            if (id(moved_piece) != '0'  && id(target_piece) == '0') {
               // for the case of en passant, we have to exclude taking of "empty square" from "move"
               // furthermore, we have to wait, till the rook also moved at casteling
               // otherwise the move will be checked as valid, although the opponent pawn is still on the board
-              bool pawn_move = (id(moved_piece) == "P" || id(moved_piece) == "p" );
-              bool king_move = (id(moved_piece) == "K" || id(moved_piece) == "k" );
+              bool pawn_move = (id(moved_piece) == 'P' || id(moved_piece) == 'p' );
+              bool king_move = (id(moved_piece) == 'K' || id(moved_piece) == 'k' );
               bool take_enpassant = pawn_move  && (std::abs(from - to) == 7 || std::abs(from - to) == 9);
               bool king_castling = king_move && std::abs(from - to) == 2;
 
@@ -3156,7 +3209,7 @@ script:
                     }
                     for (int i = 0; i < idx_to_check.size(); i++) {
                       // check if black pawns
-                      if (id(fen_position_previous)[idx_to_check[i]] == "p") {
+                      if (id(fen_position_previous)[idx_to_check[i]] == 'p') {
                         id(fen_enpassant_index) = from - 8;
                         break;
                       }
@@ -3170,7 +3223,7 @@ script:
                     }
                     for (int i = 0; i < idx_to_check.size(); i++) {
                       // check if black pawns
-                      if (id(fen_position_previous)[idx_to_check[i]] == "P") {
+                      if (id(fen_position_previous)[idx_to_check[i]] == 'P') {
                         id(fen_enpassant_index) = from + 8;
                         break;
                       }
@@ -3196,7 +3249,7 @@ script:
 
               // update fen
               id(fen_position_current)[to] = id(fen_position_previous)[from];
-              id(fen_position_current)[from] = "0";
+              id(fen_position_current)[from] = '0';
 
               id(update_chess_board).execute();  
 
@@ -3229,7 +3282,7 @@ script:
             id(moved_piece) = id(fen_position_previous)[from];
             id(target_piece) = id(fen_position_previous)[to];
 
-            if (id(moved_piece) != "0"  && id(target_piece) != "0") {
+            if (id(moved_piece) != '0'  && id(target_piece) != '0') {
               id(current_move_from) = from;
               id(current_move_to) = to;
               id(current_move_type) = "TAKE";
@@ -3250,7 +3303,7 @@ script:
             if (id(valid_move)) {
             // update fen
               id(fen_position_current)[to] = id(fen_position_previous)[from];
-              id(fen_position_current)[from] = "0";
+              id(fen_position_current)[from] = '0';
 
               id(update_chess_board).execute();   
 
@@ -3310,7 +3363,7 @@ script:
             id(target_piece) = id(fen_position_previous)[to_k];
 
             // check, if the moved piece is a king
-            if ((id(moved_piece) == "K" || id(moved_piece) == "k") && id(target_piece) == "0" ) {
+            if ((id(moved_piece) == 'K' || id(moved_piece) == 'k') && id(target_piece) == '0' ) {
               // king move only is set as from - to
               id(current_move_from) = from_k;
               id(current_move_to) = to_k;
@@ -3328,7 +3381,7 @@ script:
               }
             } else {
               // reset moved piece if not the king
-              id(moved_piece) = "";
+              id(moved_piece) = '\0';
             }
 
             // still valid
@@ -3336,10 +3389,10 @@ script:
 
               // update fen
               id(fen_position_current)[to_k] = id(fen_position_previous)[from_k];
-              id(fen_position_current)[from_k] = "0";            
+              id(fen_position_current)[from_k] = '0';            
               
               id(fen_position_current)[to_r] = id(fen_position_previous)[from_r];   
-              id(fen_position_current)[from_r] = "0"; 
+              id(fen_position_current)[from_r] = '0'; 
 
               id(update_chess_board).execute();
 
@@ -3379,17 +3432,16 @@ script:
               to = std::distance(id(raw_position_differences).begin(), it_to);
           }
 
-          std::string from_opponent_piece = "0";
+          char from_opponent_piece = '0';
 
           if (from > -1 && to > -1 && from_opponent > -1) {
             // update global variables
             id(moved_piece) = id(fen_position_previous)[from];
             id(target_piece) = id(fen_position_previous)[to];
-            from_opponent_piece = id(fen_position_previous)[from_opponent];
-            std::transform(from_opponent_piece.begin(), from_opponent_piece.end(), from_opponent_piece.begin(), ::toupper);
+            from_opponent_piece = toupper(id(fen_position_previous)[from_opponent]);
           }
 
-          if ( (id(moved_piece) == "P" || id(moved_piece) == "p" ) && id(target_piece) == "0"  && from_opponent_piece == "P" ) {
+          if ( (id(moved_piece) == 'P' || id(moved_piece) == 'p' ) && id(target_piece) == '0'  && from_opponent_piece == 'P' ) {
 
             id(current_move_from) = from;
             id(current_move_to) = to;          
@@ -3412,8 +3464,8 @@ script:
 
               // update fen
               id(fen_position_current)[to] = id(fen_position_previous)[from];
-              id(fen_position_current)[from] = "0";
-              id(fen_position_current)[from_opponent] = "0";
+              id(fen_position_current)[from] = '0';
+              id(fen_position_current)[from_opponent] = '0';
 
               id(update_chess_board).execute();
               
@@ -3427,61 +3479,83 @@ script:
     then:
       - lambda: |-
           // update who to move
-          id(fen_position_current)[64] = (id(white_to_move) ? "b" : "w");
+          id(fen_position_current)[64] = (id(white_to_move) ? 'b' : 'w');
 
           // update castling part (white)
-          if ((id(moved_piece) == "K" || id(moved_piece) == "R") && (id(fen_position_current)[65] == "K" || id(fen_position_current)[66] == "Q") ) { // white
+          if ((id(moved_piece) == 'K' || id(moved_piece) == 'R') && (id(fen_position_current)[65] == 'K' || id(fen_position_current)[66] == 'Q') ) { // white
             // king
-            if (id(moved_piece) == "K"){
-              id(fen_position_current)[65] = "";
-              id(fen_position_current)[66] = "";
+            if (id(moved_piece) == 'K'){
+              id(fen_position_current)[65] = '-';
+              id(fen_position_current)[66] = '-';
             } else { // rook
                 // K-rook
                 if (id(current_move_from) == 63) {
-                  id(fen_position_current)[65] = "";
+                  id(fen_position_current)[65] = '-';
                 }
                 // Q-rook 
                 if (id(current_move_from) == 56) {
-                  id(fen_position_current)[66] = "";
+                  id(fen_position_current)[66] = '-';
                 } 
-                
-                else { // long
-                  id(fen_position_current)[66] = "";
-                }
             }
           }
           // update castling part (black) 
-          if ((id(moved_piece) == "k" || id(moved_piece) == "r") && (id(fen_position_current)[67] == "k" || id(fen_position_current)[68] == "q")) {
+          if ((id(moved_piece) == 'k' || id(moved_piece) == 'r') && (id(fen_position_current)[67] == 'k' || id(fen_position_current)[68] == 'q')) {
             // king
-            if (id(moved_piece) == "k"){
-              id(fen_position_current)[67] = "";
-              id(fen_position_current)[68] = "";
+            if (id(moved_piece) == 'k'){
+              id(fen_position_current)[67] = '-';
+              id(fen_position_current)[68] = '-';
             } else { // rook
                 // k-rook
                 if (id(current_move_from) == 7) {
-                  id(fen_position_current)[67] = "";
+                  id(fen_position_current)[67] = '-';
                 } 
                 // q-rook
                 if (id(current_move_from) == 0) {
-                  id(fen_position_current)[68] = "";
+                  id(fen_position_current)[68] = '-';
                 }                   
             }
           }
 
           //en passant field
           if (id(fen_enpassant_index) > 0 && id(fen_enpassant_index) < 63) {
-            id(fen_position_current)[69] = id(chess_field_names)[id(fen_enpassant_index)];
+            id(fen_position_current)[69] = id(chess_field_names)[id(fen_enpassant_index)].at(0);
+            id(fen_position_current)[70] = id(chess_field_names)[id(fen_enpassant_index)].at(1);
           } else {
-            id(fen_position_current)[69] = "-";
+            id(fen_position_current)[69] = '-';
+            id(fen_position_current)[70] = '-';
           }
 
-          // update fen move counters
-          if (id(current_move_type) == "TAKE" || id(moved_piece) == "p" || id(moved_piece) == "P") {
-            id(fen_position_current)[70] = std::to_string(id(halfmove_or_capture_counter));
+          // update fen capture counters (idx 71 and 72)
+          if (id(current_move_type) == "TAKE" || id(moved_piece) == 'p' || id(moved_piece) == 'P') {
+            id(halfmove_or_capture_counter) = 0;                        
           } else {
-            id(fen_position_current)[70] = std::to_string(id(halfmove_or_capture_counter) + 1);
+            id(halfmove_or_capture_counter) += 1;
           }
-          id(fen_position_current)[71] = id(white_to_move) ? std::to_string((int)(id(halfmove_counter) / 2.) + 1) : std::to_string((int)(id(halfmove_counter) / 2.) + 2);
+          std::string count_capture = std::to_string(id(halfmove_or_capture_counter)); 
+          if (count_capture.length() == 2) {
+            id(fen_position_current)[71] = count_capture.at(0);
+            id(fen_position_current)[72] = count_capture.at(1);
+          } else {
+            id(fen_position_current)[71] = '0';
+            id(fen_position_current)[72] = count_capture.at(0);
+          }
+              
+          // update fen move counter (idx 73,74 and 75)
+          std::string count_move = id(white_to_move) ? std::to_string((int)(id(halfmove_counter) / 2.) + 1) : std::to_string((int)(id(halfmove_counter) / 2.) + 2);
+          if (count_move.length() == 3) {
+            id(fen_position_current)[73] = count_move.at(0);
+            id(fen_position_current)[74] = count_move.at(1);
+            id(fen_position_current)[75] = count_move.at(2);
+          } else if (count_move.length() == 2) {
+            id(fen_position_current)[73] = '0';
+            id(fen_position_current)[74] = count_move.at(0);
+            id(fen_position_current)[75] = count_move.at(1);
+          } else {
+            id(fen_position_current)[73] = '0';
+            id(fen_position_current)[74] = '0';
+            id(fen_position_current)[75] = count_move.at(0);
+          }
+  
 
   - id: update_pgn
     mode: queued
@@ -3493,18 +3567,19 @@ script:
             if ((id(current_move_type) == "MOVE" ||  id(current_move_type) == "TAKE" ||  id(current_move_type) == "ENPASSANT") && id(current_move_to) > -1 && id(current_move_from) > -1) {            
               
               // from FEN-position to upper case
-              std::string fen_from = id(fen_position_previous)[id(current_move_from)];
-              std::transform(fen_from.begin(), fen_from.end(), fen_from.begin(), ::toupper);
+              char fen_from = (char)toupper(id(fen_position_previous)[id(current_move_from)]);
 
               // get type of piece has been moved
-              bool p_move = (bool)(fen_from == "P");
-              bool q_move = (bool)(fen_from == "Q");
+              bool p_move = (bool)(fen_from == 'P');
+              bool q_move = (bool)(fen_from == 'Q');
               bool q_1_move = (bool)(q_move && (id(n_queens_white) == 1 || id(n_queens_black) == 1));
-              bool pkb_move = (bool)(p_move || fen_from == "K" || fen_from == "B");
-              bool kb_move = (bool)(fen_from == "K" || fen_from == "B");
+              bool pkb_move = (bool)(p_move || fen_from == 'K' || fen_from == 'B');
+              bool kb_move = (bool)(fen_from == 'K' || fen_from == 'B');
 
               // we dont need P in notation
-              pgn_move = (p_move) ? "" : fen_from;
+              if (!p_move) {
+                pgn_move += fen_from;
+              }
 
               //for pawns, king and bishops we dont need to use "from" field (and queens, as long 1 on the board) 
               if (id(current_move_type) == "MOVE" ) { 
@@ -3534,7 +3609,7 @@ script:
                   // add promotion piece
                   pgn_move += "=" + id(default_pawn_promotion_to);  
                   // update fen by promoted piece 
-                  id(fen_position_current)[id(current_move_to)] = id(default_pawn_promotion_to); 
+                  id(fen_position_current)[id(current_move_to)] = id(default_pawn_promotion_to).at(0); 
                 }
                 // black
                 if (!id(white_to_move) && (id(chess_field_names)[id(current_move_to)].find('1') != std::string::npos)) {
@@ -3542,9 +3617,7 @@ script:
                   // add promotion piece 
                   pgn_move += "=" + id(default_pawn_promotion_to);
                   // update fen by promoted piece (for black we have to lower it)
-                  std::string promote_to = id(default_pawn_promotion_to);
-                  std::transform(promote_to.begin(), promote_to.end(), promote_to.begin(), ::tolower);
-                  id(fen_position_current)[id(current_move_to)] = promote_to;
+                  id(fen_position_current)[id(current_move_to)] = (char)tolower(id(default_pawn_promotion_to).at(0));
                 }
               }
             }
@@ -4250,12 +4323,9 @@ script:
 
               std::string moved_piece = "";
               if (idx_from > -1 && idx_from < 64) {              
-                moved_piece = id(fen_position_previous)[idx_from];
-                std::transform(moved_piece.begin(), moved_piece.end(), moved_piece.begin(), ::toupper);
-
-                if (moved_piece == "P") {
-                  moved_piece = "";
-                } else {
+                char moved_piece_char = toupper(id(fen_position_previous)[idx_from]);
+                if (moved_piece_char != 'P') {
+                  moved_piece += moved_piece_char;
                   moved_piece += ":";
                 }
               }
