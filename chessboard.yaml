@@ -215,61 +215,6 @@ globals:
         {'x', "x"}
       }
 
-  - id: chess_symbols_telegram
-    type: std::map<char, std::string>
-    initial_value: |- 
-      /*
-        Standard spaces (" ") can be too narrow. Instead, use:
-        Non-Breaking Space (\u00A0) → " "
-        Thin Space (\u2009) → " "
-        En Space (\u2002) → " "
-        Full-Width Space (\u3000) → "　"
-        ♔	U+2654	White Chess King
-        ♕	U+2655	White Chess Queen
-        ♖	U+2656	White Chess Rook
-        ♗	U+2657	White Chess Bishop
-        ♘	U+2658	White Chess Knight
-        ♙	U+2659	White Chess Pawn
-        ♚	U+265A	Black Chess King
-        ♛	U+265B	Black Chess Queen
-        ♜	U+265C	Black Chess Rook
-        ♝	U+265D	Black Chess Bishop
-        ♞	U+265E	Black Chess Knight
-        ♟	U+265F	Black Chess Pawn
-         	U+2002	En Space
-         	U+2003	Em Space
-         	U+2004	Three-Per-Em Space
-         	U+2005	Four-Per-Em Space
-         	U+2006	Six-Per-Em Space
-         	U+2007	Figure Space
-         	U+2008	Punctuation Space
-         	U+2009	Thin Space
-         	U+200A	Hair Space
-         	U+202F	Narrow No-Break Space (NNBSP)
-         	U+205F	Medium Mathematical Space (MMSP)
-      */
-      {
-        {'K', "\u2009\u200A\u200A\u200A\u200A\u2654\u200A\u200A\u200A\u200A\u200A\u200A\u200A"},
-        {'k', "\u2009\u200A\u200A\u200A\u200A\u265A\u200A\u200A\u200A\u200A\u200A\u200A\u200A"},
-
-        {'Q', "\u200A\u200A\u200A\u200A\u200A\u200A\u2655\u200A\u200A\u200A\u200A\u200A\u200A"},
-        {'q', "\u200A\u200A\u200A\u200A\u200A\u200A\u265B\u200A\u200A\u200A\u200A\u200A\u200A"},
-
-        {'R', "\u200A\u200A\u200A\u200A\u200A\u200A\u200A\u2656\u200A\u200A\u200A\u200A\u200A\u200A"},
-        {'r', "\u200A\u200A\u200A\u200A\u200A\u200A\u200A\u265C\u200A\u200A\u200A\u200A\u200A\u200A"},
-
-        {'B', "\u200A\u200A\u200A\u200A\u200A\u200A\u2657\u200A\u200A\u200A\u200A\u200A\u200A"},
-        {'b', "\u200A\u200A\u200A\u200A\u200A\u200A\u265D\u200A\u200A\u200A\u200A\u200A\u200A"},
-
-        {'N', "\u200A\u200A\u200A\u200A\u200A\u200A\u2658\u200A\u200A\u200A\u200A\u200A\u200A"},
-        {'n', "\u200A\u200A\u200A\u200A\u200A\u200A\u265E\u200A\u200A\u200A\u200A\u200A\u200A"},
-
-        {'P', "\u200A\u200A\u200A\u200A\u200A\u200A\u2659\u200A\u200A\u200A\u200A\u200A\u200A\u200A"},    
-        {'p', "\u200A\u200A\u200A\u200A\u265F\u200A\u200A\u200A\u200A"},
-
-        {'0', "\u200A\u200A\u200A\u200A\u200A\u200A\u200A\u200A\u200A\u200A\u200A\u200A\u200A\u200A\u200A\u200A\u200A\u200A\u200A\u200A\u200A"},
-        {'x', "x"}
-      }
   # order of hall sensors from A8 to H1
   - id: hall_sensor_order
     type: std::array<int, 64>
@@ -2300,7 +2245,6 @@ script:
             const std::string border_line = "---------------------------------------------------------------";
             int line_counter = 0;
             std::string line_representation = "|";
-            id(fen_position_chessboard) = border_line + "\n|";
 
             // iterate over current fen raw position  
             for (int i=0; i<64; i++) {
@@ -2312,7 +2256,6 @@ script:
                 curr_fen_char = id(fen_position_current)[i].at(0);
               }
               line_representation += id(chess_symbols)[curr_fen_char] + "|";
-              id(fen_position_chessboard) += id(chess_symbols_telegram)[curr_fen_char] + "|";
 
               if ((i + 1) % 8 == 0) { // store line
                 
@@ -2344,12 +2287,7 @@ script:
                 {
                   id(line_1).publish_state(line_representation);
                 }
-
-                if  (line_counter != 7) {
-                  id(fen_position_chessboard) += "\n" + border_line + "\n|";
-                } else {
-                  id(fen_position_chessboard) += "\n" + border_line;
-                }               
+             
                 line_representation = "|";
               } 
             }
@@ -4041,7 +3979,7 @@ script:
 
           if (api::global_api_server->is_connected()) {
 
-            id(lichess_api_call).publish_state("{\"type\": \"initializeToken\", \"token\": \"" + id(chessboard_token_current) + "\"}");
+            id(lichess_api_call).publish_state("{\"type\": \"initializeTokenMain\", \"token\": \"" + id(chessboard_token_current) + "\"}");
             id(lichess_api_call).publish_state("{\"type\": \"initializeTokenOpponent\", \"token\": \"" + id(chessboard_token_opponent) + "\"}");
 
             // we reopen the stream with new token
@@ -4071,11 +4009,8 @@ script:
               id(lichess_stream_events).publish_state("ON"); 
             }
 
-            // if we have a game running, try to abort
-            if (id(lichess_game_id).state.length() == 8) {
-              id(lichess_api_call).publish_state("idle"); 
-              id(lichess_api_call).publish_state("{\"type\": \"abort\"}");
-            }
+            // if we have a game running, try to abort all pengling games
+            id(lichess_api_call).publish_state("{\"type\": \"abortRunningGames\"}");
  
             // Create JSON object
             StaticJsonDocument<512> root;  
@@ -4116,16 +4051,12 @@ script:
                 pos += replace.length(); 
             }
 
-            delay(1000);  // Wait 1s to stream be open
+            id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"Waiting for new game ...\", \"line_1\": \"" + id(chess_time_control).state + "\"}";
+            id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"Waiting for new game ...\", \"line_1\": \"" + id(chess_time_control).state + "\"}"; 
+            id(oled_show_page_message).execute();
 
             // force changed state, to be able to call the same request 
-            id(lichess_api_call).publish_state("idle"); 
             id(lichess_api_call).publish_state(json_string);
-
-            id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"waiting for new game ...\", \"line_1\": \"" + id(chess_time_control).state + "\"}";
-            id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"waiting for new game ...\", \"line_1\": \"" + id(chess_time_control).state + "\"}"; 
-
-            id(oled_show_page_message).execute();
 
           } else {
               id(beep_long).execute();
@@ -4162,6 +4093,19 @@ script:
             // ########### EVENTS ####################
             // #######################################
 
+            // ############# game id info ########
+            // #######################################
+            if ((root["type"].as<std::string>() == "createdGameId")){
+              if (root["status"].as<std::string>() == "seek") {
+                id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"Created game: " + root["id"].as<std::string>() + "\", \"line_1\": \"Waiting to be accepted ...\"}";
+                id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"Created game: " + root["id"].as<std::string>() + "\", \"line_1\": \"Waiting to be accepted ...\"}";
+              } else if (root["status"].as<std::string>() != "success") {
+                id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"" + root["error"].as<std::string>() + "\"}";
+                id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"" + root["error"].as<std::string>() + "\"}";
+              }
+              id(oled_show_page_message).execute();
+            }
+
             // ############# new game started #############
             // #######################################
             if (root["type"].as<std::string>() == "gameStart"){
@@ -4187,8 +4131,8 @@ script:
               std::string me = id(lichess_account).state;
               std::string game_id = root["gameId"].as<std::string>();
 
-              // we start board stream
-              id(lichess_game_id).publish_state(game_id);      
+              // we start board stream (if not startet by "createGameId" - response)
+              id(lichess_game_id).publish_state(game_id);
 
               if (id(lichess_main_json) != "" ) {
                 StaticJsonDocument<256> root_me;

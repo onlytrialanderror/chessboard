@@ -34,7 +34,7 @@ class LichessApiHandler(hass.Hass):
         self.__class__._current_secret_key = self.get_secret()
         self.listen_state(self.api_call_changed, LICHESS_SINGLE_CALL_PARAMETER_IN_SENSOR)
         # we are ready to go
-        self.log(f"Waiting for new api call")
+        self.log(f"Ready for an api call")
         self._stop_event = threading.Event()
 
     def get_secret(self, path="/config/secrets.yaml"):
@@ -90,7 +90,6 @@ class LichessApiHandler(hass.Hass):
         if (self.__class__._stream_event):
             self.stream_event()
 
-
     def check_event_over(self, dat):
         break_game = False
         if (dat.get('type') == 'gameFinish'):
@@ -110,7 +109,6 @@ class LichessApiHandler(hass.Hass):
         if (self.__class__._current_game_id == IDLE_GAME_ID):
             break_game = True
         return break_game
-    
 
     def parse_username_string(self, input_string):
         username = input_string
@@ -136,9 +134,9 @@ class LichessApiHandler(hass.Hass):
                 self.log(f"Error: {e}")
         return decrypted
 
-    def handle_call_trigger(self):
+    def handle_call_trigger(self, new):
             # Convert JSON string to Python dictionary
-            json_data = json.loads(self.__class__._api_call)
+            json_data = json.loads(new)
             call_type = json_data.get('type', None)
 
             if (json_data and call_type):
@@ -147,7 +145,7 @@ class LichessApiHandler(hass.Hass):
                 ######################################
 
                 # main token
-                if (json_data.get('type') == 'initializeToken'):
+                if (json_data.get('type') == 'initializeTokenMain'):
                     self.token_changed_main(json_data.get('token'))
                 # opponents token
                 if (json_data.get('type') == 'initializeTokenOpponent'):
@@ -175,6 +173,8 @@ class LichessApiHandler(hass.Hass):
                     # ------------------------------------
                     if (call_type == 'createGame' and json_data.get('opponentname')):
 
+                        game_id = "idle"
+                        game_data = {"error": "Failed to create game"}
                         # we create a seek
                         if (json_data.get('opponentname') == 'random'): 
                             self.log(f"Seek new game ({json_data.get('time_m', 15)}+{json_data.get('increment', 0)})")
@@ -183,7 +183,7 @@ class LichessApiHandler(hass.Hass):
                                 increment=json_data.get('increment', 0),
                                 rated=json_data.get('rated', False),
                                 color=json_data.get('color', "random")
-                            )
+                            )                            
                         # create a challenge
                         else: 
                             # check if challenge to a user or AI
@@ -200,10 +200,14 @@ class LichessApiHandler(hass.Hass):
                                         color = json_data.get('color'), 
                                         variant =  "standard"                                        
                                     )
-                                    # accept challenge by the firend otb
+                                    # accept challenge by the firend otb and start the stream
                                     if (len(game_data["id"])==8):
                                         self.__class__._client_opponent.challenges.accept(game_data["id"])
-                                        self.game_id_changed(game_data["id"])
+                                        game_id = game_data["id"]
+                                        self.game_id_changed(game_id)
+                                    else:
+                                        game_id = ""
+
                                
                                 else:
                                     # challenge a fried by name online                       
@@ -215,9 +219,9 @@ class LichessApiHandler(hass.Hass):
                                         color = json_data.get('color'), 
                                         variant =  "standard"
                                     )  
-                                    # open the stream
-                                    if (len(game_data["id"])==8):
-                                        self.game_id_changed(game_data["id"])                           
+                                    # something went wrong
+                                    if (len(game_data["id"])!=8):
+                                        game_id = ""                   
                             else:
                                 # challenge AI
                                 game_data = self.__class__._client_main.challenges.create_ai(
@@ -227,9 +231,38 @@ class LichessApiHandler(hass.Hass):
                                     color = json_data.get('color'), 
                                     variant =  "standard"
                                 )
-                                # open the stream
+                                # open the stream (games by AI are always immidieatelly accepted)
                                 if (len(game_data["id"])==8):
-                                    self.game_id_changed(game_data["id"])   
+                                    game_id = game_data["id"]
+                                    self.game_id_changed(game_id) 
+                                else:
+                                    game_id = ""
+
+                        if game_id == "idle":
+                            data = {
+                                    "type": "createdGameId",
+                                    "id": 'seek',
+                                    "status": "success",
+                                    "error" : ""
+                                }
+                        else: 
+                            if len(game_id)==8:
+                                data = {
+                                    "type": "createdGameId",
+                                    "id": game_id,
+                                    "status": "success",
+                                    "error" : ""
+                                }
+                            else:
+                                data = {
+                                    "type": "createdGameId",
+                                    "id": "-",
+                                    "status": "failed",
+                                    "error" : game_data.get("error", "Failed to create game")
+                                }
+                        json_data = json.dumps(data)                        
+                        # let chessboard know about the game id created
+                        self.set_state(LICHESS_RESPONSE_OUT_SENSOR, state=json_data)  
                             
                     # -----------------------------------------------------
                     ############# pause or withdraw tournament ############
@@ -317,9 +350,9 @@ class LichessApiHandler(hass.Hass):
                     # -----------------------------------------------------
                     if (call_type == 'getAccountInfoMain'):
                           
-                        # try to join
-                        self.log(call_type)
+                        # try to join                        
                         account_info = self.__class__._client_main.account.get()
+                        self.log(call_type + ": " + account_info["username"])
                         data = {
                             "type": "accountInfoMain",
                             "name": account_info["username"],
@@ -330,6 +363,21 @@ class LichessApiHandler(hass.Hass):
                         json_data = json.dumps(data)
                         # let chessboard know about the tournament id
                         self.set_state(LICHESS_RESPONSE_OUT_SENSOR, state=json_data)
+
+                    # -----------------------------------------------------
+                    ################# abort running games ################
+                    # -----------------------------------------------------
+                    if (call_type == 'abortRunningGames'):
+                        # try to join
+                        self.log(call_type)
+                        my_games = self.__class__._client_main.games.get_ongoing()
+                        if (len(my_games) > 0):
+                            self.log(f"Number of running games: {len(my_games)}")
+                            for game in my_games:
+                                # try to abort the game
+                                self.log("Aborting: " + game["id"])
+                                self.__class__._client_main.board.abort_game(game_id = game["id"])
+                        
 
                 ######################################
                 ##### token and id required ########
@@ -526,7 +574,6 @@ class LichessApiHandler(hass.Hass):
             self.log(f"Starting the stream (main): {self.__class__._current_game_id}")
             for line in self.__class__._client_main.board.stream_game_state(self.__class__._current_game_id):
                 if line: # valid dic
-                    # self.log("line main: " + str(line))
                     reduced_data = json.dumps(self.reduce_response_board(line))
                     # let ha know about the move
                     self.set_state(LICHESS_RESPONSE_OUT_SENSOR, state=reduced_data)
@@ -559,7 +606,6 @@ class LichessApiHandler(hass.Hass):
         if (valid_game_id and valid_token):
             self.log(f"Starting the stream (opponent): {self.__class__._current_game_id}")
             for line in self.__class__._client_opponent.board.stream_game_state(self.__class__._current_game_id):
-                # self.log("line opponent: " + str(line))
                 if line: # valid dic
                     # check if we have to abort the game
                     if self.check_game_over(line):
