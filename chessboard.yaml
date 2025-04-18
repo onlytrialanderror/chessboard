@@ -295,18 +295,10 @@ globals:
     type: std::array<std::string, 72>
     initial_value: '{""}'
 
-  - id: fen_position_chessboard
-    type: std::string
-    initial_value: '""'
-
   - id: fen_enpassant_index
     type: int
     initial_value: '-1'
 
-  - id: fen_position_take_back
-    type: std::array<std::string, 72>
-    initial_value: '{""}'
-  
   # Variables for RAW-position
   - id: raw_position_init
     type: std::array<int, 64>
@@ -321,10 +313,6 @@ globals:
         1,1,1,1,1,1,1,1,
         1,1,1,1,1,1,1,1
       }
-
-  - id: raw_position_take_back
-    type: std::array<int, 64>
-    initial_value: '{0}'
 
   - id: raw_position_previous
     type: std::array<int, 64>
@@ -342,7 +330,6 @@ globals:
     type: std::array<int, 64>
     initial_value: '{0}'
 
-
   - id: voltage_field_current
     type: std::array<float, 64>
     initial_value: '{0.0}'
@@ -350,10 +337,6 @@ globals:
   - id: pgn_history
     type: std::string
     initial_value: ''    
-
-  - id: pgn_history_take_back
-    type: std::string
-    initial_value: '' 
 
   - id: full_pgn
     type: std::string
@@ -422,10 +405,6 @@ globals:
   - id: halfmove_or_capture_counter
     type: int
     initial_value: '0'
-
-  - id: last_move_pgn_take_back
-    type: std::string
-    initial_value: '""'
 
   - id: last_move_pgn
     type: std::string
@@ -986,12 +965,6 @@ graphical_display_menu:
       immediate_edit: false
       text: 'Move validator'
       select: chess_move_validator
-    - type: command
-      text: 'TAKE BACK'
-      on_value:
-        then:
-          - lambda: |-
-              id(take_back).execute();
     - type: command
       text: 'Reset game'
       on_value:
@@ -2166,7 +2139,7 @@ script:
     then:
       - lambda: |-
           // one take back only
-          if (id(pgn_history) != id(pgn_history_take_back)) {
+          if (id(pgn_history) != "") {
 
             // if promotion to queen, we have to reduce the number of queens
             if (id(last_move_pgn).find("=Q") != std::string::npos) {
@@ -2183,12 +2156,10 @@ script:
             // replace last fen by take back
             for (int i = 0; i < 72; i++) {
               id(fen_position_current)[i] = id(fen_position_previous)[i];
-              id(fen_position_previous)[i] = id(fen_position_take_back)[i];
             };
 
             // replace last position by take back
             std::memcpy(id(raw_position_current).data(), id(raw_position_previous).data(), sizeof(int)*64);
-            std::memcpy(id(raw_position_previous).data(), id(raw_position_take_back).data(), sizeof(int)*64);
 
 
             // counter back
@@ -2196,8 +2167,6 @@ script:
 
             // pgn history
             int previous_length = id(pgn_history).length();
-            id(pgn_history) = id(pgn_history_take_back);
-            id(last_move_pgn) = id(last_move_pgn_take_back);
 
             // update led
             id(led_update_color_to_move).execute();
@@ -2541,9 +2510,7 @@ script:
       - lambda: |-
           id(last_move_pgn) = "";
           id(last_move_pgn_additional) = "";
-          id(last_move_pgn_take_back) = "";
           id(pgn_history) = "";
-          id(pgn_history_take_back) = "";
           id(full_pgn) = "";
           id(pgn_history_1).update();
           id(pgn_history_2).update();
@@ -2562,23 +2529,19 @@ script:
       - lambda: |-
           for (int i = 0; i < 72; i++) {
             std::string curr_value = id(fen_position_init)[i];
-            id(fen_position_take_back)[i] = curr_value;
             id(fen_position_previous)[i] = curr_value;   
             id(fen_position_current)[i] = curr_value;          
           };
           id(fen_position_previous_string) = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
           id(fen_position_current_string) = "";
           id(update_chess_board).execute();
-          id(fen_position_chessboard) = "";
           id(fen_position_previous_string_sensor).update();
 
   - id: reset_raw_position
     then:
       - lambda: |-
-          std::memcpy(id(raw_position_take_back).data(), id(raw_position_init).data(), sizeof(int)*64);
           std::memcpy(id(raw_position_previous).data(), id(raw_position_init).data(), sizeof(int)*64);
           std::memcpy(id(raw_position_last_valid).data(), id(raw_position_init).data(), sizeof(int)*64);
-
 
   - id: inform_game_over
     parameters:
@@ -3597,7 +3560,6 @@ script:
             // check, mate, draw
             pgn_move +=  id(last_move_pgn_additional);
 
-            id(last_move_pgn_take_back) = id(last_move_pgn);
             id(last_move_pgn) = pgn_move;
             id(last_move_pgn_sensor).update();  
 
