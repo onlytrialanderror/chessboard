@@ -2,7 +2,7 @@ import appdaemon.plugins.hass.hassapi as hass
 import berserk
 import json
 import yaml
-from datetime import datetime
+from datetime import datetime, timezone
 import threading
 
 IDLE_GAME_ID = "idle"
@@ -284,10 +284,10 @@ class LichessApiHandler(hass.Hass):
                         starts_in = '-'
                         tournament_id = ""
                         for tournament in all_tournaments[json_data.get('tournamentStatus')]:
-                            self.log("Tournament: " + tournament)
+                            self.log("Tournament: " + tournament['fullName'])
                             if tournament['fullName'] == json_data.get('tournamentName') and tournament['createdBy'] == 'lichess' and tournament['system'] == 'arena' and tournament['clock']['limit'] == json_data.get('limit') and tournament['clock']['increment'] == json_data.get('increment'):
                                 # Difference
-                                difference_minutes = berserk.utils.timedelta_from_millis(berserk.utils.to_millis(datetime.now()), berserk.utils.to_millis(tournament['startsAt'])) / 60000
+                                difference_minutes = (tournament['startsAt'] - datetime.now(timezone.utc)).total_seconds() / 60
                                 tournament_id = tournament['id']
                                 starts_in = f"{difference_minutes:.2f}min"
                                 break # we found closes tournament, we can break

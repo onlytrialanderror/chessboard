@@ -284,21 +284,6 @@ globals:
 
   - id: fen_position_previous
     type: std::array<char, 76>
-    initial_value: |-
-      {
-        'r','n','b','q','k','b','n','r',
-        'p','p','p','p','p','p','p','p',
-        '0','0','0','0','0','0','0','0',
-        '0','0','0','0','0','0','0','0',
-        '0','0','0','0','0','0','0','0',
-        '0','0','0','0','0','0','0','0',
-        'P','P','P','P','P','P','P','P',
-        'R','N','B','Q','K','B','N','R',
-        'w','K','Q','k','q', 
-        '-', '-', 
-        '0', '0',
-        '0', '0', '1'
-      }
 
   - id: fen_position_previous_string
     type: std::string
@@ -310,21 +295,6 @@ globals:
 
   - id: fen_position_current
     type: std::array<char, 76>
-    initial_value: |-
-      {
-        'r','n','b','q','k','b','n','r',
-        'p','p','p','p','p','p','p','p',
-        '0','0','0','0','0','0','0','0',
-        '0','0','0','0','0','0','0','0',
-        '0','0','0','0','0','0','0','0',
-        '0','0','0','0','0','0','0','0',
-        'P','P','P','P','P','P','P','P',
-        'R','N','B','Q','K','B','N','R',
-        'w','K','Q','k','q', 
-        '-', '-', 
-        '0', '0',
-        '0', '0', '1'
-      }
 
   - id: fen_enpassant_index
     type: int
@@ -347,31 +317,26 @@ globals:
 
   - id: raw_position_previous
     type: std::array<int, 64>
-    initial_value: '{0}'
 
   - id: raw_position_last_valid
     type: std::array<int, 64>
-    initial_value: '{0}'
 
   - id: raw_position_current
     type: std::array<int, 64>
-    initial_value: '{0}'
 
   - id: raw_position_differences
     type: std::array<int, 64>
-    initial_value: '{0}'
 
   - id: voltage_field_current
     type: std::array<float, 64>
-    initial_value: '{0.0}'
 
   - id: pgn_history
     type: std::string
-    initial_value: ''    
+    initial_value: '""'    
 
   - id: full_pgn
     type: std::string
-    initial_value: ''
+    initial_value: '""'
 
   - id: valid_move
     type: bool
@@ -2882,9 +2847,6 @@ script:
             if (chess_validator::get_table_state( raw_fen.c_str() , &table_state )) {
               // we have valid FEN
               id(fen_position_current_string) = raw_fen;
-              if (id(debug_mode)) {
-                id(debugger_sensor).publish_state("FEN (valid): " + raw_fen);
-              }
             } else {
               // reset current fen string
               id(fen_position_current_string) = "";
