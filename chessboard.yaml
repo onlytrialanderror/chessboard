@@ -127,23 +127,12 @@ pcf8574:
 
 font:
   - file: "gfonts://Roboto"
-    id: roboto_10
-    size: 10
-  - file: "gfonts://Roboto"
     id: roboto_12
     size: 12
-  - file: "gfonts://Roboto"
-    id: roboto_14
-    size: 14
-  - file: "gfonts://Roboto"
+   - file: "gfonts://Roboto"
     id: roboto_24
     size: 24
-  - file: "gfonts://Roboto"
-    id: roboto_30
-    size: 30
-  - file: "gfonts://Roboto"
-    id: roboto_32
-    size: 32
+
 
 globals:
 
@@ -3075,7 +3064,7 @@ script:
               // we have an invalid move ? so, we have to reset last valid, otherwiese we wont get "valid"-flag after correction of the move
               // example: we make a valid move (that one is stored), then we move an other piece -> invalid, so we move it back (valid position)
               // but, the flag is not updated and still invalid, since we already checked this position
-              if (id(invalid_move_counter) == 3) {
+              if (id(invalid_move_counter) == 2) {
                 std::memcpy(id(raw_position_last_valid).data(), id(raw_position_init).data(), sizeof(int)*64);
                 id(invalid_move_counter) = -1; // we dont want to reset every iteration
               }
