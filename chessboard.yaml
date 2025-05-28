@@ -285,6 +285,9 @@ globals:
   - id: fen_position_current
     type: std::array<char, 76>
 
+  - id: fen_position_history
+    type: std::vector<std::string>
+
   - id: fen_enpassant_index
     type: int
     initial_value: '-1'
@@ -2276,12 +2279,13 @@ script:
             - script.wait: telegram_pgn_chessboard_a
             - script.execute: telegram_pgn_chessboard_b
             - script.wait: telegram_pgn_chessboard_b
+            - script.execute: beep_short
 
   - id: telegram_pgn_chessboard_a
     then:
       - http_request.post:
           url: !secret telegram_cheesboard_url
-          headers:
+          request_headers:
             Content-Type: application/json
           json:
             chat_id: !secret telegram_cheesboard_chat_id_a
@@ -2292,7 +2296,7 @@ script:
     then:
       - http_request.post:
           url: !secret telegram_cheesboard_url
-          headers:
+          request_headers:
             Content-Type: application/json
           json:
             chat_id: !secret telegram_cheesboard_chat_id_b
@@ -2645,6 +2649,21 @@ script:
                 // overwrite previous data by current data
                 std::memcpy(id(raw_position_previous).data(), id(raw_position_last_valid).data(), sizeof(int)*64);                
                 id(fen_position_previous_string) = id(fen_position_current_string);
+
+                // store fen history
+                std::string position_fen = id(fen_position_current_string).substr(0, id(fen_position_current_string).find(' '));
+                id(fen_position_history).push_back(position_fen);
+
+                // check three fold repetition
+                int count = 0;
+                for (auto& f : id(fen_position_history)) {
+                  if (f == position_fen) {
+                    count++;
+                  }
+                }
+                if (count >= 3 && game_result == "") {
+                  game_result == "1/2-1/2"
+                }
 
                 // replace last fen by current fen
                 std::memcpy(id(fen_position_previous).data(), id(fen_position_current).data(), sizeof(char)*76); 
