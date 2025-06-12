@@ -2668,7 +2668,7 @@ script:
                   }
                 }
                 if (count >= 3 && game_result == "") {
-                  game_result == "1/2-1/2"
+                  game_result == "1/2-1/2";
                 }
 
                 // replace last fen by current fen
