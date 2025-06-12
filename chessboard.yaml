@@ -127,11 +127,17 @@ pcf8574:
 
 font:
   - file: "gfonts://Roboto"
+    id: roboto_10
+    size: 10
+  - file: "gfonts://Roboto"
     id: roboto_12
     size: 12
-   - file: "gfonts://Roboto"
+  - file: "gfonts://Roboto"
     id: roboto_24
     size: 24
+  - file: "gfonts://Roboto"
+    id: roboto_30
+    size: 30
 
 
 globals:
