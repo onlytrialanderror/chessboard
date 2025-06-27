@@ -2656,19 +2656,21 @@ script:
                 std::memcpy(id(raw_position_previous).data(), id(raw_position_last_valid).data(), sizeof(int)*64);                
                 id(fen_position_previous_string) = id(fen_position_current_string);
 
-                // store fen history
-                std::string position_fen = id(fen_position_current_string).substr(0, id(fen_position_current_string).find(' '));
-                id(fen_position_history).push_back(position_fen);
+                // check three fold repetition for non lichess-games
+                if (!id(lichess_game_running)){
+                  // store fen history
+                  std::string position_fen = id(fen_position_current_string).substr(0, id(fen_position_current_string).find(' '));
+                  id(fen_position_history).push_back(position_fen);
 
-                // check three fold repetition
-                int count = 0;
-                for (auto& f : id(fen_position_history)) {
-                  if (f == position_fen) {
-                    count++;
+                  int count = 0;
+                  for (auto& f : id(fen_position_history)) {
+                    if (f == position_fen) {
+                      count++;
+                    }
                   }
-                }
-                if (count >= 3 && game_result == "") {
-                  game_result == "1/2-1/2";
+                  if (count >= 3 && game_result == "") {
+                    game_result == "1/2-1/2";
+                  }
                 }
 
                 // replace last fen by current fen
