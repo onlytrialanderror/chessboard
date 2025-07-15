@@ -142,7 +142,7 @@ font:
 
 globals:
 
-  # some constants
+  # Array of chessboard field names in algebraic notation (a8-h1)
   - id: chess_field_names
     type: std::array<std::string, 64>
     initial_value: |-
@@ -157,6 +157,7 @@ globals:
         "a1", "b1", "c1", "d1", "e1", "f1", "g1", "h1"
       }
 
+  # Map from field name (e.g. "e4") to index (0-63)
   - id: chess_field_indexes
     type: std::map<std::string, int>
     initial_value: |-
@@ -171,6 +172,7 @@ globals:
         {"a1", 56}, {"b1", 57}, {"c1", 58}, {"d1", 59}, {"e1", 60}, {"f1", 61}, {"g1", 62}, {"h1", 63}
       }
 
+  # Unicode symbols for chess pieces and empty squares (for display)
   - id: chess_symbols
     type: std::map<char, std::string>
     initial_value: |- 
@@ -210,7 +212,7 @@ globals:
         {'x', "x"}
       }
 
-  # order of hall sensors from A8 to H1
+  # Order of hall sensors mapped to chessboard squares (hardware mapping)
   - id: hall_sensor_order
     type: std::array<int, 64>
     initial_value: |-
@@ -225,7 +227,7 @@ globals:
         29, 61, 45,  5, 48,  4, 36, 20
       }
 
-  # Variables for voltage-field
+  # Per-field calibration offset for hall sensor voltage readings
   - id: voltage_field_offset
     type: std::array<float, 64>
     initial_value: |-
@@ -240,6 +242,7 @@ globals:
         2.42, 2.45, 2.53, 2.51, 2.47, 2.43, 2.53, 2.42
       }
 
+  # Per-field threshold for detecting piece presence (voltage)
   - id: voltage_field_detection_threshold
     type: std::array<float, 64>
     initial_value: |-
@@ -254,11 +257,12 @@ globals:
         0.20, 0.20, 0.20, 0.20, 0.20, 0.20, 0.20, 0.20
       }
 
+  # Global drift value for voltage readings (for calibration)
   - id: voltage_field_drift
     type: float
     initial_value: '0.00'
 
-  # Variables for FEN
+  # Initial FEN position as array (standard chess starting position)
   - id: fen_position_init
     type: std::array<char, 76>
     initial_value: |-
@@ -277,28 +281,34 @@ globals:
         '0', '0', '1'
       }
 
+  # Previous FEN position as array (for move validation)
   - id: fen_position_previous
     type: std::array<char, 76>
 
+  # Previous FEN as string (for display and validation)
   - id: fen_position_previous_string
     type: std::string
     initial_value: '""'
 
+  # Current FEN as string (for display and validation)
   - id: fen_position_current_string
     type: std::string
     initial_value: '""'
 
+  # Current FEN position as array
   - id: fen_position_current
     type: std::array<char, 76>
 
+  # History of FEN positions (for threefold repetition detection)
   - id: fen_position_history
     type: std::vector<std::string>
 
+  # Index for en passant target square in FEN (-1 if not set)
   - id: fen_enpassant_index
     type: int
     initial_value: '-1'
 
-  # Variables for RAW-position
+  # Initial raw board position (piece presence, not FEN)
   - id: raw_position_init
     type: std::array<int, 64>
     initial_value: |-
@@ -313,161 +323,202 @@ globals:
         1,1,1,1,1,1,1,1
       }
 
+  # Previous raw board position (for move validation)
   - id: raw_position_previous
     type: std::array<int, 64>
 
+  # Last valid raw board position (for move correction)
   - id: raw_position_last_valid
     type: std::array<int, 64>
 
+  # Current raw board position (piece presence)
   - id: raw_position_current
     type: std::array<int, 64>
 
+  # Differences between current and previous raw positions (for move detection)
   - id: raw_position_differences
     type: std::array<int, 64>
 
+  # Current voltage readings from all hall sensors
   - id: voltage_field_current
     type: std::array<float, 64>
 
+  # PGN move history as string (all moves in PGN format)
   - id: pgn_history
     type: std::string
     initial_value: '""'    
 
+  # Full PGN including headers (for export/sharing)
   - id: full_pgn
     type: std::string
     initial_value: '""'
 
+  # Flag: was the last move valid?
   - id: valid_move
     type: bool
     initial_value: 'false'
 
+  # Flag: is it white's turn to move?
   - id: white_to_move
     type: bool
     initial_value: 'true'
 
+  # Flag: is a game currently running?
   - id: game_running
     type: bool
     initial_value: 'false'
 
+  # Flag: should the current move be stored?
   - id: move_to_store_flag
     type: bool
     initial_value: 'false'
 
+  # Flag: did the board position change?
   - id: changed_position
     type: bool
     initial_value: 'false'
 
+  # Flag: did the last valid position change?
   - id: changed_last_valid_position
     type: bool
     initial_value: 'false'
 
+  # Flag: is a Lichess game running?
   - id: lichess_game_running
     type: bool
     initial_value: 'false'
 
+  # Flag: is this board playing as white on Lichess?
   - id: lichess_is_my_color_white
     type: bool
     initial_value: 'true'
 
+  # Name of the Lichess opponent (for display)
   - id: lichess_opponent_name
     type: std::string
     initial_value: '""'
 
+  # JSON data from Lichess API (main account info)
   - id: lichess_main_json
     type: std::string
     initial_value: '""'
 
+  # JSON data from Lichess API (tournament info)
   - id: lichess_tournament_json
     type: std::string
     initial_value: '""'
 
+  # The piece that was moved in the last move (FEN char)
   - id: moved_piece
     type: char
     initial_value: "'0'"  
 
+  # The piece that was on the target square (FEN char)
   - id: target_piece
     type: char
     initial_value: "'0'"  
 
+  # State of the initial position (0 = none, 1 = black, 2 = white, 3 = both set)
   - id: initial_position_state
     type: int
     initial_value: '0'
 
+  # Halfmove counter (for FEN and move validation)
   - id: halfmove_counter
     type: int
     initial_value: '0'
 
+  # Counter for halfmoves or captures (for FEN)
   - id: halfmove_or_capture_counter
     type: int
     initial_value: '0'
 
+  # Last move in PGN notation (e.g. "e4", "Nf3")
   - id: last_move_pgn
     type: std::string
     initial_value: '""'
 
+  # Additional PGN info for last move (e.g. check "+", mate "#")
   - id: last_move_pgn_additional
     type: std::string
     initial_value: '""'
 
+  # Result of the game ("1-0", "0-1", "1/2-1/2", etc.)
   - id: game_result
     type: std::string
     initial_value: '""'
 
+  # Index of the square the current move is from (-1 if not set)
   - id: current_move_from
     type: int
     initial_value: '0'
 
+  # Index of the square the current move is to (-1 if not set)
   - id: current_move_to
     type: int
     initial_value: '0'
 
+  # Type of the current move ("MOVE", "TAKE", "CASTLING_SHORT", etc.)
   - id: current_move_type
     type: std::string
     initial_value: '""'
 
+  # Current move in UCI notation (e.g. "e2e4")
   - id: current_move_uci
     type: std::string
     initial_value: '""'
 
+  # Last move received from Lichess in UCI notation
   - id: current_move_uci_lichess
     type: std::string
     initial_value: '""'
 
+  # Time control duration in seconds (e.g. 900 for 15 minutes)
   - id: time_control_duration
     type: int
     initial_value: '900'
 
+  # Time increment per move in seconds
   - id: time_control_increment
     type: int
     initial_value: '10'
 
+  # Remaining time for black in seconds
   - id: time_control_timer_black
     type: int
     initial_value: '900'
 
+  # Remaining time for white in seconds
   - id: time_control_timer_white
     type: int
     initial_value: '900'
 
+  # Number of white queens on the board (for promotion tracking)
   - id: n_queens_white
     type: int
     initial_value: '1'
 
+  # Number of black queens on the board (for promotion tracking)
   - id: n_queens_black
     type: int
     initial_value: '1'
 
+  # Default piece to promote pawns to ("Q", "R", "B", "N")
   - id: default_pawn_promotion_to
     type: std::string
     initial_value: '"Q"'
 
+  # Secret key for encryption (used for Lichess tokens)
   - id: secret_key
     type: std::string
     initial_value: !secret chessboard_secret_key
 
+  # Encrypted message buffer (for secure token transmission)
   - id: encrypted_message
     type: std::string
     initial_value: '""'
 
+  # Lichess API tokens for different players (A, B, C)
   - id: chessboard_token_a
     type: std::string
     initial_value: !secret chessboard_token_a
@@ -477,66 +528,82 @@ globals:
   - id: chessboard_token_c
     type: std::string
     initial_value: !secret chessboard_token_c
+
+  # Currently active Lichess token (encrypted)
   - id: chessboard_token_current
     type: std::string
     initial_value: ""
+  # Opponent's Lichess token (encrypted)
   - id: chessboard_token_opponent
     type: std::string
     initial_value: ""
 
+  # Last move made by white (UCI)
   - id: last_move_white
     type: std::string
     initial_value: '""'
 
+  # Last move made by black (UCI)
   - id: last_move_black
     type: std::string
     initial_value: '""'
 
+  # Display message for white player (JSON string)
   - id: display_message_white
     type: std::string
     initial_value: '""'
 
+  # Display message for black player (JSON string)
   - id: display_message_black
     type: std::string
     initial_value: '""'
 
-  # 0 - menu, 1 - clock, 2 - message
+  # OLED display page for white (0 = menu, 1 = clock, 2 = message)
   - id: oled_white_acitve_page
     type: int
     initial_value: '2'
 
+  # OLED display page for black (0 = menu, 1 = clock, 2 = message)
   - id: oled_black_acitve_page
     type: int
     initial_value: '2'
 
+  # Sum of differences between current and previous positions (for move detection)
   - id: differences_sum
     type: int
     initial_value: '0'
 
+  # Sum of absolute differences between current and previous positions
   - id: differences_sum_abs
     type: int
     initial_value: '0'
 
+  # Number of changed squares between current and previous positions
   - id: differences_n_changes
     type: int
     initial_value: '0'
 
+  # Number of pieces difference between previous and current positions
   - id: differences_n_pieces
     type: int
     initial_value: '0'
 
+  # Number of black pieces difference
   - id: differences_n_black_pieces
     type: int
     initial_value: '0'
 
+  # Number of white pieces difference
   - id: differences_n_white_pieces
     type: int
     initial_value: '0'
 
+  # Debug mode flag (enables extra logging and sensors)
   - id: debug_mode
     type: bool
     initial_value: 'false'
 
+  # Arrays for storing loop durations and voltage stats for debugging
   - id: loop_durations_hall
     type: uint32_t[11]
     initial_value: '{0,0,0,0,0,0,0,0,0,0,0}'
@@ -557,18 +624,22 @@ globals:
     type: int[11]
     initial_value: '{0,0,0,0,0,0,0,0,0,0,0}'
 
+  # Index for median calculation in debug arrays
   - id: median_array_index
     type: int
     initial_value: '0'
 
+  # Counter for invalid moves (for correction logic)
   - id: invalid_move_counter
     type: int
     initial_value: '-1'
 
+  # Is move validator enabled?
   - id: validator_enabled
     type: bool
     initial_value: 'true'
 
+  # Is the Lichess opponent at the board (OTB)?
   - id: lichess_opponent_at_board
     type: bool
     initial_value: 'false'
@@ -2374,7 +2445,7 @@ script:
           // do some stuff at changed init - position - state
           if (initial_position_previous != initial_position_current) {
             
-            // 0 - non, 1 - black, 2 - white, 3 - both set
+            // 0 - non, 1 - black, 2 - white, 3 - both are set
 
             // both colors are in init position            
             if (initial_position_current == 0b11) { 
@@ -4002,6 +4073,9 @@ script:
 
             // get account info
             id(lichess_api_call).publish_state("{\"type\": \"getAccountInfoMain\"}");
+          } else {
+            // if we are not connected, we have to reset the token
+            id(oled_show_page_temporary_message)->execute("{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"No lichess-api connection\"}", "both", 2000);
           }
 
   - id: lichess_create_new_game
