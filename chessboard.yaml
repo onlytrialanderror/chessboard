@@ -18,6 +18,12 @@ esphome:
             id(lichess_tournament_id).publish_state("idle");
             id(lichess_stream_events).publish_state("idle");
 
+external_components:
+  - source: github://pr#9486
+    refresh: 30s
+    components:
+      - adc
+
 esp32:
   board: esp32dev
   framework:
@@ -703,10 +709,10 @@ display:
         } else {  // message
 
           std::string json_str = id(display_message_white);
-          StaticJsonDocument<200> root;
+          JsonDocument root;
           deserializeJson(root, json_str);
 
-          if (root.containsKey("n_lines")) {
+          if (root["n_lines"].is<int>()) {
             if (root["n_lines"].as<int>() == 2) {
               std::string line_0 = root["line_0"].as<std::string>();
               std::string line_1 = root["line_1"].as<std::string>();
@@ -750,10 +756,10 @@ display:
         } else { // message
 
           std::string json_str = id(display_message_black);          
-          StaticJsonDocument<200> root;
+          JsonDocument root;
           deserializeJson(root, json_str);
 
-          if (root.containsKey("n_lines")) {
+          if (root["n_lines"].is<int>()) {
             if (root["n_lines"].as<int>() == 2) {
               std::string line_0 = root["line_0"].as<std::string>();
               std::string line_1 = root["line_1"].as<std::string>();
@@ -2740,7 +2746,7 @@ script:
                     }
                   }
                   if (count >= 3 && game_result == "") {
-                    game_result == "1/2-1/2";
+                    game_result = "1/2-1/2";
                   }
                 }
 
@@ -3931,7 +3937,7 @@ script:
             // open the event stream
             id(lichess_api_call).publish_state("{\"type\": \"streamEvents\", \"state\": \"ON\"}");            
             // deserialize for messaging
-            StaticJsonDocument<256> root;
+            JsonDocument root;
             deserializeJson(root, id(lichess_tournament_json));
             // update display message
             id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"joining arena ...\", \"line_1\": \"" + root["tournamentName"].as<std::string>() + "\"}";
@@ -3985,7 +3991,7 @@ script:
           }
 
           // Create JSON object
-          StaticJsonDocument<256> root;  
+          JsonDocument root;  
           root["type"] = "joinTournamentByName";   
           root["tournamentName"] = tournament_name;     
           root["tournamentStatus"] = tournament_start;
@@ -4100,7 +4106,7 @@ script:
             id(lichess_api_call).publish_state("{\"type\": \"abortRunningGames\"}");
  
             // Create JSON object
-            StaticJsonDocument<512> root;  
+            JsonDocument root;  
             root["type"] = "createGame";   
             root["color"] = id(lichess_seek_color).state;     
             root["time_m"] = float(float(id(time_control_duration)) / 60.);
@@ -4165,10 +4171,10 @@ script:
               id(debugger_sensor).publish_state("jsom from response: " + json_str);
           }
 
-          StaticJsonDocument<512> root;
+          JsonDocument root;
           deserializeJson(root, json_str);
 
-          if (root.containsKey("type") && root["type"].as<std::string>().length() > 0) {
+          if (root["type"].is<std::string>() && root["type"].as<std::string>().length() > 0) {
 
             if (id(debug_mode)) {
               std::string serialized_json_str;
@@ -4222,7 +4228,7 @@ script:
               id(lichess_game_id).publish_state(game_id);
 
               if (id(lichess_main_json) != "" ) {
-                StaticJsonDocument<256> root_me;
+                JsonDocument root_me;
                 deserializeJson(root_me, id(lichess_main_json));
                 std::string chess_time = id(chess_time_control).state;
                 if (chess_time.find("Blitz") != std::string::npos) {
@@ -4288,7 +4294,7 @@ script:
 
             // ############# joined new arena tournament #############
             // #######################################
-            if ((root["type"].as<std::string>() == "tournamentJoinedByName") && root.containsKey("id") && (root["id"].as<std::string>().length() == 8)){
+            if ((root["type"].as<std::string>() == "tournamentJoinedByName") && root["id"].is<std::string>() && (root["id"].as<std::string>().length() == 8)){
               if (root["status"].as<std::string>() == "success") {
                 id(lichess_tournament_id).publish_state(root["id"].as<std::string>());
                 id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"Joined: " + id(lichess_tournament_id).state + "\", \"line_1\": \"Start: " + root["starts_in"].as<std::string>() + "\"}";
@@ -4302,7 +4308,7 @@ script:
             
             // ############# rejoined arena tournament #############
             // #######################################
-            if ((root["type"].as<std::string>() == "tournamentJoinedById") && root.containsKey("id") && (root["id"].as<std::string>().length() == 8)){
+            if ((root["type"].as<std::string>() == "tournamentJoinedById") && root["id"].is<std::string>() && (root["id"].as<std::string>().length() == 8)){
                 id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"Joined: " + id(lichess_tournament_id).state + "\", \"line_1\": \"Waiting for new game\"}";
                 id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"Joined: " + id(lichess_tournament_id).state + "\", \"line_1\": \"Waiting for new game\"}";
                 id(oled_show_page_message).execute();
@@ -4310,13 +4316,13 @@ script:
 
             // ############# stream event off #############
             // #######################################
-            if ((root["type"].as<std::string>() == "streamEvents") && root.containsKey("state")){
+            if ((root["type"].as<std::string>() == "streamEvents") && root["state"].is<std::string>()){
                 id(lichess_stream_events).publish_state(root["state"].as<std::string>());
             }
 
             // ############# stream event off #############
             // #######################################
-            if ((root["type"].as<std::string>() == "streamBoardMain") && root.containsKey("state")){
+            if ((root["type"].as<std::string>() == "streamBoardMain") && root["state"].is<std::string>()){
                 // api reseted game_id already within handler, we do it for the board
                 id(lichess_game_id).publish_state(root["state"].as<std::string>());
             }
@@ -4360,7 +4366,7 @@ script:
 
             // ############# move on board #############
             // #######################################
-            if ((root["type"].as<std::string>() == "gameState") && root.containsKey("state") && (root["state"].as<std::string>() == "started") &&  (root["id"].as<std::string>() == id(lichess_game_id).state)){
+            if ((root["type"].as<std::string>() == "gameState") && root["state"].is<std::string>() && (root["state"].as<std::string>() == "started") &&  (root["id"].as<std::string>() == id(lichess_game_id).state)){
 
               if (id(debug_mode)) {
                   id(debugger_sensor).publish_state("Triggered by gameState: " + root["last"].as<std::string>());
