@@ -639,8 +639,11 @@ int64           fill_available_targets( TableState* ptr_table_state , int player
                     for( int steps = 1 ; x+dx*steps>=0 && x+dx*steps <=7 && y+dy*steps>=0 && y+dy*steps <=7 ; steps++ ){
                         int target_index = (x+dx*steps) + (y+dy*steps)*8;
                         int target_square = ptr_table_state->map[target_index];
+                        // If you hit a friendly piece (target_square & player_color), you stop in that direction.
                         if( target_square & player_color ) break;
                         ret |= (1ULL<<target_index);
+                        // If you hit an enemy piece (target_square && !(target_square & player_color)), 
+                        // you include that square and then stop in that direction.
                         if( target_square && !(target_square & player_color) ) break;
                     }
                 }
@@ -651,7 +654,8 @@ int64           fill_available_targets( TableState* ptr_table_state , int player
                     int dx = dxs[j] , dy = dys[j];
                     if( x+dx>=0 && x+dx <=7 && y+dy>=0 && y+dy <=7 ){
                         int target_index = (x+dx) + (y+dy)*8;
-                        if(  (ptr_table_state->map[target_index] & player_color) ) break;
+                        // we check if all the target squares are occupied by a friendly unit
+                        if(  (ptr_table_state->map[target_index] & player_color) ) continue;
                         ret |= (1ULL<<target_index);
                     }
                 }
