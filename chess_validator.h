@@ -301,12 +301,15 @@ bool            get_table_state( const char* fen_string , TableState* ptr_table_
     while( fen_string[string_iterator] == ' ' )string_iterator++;
     
     // Fifth field: halfmove clock
-    table_state.half_move_clock = atoi( &fen_string[string_iterator++] );
+    char* endptr;
+    table_state.half_move_clock = strtol(&fen_string[string_iterator], &endptr, 10);
+    string_iterator += (endptr - &fen_string[string_iterator]);
 
     while( fen_string[string_iterator] == ' ' )string_iterator++;
 
     // Sixth field: moves counter
-    table_state.move_counter = atoi( &fen_string[string_iterator++] );
+    table_state.move_counter = strtol(&fen_string[string_iterator], &endptr, 10);
+    string_iterator += (endptr - &fen_string[string_iterator]);
 
     return true;
 
@@ -790,8 +793,16 @@ INVALID_REASON  is_move_invalid( const char* fen_string , const char* move  ){
 }
 
 void            fill_valid_moves( TableState* ptr_table_state ){
-    if( ptr_table_state->first ) return;
-    
+    // Clear previous moves to avoid memory leaks
+    auto it = ptr_table_state->first;
+    while (it) {
+        auto temp = it->next;
+        delete it;
+        it = temp;
+    }
+    ptr_table_state->first = nullptr;
+    ptr_table_state->last = nullptr;
+
     for( int y = 0 ; y < 8 ; y++ )
     for( int x = 0 ; x < 8 ; x++ )
     {
