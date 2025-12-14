@@ -22,7 +22,6 @@ class LichessApiHandler(hass.Hass):
     _current_game_id = IDLE_GAME_ID
     _current_token_main = IDLE_LICHESS_TOKEN
     _current_token_opponent = IDLE_LICHESS_TOKEN
-    _current_secret_key = IDLE_LICHESS_TOKEN
     _client_main = EMPTY_STRING
     _client_opponent = EMPTY_STRING
     _current_secret_key = EMPTY_STRING
@@ -31,11 +30,12 @@ class LichessApiHandler(hass.Hass):
 
     def initialize(self):        
         self.log("AppDaemon LichessApiHandler script initialized!")
-        self.__class__._current_secret_key = self.get_secret()
+        self._current_secret_key = self.get_secret()
         self.listen_state(self.api_call_changed, LICHESS_SINGLE_CALL_PARAMETER_IN_SENSOR)
         # we are ready to go
         self.log(f"Ready for an api call")
         self._stop_event = threading.Event()
+        self.log(f"Initialization complete")
 
     def get_secret(self, path="/config/secrets.yaml"):
         with open(path, "r") as file:
@@ -43,26 +43,26 @@ class LichessApiHandler(hass.Hass):
         return secrets.get('chessboard_secret_key')
 
     def game_id_changed(self, new):
-        if new and new != self.__class__._current_game_id:
-            self.log(f"Game ID changed: {self.__class__._current_game_id} -> {new}")
-            self.__class__._current_game_id = new
+        if new and new != self._current_game_id:
+            self.log(f"Game ID changed: {self._current_game_id} -> {new}")
+            self._current_game_id = new
             self.stream_game()
 
     def api_call_changed(self, entity, attribute, old, new, kwargs):
-        if (new and new != IDLE_GAME_ID and new != UNAVAILABLE_STATE and new != UNKNOWN_STATE  and new != EMPTY_STRING):
+        if (new and new != IDLE_GAME_ID and new != UNAVAILABLE_STATE and new != UNKNOWN_STATE  and new != EMPTY_STRING):            
             self.lichess_api_call(new)
 
     def token_changed_main(self, new):
         if new and new != UNAVAILABLE_STATE and new != UNKNOWN_STATE and new != EMPTY_STRING:
             new_decrypted = self.decrypt_message(new)
-            if (new_decrypted != self.__class__._current_token_main):
-                self.log(f"Token changed (main): {self.__class__._current_token_main} -> {new_decrypted}")
-                self.__class__._current_token_main = new_decrypted
-                if (self.__class__._current_token_main != IDLE_LICHESS_TOKEN):
-                    session_main = berserk.TokenSession(self.__class__._current_token_main)
-                    self.__class__._client_main = berserk.Client(session_main)
+            if (new_decrypted != self._current_token_main):
+                self.log(f"Token changed (main): {self._current_token_main} -> {new_decrypted}")
+                self._current_token_main = new_decrypted
+                if (self._current_token_main != IDLE_LICHESS_TOKEN):
+                    session_main = berserk.TokenSession(self._current_token_main)
+                    self._client_main = berserk.Client(session_main)
                 else:
-                    self.__class__._client_main = EMPTY_STRING
+                    self._client_main = EMPTY_STRING
         else:
             if new is None or new == UNAVAILABLE_STATE or new == UNKNOWN_STATE: 
                 self.log("Not allowed token (main): {}".format(new))
@@ -70,31 +70,31 @@ class LichessApiHandler(hass.Hass):
     def token_changed_opponent(self, new):
         if new and new != UNAVAILABLE_STATE and new != UNKNOWN_STATE and new != EMPTY_STRING:
             new_decrypted = self.decrypt_message(new)
-            if (new_decrypted != self.__class__._current_token_opponent):
-                self.log(f"Token changed (opponent): {self.__class__._current_token_opponent} -> {new_decrypted}")
-                self.__class__._current_token_opponent = new_decrypted
-                if (self.__class__._client_opponent != IDLE_LICHESS_TOKEN):
-                    session_opponent = berserk.TokenSession(self.__class__._current_token_opponent)
-                    self.__class__._client_opponent = berserk.Client(session_opponent)
+            if (new_decrypted != self._current_token_opponent):
+                self.log(f"Token changed (opponent): {self._current_token_opponent} -> {new_decrypted}")
+                self._current_token_opponent = new_decrypted
+                if (self._client_opponent != IDLE_LICHESS_TOKEN):
+                    session_opponent = berserk.TokenSession(self._current_token_opponent)
+                    self._client_opponent = berserk.Client(session_opponent)
                 else:
-                    self.__class__._client_opponent = EMPTY_STRING
+                    self._client_opponent = EMPTY_STRING
         else:
             if new is None or new == UNAVAILABLE_STATE or new == UNKNOWN_STATE: 
                 self.log("Not allowed token (opponent): {}".format(new))
 
     def stream_events_trigger(self, new):
         if new and new == ON_STATE:
-            self.__class__._stream_event = True
+            self._stream_event = True
         if new and (new == OFF_STATE or new == IDLE_STATE):
-            self.__class__._stream_event = False
-        if (self.__class__._stream_event):
+            self._stream_event = False
+        if (self._stream_event):
             self.stream_event()
 
     def check_event_over(self, dat):
         break_game = False
         if (dat.get('type') == 'gameFinish'):
             break_game = True
-        if (self.__class__._stream_event == False or self.__class__._current_token_main == UNAVAILABLE_STATE or self.__class__._current_token_main == UNKNOWN_STATE):
+        if (self._stream_event == False or self._current_token_main == UNAVAILABLE_STATE or self._current_token_main == UNKNOWN_STATE):
             break_game = True
         return break_game
 
@@ -106,7 +106,7 @@ class LichessApiHandler(hass.Hass):
             break_game = True
         if (dat.get('type') == 'opponentGone' and dat.get('gone') == True and dat.get('claimWinInSeconds') == 0):
             break_game = True
-        if (self.__class__._current_game_id == IDLE_GAME_ID):
+        if (self._current_game_id == IDLE_GAME_ID):
             break_game = True
         return break_game
 
@@ -128,7 +128,7 @@ class LichessApiHandler(hass.Hass):
             try:
                 # Convert hex to bytes
                 encrypted_bytes = bytes.fromhex(hex_string)
-                decrypted = ''.join(chr(b ^ ord(self.__class__._current_secret_key[i % len(self.__class__._current_secret_key)])) for i, b in enumerate(encrypted_bytes))
+                decrypted = ''.join(chr(b ^ ord(self._current_secret_key[i % len(self._current_secret_key)])) for i, b in enumerate(encrypted_bytes))
             except ValueError as e:
                 self.log("Not valid hex-string): {}".format(hex_string))
                 self.log(f"Error: {e}")
@@ -138,6 +138,8 @@ class LichessApiHandler(hass.Hass):
             # Convert JSON string to Python dictionary
             json_data = json.loads(new)
             call_type = json_data.get('type', None)
+
+            self.log("Type of API-call: " + call_type + "-> " + json.dumps(json_data))
 
             if (json_data and call_type):
                 ######################################
@@ -154,8 +156,8 @@ class LichessApiHandler(hass.Hass):
                 ######################################
                 ##### token only #####################
                 ######################################
-                valid_token   = self.__class__._current_token_main != EMPTY_STRING and self.__class__._current_token_main != UNAVAILABLE_STATE and self.__class__._current_token_main != UNKNOWN_STATE
-                valid_game_id = self.__class__._current_game_id != IDLE_GAME_ID and self.__class__._current_game_id != UNAVAILABLE_STATE and self.__class__._current_game_id != UNKNOWN_STATE
+                valid_token   = self._current_token_main != EMPTY_STRING and self._current_token_main != UNAVAILABLE_STATE and self._current_token_main != UNKNOWN_STATE
+                valid_game_id = self._current_game_id != IDLE_GAME_ID and self._current_game_id != UNAVAILABLE_STATE and self._current_game_id != UNKNOWN_STATE
 
                 if valid_token and not valid_game_id: 
                     # ------------------------------------
@@ -178,7 +180,7 @@ class LichessApiHandler(hass.Hass):
                         # we create a seek
                         if (json_data.get('opponentname') == 'random'): 
                             self.log(f"Seek new game ({json_data.get('time_m', 15)}+{json_data.get('increment', 0)})")
-                            self.__class__._client_main.board.seek(
+                            self._client_main.board.seek(
                                 time=json_data.get('time_m', 15),
                                 increment=json_data.get('increment', 0),
                                 rated=json_data.get('rated', False),
@@ -192,7 +194,7 @@ class LichessApiHandler(hass.Hass):
                             if (level == 0): 
                                 if (json_data.get('otb') == 'yes'):
                                     # challenge a friend by name otb                       
-                                    game_data = self.__class__._client_main.challenges.create(
+                                    game_data = self._client_main.challenges.create(
                                         username = username,
                                         rated = json_data.get('rated', False), 
                                         clock_limit = json_data.get('time_s', 600), 
@@ -202,7 +204,7 @@ class LichessApiHandler(hass.Hass):
                                     )
                                     # accept challenge by the firend otb and start the stream
                                     if (len(game_data["id"])==8):
-                                        self.__class__._client_opponent.challenges.accept(game_data["id"])
+                                        self._client_opponent.challenges.accept(game_data["id"])
                                         game_id = game_data["id"]
                                         self.game_id_changed(game_id)
                                     else:
@@ -211,7 +213,7 @@ class LichessApiHandler(hass.Hass):
                                
                                 else:
                                     # challenge a fried by name online                       
-                                    game_data = self.__class__._client_main.challenges.create(
+                                    game_data = self._client_main.challenges.create(
                                         username = username, 
                                         rated = json_data.get('rated', False), 
                                         clock_limit = json_data.get('time_s', 600), 
@@ -224,7 +226,7 @@ class LichessApiHandler(hass.Hass):
                                         game_id = ""                   
                             else:
                                 # challenge AI
-                                game_data = self.__class__._client_main.challenges.create_ai(
+                                game_data = self._client_main.challenges.create_ai(
                                     level = level,
                                     clock_limit = json_data.get('time_s', 600), 
                                     clock_increment =  json_data.get('increment', 0), 
@@ -270,7 +272,7 @@ class LichessApiHandler(hass.Hass):
                     if (call_type == 'withdrawTornament' and json_data.get('id')):
               
                         self.log(call_type + ": " + json_data.get('id'))
-                        self.__class__._client_main.tournaments.withdraw_arena(json_data.get('id'))
+                        self._client_main.tournaments.withdraw_arena(json_data.get('id'))
 
                     # -----------------------------------------------------
                     ################# joinTournamentByName ################
@@ -278,7 +280,7 @@ class LichessApiHandler(hass.Hass):
                     if (call_type == 'joinTournamentByName' and json_data.get('tournamentName')):
                           
                         self.log(call_type + ": " + json_data.get('tournamentName'))
-                        all_tournaments = self.__class__._client_main.tournaments.get()
+                        all_tournaments = self._client_main.tournaments.get()
 
                         # Loop through each item in the "in" list
                         starts_in = '-'
@@ -296,7 +298,7 @@ class LichessApiHandler(hass.Hass):
                         if len(tournament_id) == 8:
                             # try to join
                             self.log("Joining arena tournament: " + tournament_id)
-                            self.__class__._client_main.tournaments.join_arena(tournament_id = tournament_id, should_pair_immediately = True)
+                            self._client_main.tournaments.join_arena(tournament_id = tournament_id, should_pair_immediately = True)
                             data = {
                                 "type": "tournamentJoinedByName",
                                 "id": tournament_id,
@@ -326,7 +328,7 @@ class LichessApiHandler(hass.Hass):
 
                             # try to join
                             self.log(call_type + ": " + tournament_id)
-                            self.__class__._client_main.tournaments.join_arena(tournament_id = tournament_id, should_pair_immediately = True)                            
+                            self._client_main.tournaments.join_arena(tournament_id = tournament_id, should_pair_immediately = True)                            
                             data = {
                                 "type": "tournamentJoinedById",
                                 "id": tournament_id,
@@ -351,7 +353,7 @@ class LichessApiHandler(hass.Hass):
                     if (call_type == 'getAccountInfoMain'):
                           
                         # try to join                        
-                        account_info = self.__class__._client_main.account.get()
+                        account_info = self._client_main.account.get()
                         self.log(call_type + ": " + account_info["username"])
                         data = {
                             "type": "accountInfoMain",
@@ -370,13 +372,13 @@ class LichessApiHandler(hass.Hass):
                     if (call_type == 'abortRunningGames'):
                         # try to join
                         self.log(call_type)
-                        my_games = self.__class__._client_main.games.get_ongoing()
+                        my_games = self._client_main.games.get_ongoing()
                         if (len(my_games) > 0):
                             self.log(f"Number of running games: {len(my_games)}")
                             for game in my_games:
                                 # try to abort the game
                                 self.log("Aborting: " + game["id"])
-                                self.__class__._client_main.board.abort_game(game_id = game["id"])
+                                self._client_main.board.abort_game(game_id = game["id"])
                         
 
                 ######################################
@@ -389,11 +391,11 @@ class LichessApiHandler(hass.Hass):
                     if (call_type in { 'abort', 'resign', 'claim-victory'}):   
                         self.log(call_type)
                         if (call_type == 'abort'):
-                            self.__class__._client_main.board.abort_game(game_id = self.__class__._current_game_id)
+                            self._client_main.board.abort_game(game_id = self._current_game_id)
                         if (call_type == 'resign'):
-                            self.__class__._client_main.board.resign_game(game_id = self.__class__._current_game_id)
+                            self._client_main.board.resign_game(game_id = self._current_game_id)
                         if (call_type == 'claim-victory'):
-                            self.__class__._client_main.board.claim_victory(game_id = self.__class__._current_game_id)
+                            self._client_main.board.claim_victory(game_id = self._current_game_id)
 
 
                     ####################################
@@ -404,16 +406,16 @@ class LichessApiHandler(hass.Hass):
                     if (call_type in {'makeMove', 'draw', 'takeback', 'writeChatMessage' }):
                         if (call_type == 'makeMove'):                             
                             self.log(call_type + ": " + json_data.get('move'))    
-                            self.__class__._client_main.board.make_move(game_id = self.__class__._current_game_id, move = json_data.get('move'))
+                            self._client_main.board.make_move(game_id = self._current_game_id, move = json_data.get('move'))
                         if (call_type == 'draw'):
                             self.log(call_type + " accept " + str(json_data.get('parameter')))
-                            self.__class__._client_main.board.handle_draw_offer(game_id = self.__class__._current_game_id, accept = json_data.get('parameter') )
+                            self._client_main.board.handle_draw_offer(game_id = self._current_game_id, accept = json_data.get('parameter') )
                         if (call_type == 'takeback'):
                             self.log(call_type + " accept " + str(json_data.get('parameter')))
-                            self.__class__._client_main.board.handle_takeback_offer(game_id = self.__class__._current_game_id, accept = json_data.get('parameter') )                 
+                            self._client_main.board.handle_takeback_offer(game_id = self._current_game_id, accept = json_data.get('parameter') )                 
                         if (call_type == 'writeChatMessage'):
                             self.log(call_type)
-                            self.__class__._client_main.board.post_message(game_id = self.__class__._current_game_id, text = json_data.get('text') ) 
+                            self._client_main.board.post_message(game_id = self._current_game_id, text = json_data.get('text') ) 
 
                     ####################################
                     ######### OPPONENTS CALLs #######                           
@@ -421,13 +423,13 @@ class LichessApiHandler(hass.Hass):
                     if (call_type in {'makeMoveOpponent', 'resignOpponent', 'drawOpponent'}):   
                         if (call_type == 'makeMoveOpponent'):
                             self.log(call_type + ": " + json_data.get('move'))    
-                            self.__class__._client_opponent.board.make_move(game_id = self.__class__._current_game_id, move = json_data.get('move'))                         
+                            self._client_opponent.board.make_move(game_id = self._current_game_id, move = json_data.get('move'))                         
                         if (call_type == 'resignOpponent'):
                             self.log(call_type)
-                            self.__class__._client_opponent.board.resign_game(game_id = self.__class__._current_game_id)
+                            self._client_opponent.board.resign_game(game_id = self._current_game_id)
                         if (call_type == 'drawOpponent'):
                             self.log(call_type + " accept " + str(json_data.get('parameter')))
-                            self.__class__._client_opponent.board.handle_draw_offer(game_id = self.__class__._current_game_id, accept = json_data.get('parameter') )
+                            self._client_opponent.board.handle_draw_offer(game_id = self._current_game_id, accept = json_data.get('parameter') )
 
     def reduce_response_board(self, dat):
         
@@ -447,7 +449,7 @@ class LichessApiHandler(hass.Hass):
                 "bback": int(dat.get("btakeback", False)),
                 "n": int(len(dat.get("moves", "").split())) if dat.get("moves") else -1,
                 "last": dat.get("moves", "").split()[-1] if dat.get("moves") else "",
-                "id" : self.__class__._current_game_id
+                "id" : self._current_game_id
             } 
 
         # gameFull (we try to short the json, due to limit of 255 characters for HA sensors)
@@ -465,7 +467,7 @@ class LichessApiHandler(hass.Hass):
                 "wback": int(dat.get('state', {}).get("wtakeback", False)),
                 "bback": int(dat.get('state', {}).get("btakeback", False)),
                 "last": dat.get('state', {}).get("moves", "").split()[-1] if dat.get("moves") else "",
-                "id" : self.__class__._current_game_id
+                "id" : self._current_game_id
             }
 
         # chatline: cut the message, that we dont exeed 255 characters
@@ -473,7 +475,7 @@ class LichessApiHandler(hass.Hass):
             reduced_data = {
                 "type": "chatLine",
                 "text": dat.get("text", ""),
-                "id" : self.__class__._current_game_id
+                "id" : self._current_game_id
             }
             # calulates: max-length - base length
             max_text_length = 255 - len(json.dumps({"type": "chatLine", "id": "12345678", "text": ""}))
@@ -484,7 +486,7 @@ class LichessApiHandler(hass.Hass):
         #opponent gone
         if (dat.get('type') == 'opponentGone'):
             # we extend by ID
-            reduced_data["id"] = self.__class__._current_game_id
+            reduced_data["id"] = self._current_game_id
 
         return reduced_data
     
@@ -532,29 +534,29 @@ class LichessApiHandler(hass.Hass):
     
     def handle_incoming_events(self):
         
-        if (self.__class__._stream_event == True and self.__class__._current_token_main != UNAVAILABLE_STATE and self.__class__._current_token_main != UNKNOWN_STATE and self.__class__._current_token_main != IDLE_LICHESS_TOKEN):
+        if (self._stream_event == True and self._current_token_main != UNAVAILABLE_STATE and self._current_token_main != UNKNOWN_STATE and self._current_token_main != IDLE_LICHESS_TOKEN):
 
-            self.log(f"Starting the stream (event): {self.__class__._current_token_main}")
+            self.log(f"Starting the stream (event): {self._current_token_main}")
             self._stop_event.clear()
 
             # open the stream for whole chess game
-            for event in self.__class__._client_main.board.stream_incoming_events():
+            for event in self._client_main.board.stream_incoming_events():
                 if event:
                     reduced_data = json.dumps(self.reduce_response_event(event))
                     self.set_state(LICHESS_RESPONSE_OUT_SENSOR, state=reduced_data)
                     
                     # check if we have to abort the game
                     if (self.check_event_over(event)==True):
-                        self.log(f"Terminating the stream (event): {self.__class__._current_token_main}")
+                        self.log(f"Terminating the stream (event): {self._current_token_main}")
                         # close the stream
                         break
                     if self._stop_event.is_set():
                         self.log("Stopping the stream (event)...")
                         break
             # reset flags
-            if (self.__class__._stream_event == True):
+            if (self._stream_event == True):
                 self.stream_events_trigger(IDLE_STATE)
-            self.__class__._stream_event = False
+            self._stream_event = False
             off_json = {
                         "type": "streamEvents",
                         "state": IDLE_STATE
@@ -568,11 +570,11 @@ class LichessApiHandler(hass.Hass):
 
 
     def handle_game_state_main(self):
-        valid_game_id = self.__class__._current_game_id != IDLE_GAME_ID and self.__class__._current_game_id != UNAVAILABLE_STATE and self.__class__._current_game_id != UNKNOWN_STATE
-        valid_token =   self.__class__._current_token_main != IDLE_LICHESS_TOKEN and self.__class__._current_token_main != UNAVAILABLE_STATE and self.__class__._current_token_main != UNKNOWN_STATE
+        valid_game_id = self._current_game_id != IDLE_GAME_ID and self._current_game_id != UNAVAILABLE_STATE and self._current_game_id != UNKNOWN_STATE
+        valid_token =   self._current_token_main != IDLE_LICHESS_TOKEN and self._current_token_main != UNAVAILABLE_STATE and self._current_token_main != UNKNOWN_STATE
         if (valid_game_id and valid_token):            
-            self.log(f"Starting the stream (main): {self.__class__._current_game_id}")
-            for line in self.__class__._client_main.board.stream_game_state(self.__class__._current_game_id):
+            self.log(f"Starting the stream (main): {self._current_game_id}")
+            for line in self._client_main.board.stream_game_state(self._current_game_id):
                 if line: # valid dic
                     reduced_data = json.dumps(self.reduce_response_board(line))
                     # let ha know about the move
@@ -580,14 +582,14 @@ class LichessApiHandler(hass.Hass):
                     
                     # check if we have to abort the game
                     if self.check_game_over(line):
-                        self.log(f"Terminating the stream (main): {self.__class__._current_game_id}")
+                        self.log(f"Terminating the stream (main): {self._current_game_id}")
                         # close the stream
                         break
                     if self._stop_event.is_set():
-                        self.log(f"Stopping the stream (main): {self.__class__._current_game_id}")
+                        self.log(f"Stopping the stream (main): {self._current_game_id}")
                         break
             # close the stream
-            if (len(self.__class__._current_game_id)==8):
+            if (len(self._current_game_id)==8):
                 self.game_id_changed(IDLE_GAME_ID) 
             # reset stream for board on HA (esphome needs to do it as well)
             off_json = {
@@ -601,19 +603,19 @@ class LichessApiHandler(hass.Hass):
 
     def handle_game_state_opponent(self):
         # do nothing, just keep stream alive
-        valid_game_id = self.__class__._current_game_id != IDLE_GAME_ID and self.__class__._current_game_id != UNAVAILABLE_STATE and self.__class__._current_game_id != UNKNOWN_STATE
-        valid_token =   self.__class__._current_token_opponent != IDLE_LICHESS_TOKEN and self.__class__._current_token_opponent != UNAVAILABLE_STATE and self.__class__._current_token_opponent != UNKNOWN_STATE
+        valid_game_id = self._current_game_id != IDLE_GAME_ID and self._current_game_id != UNAVAILABLE_STATE and self._current_game_id != UNKNOWN_STATE
+        valid_token =   self._current_token_opponent != IDLE_LICHESS_TOKEN and self._current_token_opponent != UNAVAILABLE_STATE and self._current_token_opponent != UNKNOWN_STATE
         if (valid_game_id and valid_token):
-            self.log(f"Starting the stream (opponent): {self.__class__._current_game_id}")
-            for line in self.__class__._client_opponent.board.stream_game_state(self.__class__._current_game_id):
+            self.log(f"Starting the stream (opponent): {self._current_game_id}")
+            for line in self._client_opponent.board.stream_game_state(self._current_game_id):
                 if line: # valid dic
                     # check if we have to abort the game
                     if self.check_game_over(line):
-                        self.log(f"Terminating the stream (opponent): {self.__class__._current_game_id}")
+                        self.log(f"Terminating the stream (opponent): {self._current_game_id}")
                         # close the stream
                         break
                     if self._stop_event.is_set():
-                        self.log(f"Stopping the stream (opponent): {self.__class__._current_game_id}")
+                        self.log(f"Stopping the stream (opponent): {self._current_game_id}")
                         break
             # reset stream for board on HA (esphome needs to do it as well)
             off_json = {
@@ -635,14 +637,14 @@ class LichessApiHandler(hass.Hass):
         t_board_main.start()
         t_board_opponent.start()
 
-    # function to stream game
+    # function to stream event
     def stream_event(self):
         # create thread
         t_event_main = threading.Thread(target=self.handle_incoming_events)
         # Start threads
         t_event_main.start()                            
 
-    # function to stream game
+    # function to call game / event undependent api calls
     def lichess_api_call(self, new):
         # create thread
         t_api_call = threading.Thread(target=self.handle_call_trigger, args=(new,))
@@ -650,5 +652,6 @@ class LichessApiHandler(hass.Hass):
         t_api_call.start()
         # we want to wait the call is finished
         t_api_call.join()
+
 
 
