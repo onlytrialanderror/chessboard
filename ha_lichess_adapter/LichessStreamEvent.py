@@ -1,188 +1,174 @@
 import appdaemon.plugins.hass.hassapi as hass
+import appdaemon.plugins.mqtt.mqttapi as mqtt
+
+import lichess_helpers as lh
+
 import berserk
 import json
-import yaml
+import threading
 
 
 UNAVAILABLE_STATE = "unavailable"
 UNKNOWN_STATE = "unknown"
-EMPTY_STRING = ''
-IDLE_GAME_ID = "idle"
-IDLE_LICHESS_TOKEN = 'idle'
-ON_STATE = "ON"
-OFF_STATE = "OFF"
-IDLE_STATE = 'idle'
+EMPTY_STRING = ""
+IDLE_LICHESS_TOKEN = "idle"
+IDLE_STATE = "idle"
+STATUS_OFFLINE = "offline"
+STATUS_ONLINE = "online"
 
-LICHESS_STREAM_PARAMETER_IN_SENSOR = "sensor.chessboard_lichess_stream_event"
-LICHESS_RESPONSE_OUT_SENSOR = 'sensor.chessboard_lichess_response_out'
-LICHESS_TOKEN_MAIN_SENSOR = 'sensor.chessboard_lichess_api_token_main'
-LICHESS_TOKEN_OPPONENT_SENSOR = 'sensor.chessboard_lichess_api_token_opponent'
+# MQTT topics
+MQTT_RESPONSE_TOPIC = "chessboard/response"
+MQTT_TOKEN_MAIN_TOPIC = "chessboard/token_main"
+MQTT_STATUS_TOPIC = "chessboard/status"
 
-class LichessStreamEvent(hass.Hass):
+MQTT_NAMESPACE = "mqtt" 
 
-    _current_token_main = IDLE_LICHESS_TOKEN
-    _current_token_opponent = IDLE_LICHESS_TOKEN
-    _current_secret_key = IDLE_LICHESS_TOKEN
+CLASS_NAME = "LichessStreamEvent"
+
+
+class LichessStreamEvent(hass.Hass, mqtt.Mqtt):
+
+
     _client_main = EMPTY_STRING
-    _session_main = EMPTY_STRING
-    _client_opponent = EMPTY_STRING
-    _session_opponent = EMPTY_STRING
-    _stream_event = False
+    _current_secret_key = EMPTY_STRING
 
 
     def initialize(self):
-        self.log("AppDaemon LichessStreamEvent script initialized!")
-        self.__class__._current_secret_key = self.get_secret()
-        self.listen_state(self.parameter_in_changed, LICHESS_STREAM_PARAMETER_IN_SENSOR)
-        self.listen_state(self.token_changed_main, LICHESS_TOKEN_MAIN_SENSOR)
-        self.listen_state(self.token_changed_opponent, LICHESS_TOKEN_OPPONENT_SENSOR)
-        # we are ready to go
-        self.log(f"Waiting for new stream (event)")
+        self.log(f"AppDaemon {CLASS_NAME} script initialized!")
+        self._current_secret_key = lh.get_secret()
 
-    def get_secret(self, path="/config/secrets.yaml"):
-        with open(path, "r") as file:
-            secrets = yaml.safe_load(file)
-        return secrets.get('chessboard_secret_key')
+        # current runtime state (protected by self._lock where needed)
+        self._token_main = IDLE_LICHESS_TOKEN
 
-    def parameter_in_changed(self, entity, attribute, old, new, kwargs):
-        if new and new != old and new != UNAVAILABLE_STATE and new != UNKNOWN_STATE:
-            # convert to json - object
-            new_data = json.loads(new)
-            if new_data: # valid json
-                if (new_data.get('type') == 'streamEvents' and new_data.get('state')):
-                    self.stream_events_trigger(new_data.get('state'))
+        # Keep references to sessions so we can close them on token change
+        self._session_main = None
+
+        # single-threaded API worker to serialize Lichess calls
+        self._stream_worker = None      
+
+        # --- Subscriptions ---
+
+        # Tokens in
+        self.mqtt_subscribe(MQTT_TOKEN_MAIN_TOPIC, namespace=MQTT_NAMESPACE)
+        self.listen_event(self._on_mqtt_token_main, "MQTT_MESSAGE",
+                          topic=MQTT_TOKEN_MAIN_TOPIC, namespace=MQTT_NAMESPACE)
 
 
-    def token_changed_main(self, entity, attribute, old, new, kwargs):
-        if new  and new != UNAVAILABLE_STATE and new != UNKNOWN_STATE and new != EMPTY_STRING and self.decrypt_message(new) != self.__class__._current_token_main:
-            new_decrypted = self.decrypt_message(new)
-            self.log(f"Main token changed (stream request main): {self.__class__._current_token_main} -> {new_decrypted}")
-            self.__class__._current_token_main = new_decrypted
-            self.__class__._session_main = berserk.TokenSession(self.__class__._current_token_main)
-            self.__class__._client_main = berserk.Client(self.__class__._session_main)
-        else:
-            if new is None or new == UNAVAILABLE_STATE or new == UNKNOWN_STATE: 
-                self.log("Not allowed token (stream request main): {}".format(new))
+        # Status in
+        self.mqtt_subscribe(MQTT_STATUS_TOPIC, namespace=MQTT_NAMESPACE)
+        self.listen_event(self._on_mqtt_status, "MQTT_MESSAGE",
+                          topic=MQTT_STATUS_TOPIC, namespace=MQTT_NAMESPACE)
 
-    def token_changed_opponent(self, entity, attribute, old, new, kwargs):
-        if new  and new != UNAVAILABLE_STATE and new != UNKNOWN_STATE and new != EMPTY_STRING and self.decrypt_message(new) != self.__class__._current_token_opponent:
-            new_decrypted = self.decrypt_message(new)
-            self.log(f"Opponent token changed (stream main request for opponent): {self.__class__._current_token_opponent} -> {new_decrypted}")
-            self.__class__._current_token_opponent = new_decrypted
-            self.__class__._session_opponent = berserk.TokenSession(self.__class__._current_token_opponent)
-            self.__class__._client_opponent = berserk.Client(self.__class__._session_opponent)
-        else:
-            if new is None or new == UNAVAILABLE_STATE or new == UNKNOWN_STATE: 
-                self.log("Not allowed token (stream request opponent): {}".format(new))
+        self.log(f"MQTT ready {CLASS_NAME}. response='{MQTT_RESPONSE_TOPIC}'")
+        self.log(f"MQTT inputs {CLASS_NAME}: , token_main='{MQTT_TOKEN_MAIN_TOPIC}'")
+        self.log(f"Initialization complete for {CLASS_NAME}")
 
-    def stream_events_trigger(self, new):
-        if new and new == ON_STATE:
-            self.__class__._stream_event = True
-        if new and (new == OFF_STATE or new == IDLE_STATE):
-            self.__class__._stream_event = False
-        if (self.__class__._stream_event == True):
-            self.handle_incoming_events()
-
-
-    def check_event_over(self, dat):
-        break_game = False
-        if (dat.get('type') == 'gameFinish'):
-            break_game = True
-        if (self.__class__._stream_event == False or self.__class__._current_token_main == UNAVAILABLE_STATE or self.__class__._current_token_main == UNKNOWN_STATE):
-            break_game = True
-        return break_game
-
-    def decrypt_message(self, hex_string):
-        decrypted = hex_string
-        if hex_string is not None and hex_string != UNAVAILABLE_STATE and hex_string != UNKNOWN_STATE and hex_string != EMPTY_STRING and hex_string != IDLE_LICHESS_TOKEN:
-            try:
-                # Convert hex to bytes
-                encrypted_bytes = bytes.fromhex(hex_string)
-                decrypted = ''.join(chr(b ^ ord(self.__class__._current_secret_key[i % len(self.__class__._current_secret_key)])) for i, b in enumerate(encrypted_bytes))
-            except ValueError as e:
-                self.log("Not valid hex-string): {}".format(hex_string))
-                self.log(f"Error: {e}")
-        return decrypted
-
-    def reduce_response_event(self, dat):
         
-        reduced_data = dat
 
-        # gameState (we try to short the json, due to limit of 255 characters for HA sensors)
-        if (dat.get('type') == 'gameStart'):
-            reduced_data = {
-                "type": dat.get("type", ""),
-                "gameId": dat.get('game', {}).get("gameId", ""),
-                "color": dat.get('game', {}).get("color", ""),
-                "isMyTurn": dat.get('game', {}).get("isMyTurn", False),
-                "lastMove": dat.get('game', {}).get("lastMove", ""),
-                "opponent": "{}: {}".format(dat.get('game', {}).get("opponent", {}).get("username", "player"), dat.get('game', {}).get("opponent", {}).get("rating", 0)),
-                "rated": dat.get('game', {}).get("rated", False),
-                "speed": dat.get('game', {}).get("speed", ""),
-                "secondsLeft": dat.get('game', {}).get("secondsLeft", 0)
-            } 
-        else :
-            # gameFull (we try to short the json, due to limit of 255 characters for HA sensors)
-            if (dat.get('type') == 'gameFinish'):
-                reduced_data = {
-                    "type": dat.get("type", ""),
-                    "gameId": dat.get('game', {}).get("gameId", ""),
-                    "color": dat.get('game', {}).get("color", ""),
-                    "isMyTurn": dat.get('game', {}).get("isMyTurn", False),
-                    "lastMove": dat.get('game', {}).get("lastMove", ""),
-                    "opponent": "{}: {}".format(dat.get('game', {}).get("opponent", {}).get("username", "player"), dat.get('game', {}).get("opponent", {}).get("rating", 0)),
-                    "rated": dat.get('game', {}).get("rated", False),
-                    "speed": dat.get('game', {}).get("speed", ""),
-                    "status": dat.get('game', {}).get('status', {}).get("name", ""),
-                    "win": {"white": "1-0", "black": "0-1"}.get(dat.get('game', {}).get("winner", ""), "")
-                }
-            else :
-                # challenge
-                if (dat.get('type') == 'challenge' or dat.get('type') == 'challengeCanceled' or dat.get('type') == 'challengeDeclined'):
-                    reduced_data = {
-                        "type": dat.get("type", ""),
-                        "id": dat.get('challenge', {}).get("id", ""),
-                        "status": dat.get('challenge', {}).get("status", "")
-                    }
-        return reduced_data
+    # ---------- MQTT helpers ----------
+
+    def publish_response(self, payload: str):
+        """Publish response JSON string to chessboard/response."""
+        try:
+            self.mqtt_publish(MQTT_RESPONSE_TOPIC, payload=payload, retain=False, qos=0, namespace=MQTT_NAMESPACE)
+        except Exception as e:
+            self.log(f"Failed to publish MQTT response in {CLASS_NAME}: {e}")
+
+    # ---------- MQTT handlers ----------
+
+
+    def _on_mqtt_token_main(self, event_name, data, kwargs):
+        payload = lh.payload_to_str(data.get("payload"))
+        if payload is None:
+            return
+        # token_changed_main() already handles unavailable/unknown/empty checks + decrypt
+        self.token_changed_main(payload)
+
+    def _on_mqtt_status(self, event_name, data, kwargs):
+        payload = lh.payload_to_str(data.get("payload"))
+        if payload is None or payload in {STATUS_OFFLINE}:
+            self.log(f"Chessboard is oflline at {CLASS_NAME}, stopping Stream worker")
+            self._stop_stream_worker()
+        else:
+            self.log(f"Chessboard is online at {CLASS_NAME}, starting Stream worker")
+            self._run_stream_worker()
+
+    def _run_stream_worker(self):
+        if self._token_main !=  IDLE_LICHESS_TOKEN:
+            self.log(f"Stream worker started at {CLASS_NAME}") 
+            self._stream_worker = threading.Thread(
+                target=self.handle_incoming_events,
+                args=(self._token_main,),
+                daemon=True
+            )
+            self._stream_worker.start()
+
+    def _stop_stream_worker(self):
+        if self._stream_worker and self._stream_worker.is_alive():
+            self.log(f"Stopping Stream worker at {CLASS_NAME}")
+            # we reset the token to idle to stop the stream
+            self._token_main =  IDLE_LICHESS_TOKEN
+            self._stream_worker.join()
+            self.log(f"Stream worker stopped at {CLASS_NAME}")
+
+    # ---------- Existing logic (unchanged) ----------
+
+    def token_changed_main(self, new):
+        if not new or new in {UNAVAILABLE_STATE, UNKNOWN_STATE, EMPTY_STRING}:
+            if new in {UNAVAILABLE_STATE, UNKNOWN_STATE}:
+                self.log(f"Not allowed token (main) in {CLASS_NAME}: {new}")
+            return
+
+        new_decrypted = lh.decrypt_message(self._current_secret_key, new)
+
+        if new_decrypted == self._token_main:
+            return
+        old = self._token_main
+        self._token_main = new_decrypted
+
+        self.log(f"Token changed (main) in {CLASS_NAME}: {old} -> {new_decrypted}")
+
+        # Replace session/client
+        try:
+            if self._session_main is not None:
+                self._session_main.close()
+        except Exception:
+            pass
+        self._session_main = None
+
+        if new_decrypted != IDLE_LICHESS_TOKEN:
+            self._session_main = berserk.TokenSession(new_decrypted)
+            self._client_main = berserk.Client(self._session_main)   
+            self._run_stream_worker()         
+        else:
+            self._client_main = EMPTY_STRING
+            self._stop_stream_worker()
+
+
     
-    def handle_incoming_events(self):
+    def handle_incoming_events(self, token_init=IDLE_LICHESS_TOKEN):
         
-        if (self.__class__._stream_event == True and self.__class__._current_token_main != UNAVAILABLE_STATE and self.__class__._current_token_main != UNKNOWN_STATE):
+        if (token_init and token_init not in (IDLE_LICHESS_TOKEN, UNAVAILABLE_STATE, UNKNOWN_STATE)):
 
-            self.log(f"Starting the stream (event): {self.__class__._current_token_main}")
+            self.log(f"Starting the stream (event): {token_init}")
 
             # open the stream for whole chess game
-            for event in self.__class__._client_main.board.stream_incoming_events():
+            for event in self._client_main.board.stream_incoming_events():
                 if event:
-                    reduced_data = json.dumps(self.reduce_response_event(event))
-                    self.set_state(LICHESS_RESPONSE_OUT_SENSOR, state=reduced_data)
+                    self.log(f"Event: {event}")
+                    reduced_data = json.dumps(lh.reduce_response_event(event))
+                    self.publish_response(reduced_data)
                     
                     # check if we have to abort the game
-                    if (self.check_event_over(event)==True):
-                        self.log(f"Terminating the stream (event): {self.__class__._current_token_main}")
+                    if token_init != self._token_main:
+                        self.log(f"Terminating the stream (event): {token_init}")
                         # close the stream
                         break
                 else:
-                    if (self.__class__._stream_event == False or self.__class__._current_token_main == UNAVAILABLE_STATE or self.__class__._current_token_main == UNKNOWN_STATE):
-                        self.log(f"Terminating the stream without event (event): {self.__class__._current_token_main}")
+                    if token_init != self._token_main:
+                        self.log(f"Terminating the stream (event): {token_init}")
+                        # close the stream
                         break
-
-            # reset flags
-            self.__class__._stream_event = False
-            off_json = {
-                        "type": "streamEventsResponse",
-                        "state": IDLE_STATE
-                    }
-            off_json_str = json.dumps(off_json)
-            self.set_state(LICHESS_RESPONSE_OUT_SENSOR, state=off_json_str)
 
         else:
             self.log(f"Waiting for new stream (event)")
-
-
-
-
- 
-
-        

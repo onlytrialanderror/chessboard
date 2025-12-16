@@ -26,11 +26,6 @@ esp32:
 # Enable logging
 logger:
   level: ERROR
-#debug:
-#  update_interval: 5s
-
-api:
-  reboot_timeout: 0s
 
 ota:
   - platform: esphome
@@ -48,6 +43,13 @@ wifi:
 http_request:
   timeout: 10s
   verify_ssl: false 
+
+mqtt:
+  id: mqtt_client
+  discovery: true
+  broker: !secret mqtt_broker
+  username: !secret mqtt_user
+  password: !secret mqtt_password
 
 captive_portal:
 
@@ -88,6 +90,7 @@ substitutions:
   hall_sensor_intervall_game: 300ms 
   hall_sensor_intervall_idle: 500ms
   delay_before_adc_reading: '2' 
+  debug_sensor_hide: true
 
 i2c:
   sda: GPIO21
@@ -644,6 +647,17 @@ globals:
     type: bool
     initial_value: 'false'
 
+  - id: lichess_queue
+    type: std::deque<std::string>
+    restore_value: no
+    initial_value: 'std::deque<std::string>()'
+
+  - id: lichess_draining
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+
 # we updating all the time the values of hall sensors
 interval:
   - interval: $hall_sensor_intervall_game
@@ -899,8 +913,7 @@ graphical_display_menu:
             then:
               - lambda: |-
                   // force changed state, to be able to call the same request 
-                  id(perform_lichess_api_call).execute("GameMain", "idle"); 
-                  id(perform_lichess_api_call).execute("GameMain", "{\"type\": \"resign\"}");
+                  id(perform_lichess_api_call).execute("api_call", "{\"type\": \"resign\"}");
                   id(oled_show_page_clock).execute();                  
               - display_menu.hide:  my_menu 
         - type: command
@@ -909,8 +922,7 @@ graphical_display_menu:
             then:
               - lambda: |-
                   // force changed state, to be able to call the same request 
-                  id(perform_lichess_api_call).execute("GameOpponent", "idle"); 
-                  id(perform_lichess_api_call).execute("GameOpponent", "{\"type\": \"resignOpponent\"}");
+                  id(perform_lichess_api_call).execute("api_call", "{\"type\": \"resignOpponent\"}");
                   id(oled_show_page_clock).execute();
               - display_menu.hide:  my_menu 
         - type: command
@@ -919,10 +931,8 @@ graphical_display_menu:
             then:
               - lambda: |-
                   // force changed state, to be able to call the same request 
-                  id(perform_lichess_api_call).execute("GameMain", "idle"); 
-                  id(perform_lichess_api_call).execute("GameOpponent", "idle"); 
-                  id(perform_lichess_api_call).execute("GameMain", "{\"type\": \"draw\", \"parameter\": true}");
-                  id(perform_lichess_api_call).execute("GameOpponent", "{\"type\": \"drawOpponent\", \"parameter\": true}");
+                  id(perform_lichess_api_call).execute("api_call", "{\"type\": \"draw\", \"parameter\": true}");
+                  id(perform_lichess_api_call).execute("api_call", "{\"type\": \"drawOpponent\", \"parameter\": true}");
                   id(oled_show_page_clock).execute();
               - display_menu.hide:  my_menu 
         - type: command
@@ -931,8 +941,7 @@ graphical_display_menu:
             then:
               - lambda: |-
                   // force changed state, to be able to call the same request 
-                  id(perform_lichess_api_call).execute("GameMain", "idle"); 
-                  id(perform_lichess_api_call).execute("GameMain", "{\"type\": \"draw\", \"parameter\": true}");
+                  id(perform_lichess_api_call).execute("api_call", "{\"type\": \"draw\", \"parameter\": true}");
                   id(oled_show_page_clock).execute();
               - display_menu.hide:  my_menu 
         - type: command
@@ -941,8 +950,7 @@ graphical_display_menu:
             then:
               - lambda: |-
                   // force changed state, to be able to call the same request 
-                  id(perform_lichess_api_call).execute("GameMain", "idle"); 
-                  id(perform_lichess_api_call).execute("GameMain", "{\"type\": \"draw\", \"parameter\": false}");
+                  id(perform_lichess_api_call).execute("api_call", "{\"type\": \"draw\", \"parameter\": false}");
                   id(oled_show_page_clock).execute();
               - display_menu.hide:  my_menu 
         - type: command
@@ -951,8 +959,7 @@ graphical_display_menu:
             then:
               - lambda: |-
                   // force changed state, to be able to call the same request 
-                  id(perform_lichess_api_call).execute("GameMain", "idle"); 
-                  id(perform_lichess_api_call).execute("GameMain", "{\"type\": \"claim-victory\"}");
+                  id(perform_lichess_api_call).execute("api_call", "{\"type\": \"claim-victory\"}");
                   id(oled_show_page_clock).execute();
               - display_menu.hide:  my_menu 
 
@@ -961,8 +968,7 @@ graphical_display_menu:
           on_value:
             then:
               - lambda: |-
-                  id(perform_lichess_api_call).execute("GameMain", "idle"); 
-                  id(perform_lichess_api_call).execute("GameMain", "{\"type\": \"takeback\", \"parameter\": \"yes\"}");
+                  id(perform_lichess_api_call).execute("api_call", "{\"type\": \"takeback\", \"parameter\": \"yes\"}");
                   id(oled_show_page_clock).execute();
               - display_menu.hide:  my_menu 
         - type: command
@@ -971,8 +977,7 @@ graphical_display_menu:
             then:
               - lambda: |-
                   // force changed state, to be able to call the same request 
-                  id(perform_lichess_api_call).execute("GameMain", "idle"); 
-                  id(perform_lichess_api_call).execute("GameMain", "{\"type\": \"takeback\", \"parameter\": \"no\"}");
+                  id(perform_lichess_api_call).execute("api_call", "{\"type\": \"takeback\", \"parameter\": \"no\"}");
                   id(oled_show_page_clock).execute();
               - display_menu.hide:  my_menu 
         - type: command
@@ -981,8 +986,7 @@ graphical_display_menu:
             then:
               - lambda: |-
                   // force changed state, to be able to call the same request 
-                  id(perform_lichess_api_call).execute("GameMain", "idle"); 
-                  id(perform_lichess_api_call).execute("GameMain", "{\"type\": \"abort\"}");
+                  id(perform_lichess_api_call).execute("api_call", "{\"type\": \"abort\"}");
                   id(oled_show_page_clock).execute();
               - display_menu.hide:  my_menu 
         - type: command
@@ -1421,7 +1425,7 @@ select:
     on_value: 
       then:
         lambda: |-
-          id(update_lichess_token).execute(true);
+          id(update_lichess_token).execute();
     web_server:
       sorting_group_id: sorting_group_lichess
       sorting_weight: 1
@@ -1450,7 +1454,7 @@ select:
     on_value: 
       then:
         lambda: |-
-          id(update_lichess_token).execute(true);
+          id(update_lichess_token).execute();
     web_server:
       sorting_group_id: sorting_group_lichess
       sorting_weight: 3
@@ -1637,7 +1641,7 @@ sensor:
     id: median_duration_hall
     unit_of_measurement: "ms"
     update_interval: 3s
-    internal: false
+    internal: $debug_sensor_hide
     accuracy_decimals: 0
     web_server:
       sorting_group_id: sorting_group_system
@@ -1659,7 +1663,7 @@ sensor:
     unit_of_measurement: "ms"
     update_interval: 3s
     accuracy_decimals: 0
-    internal: false
+    internal: $debug_sensor_hide
     web_server:
       sorting_group_id: sorting_group_system
       sorting_weight: 9
@@ -1680,7 +1684,7 @@ sensor:
     unit_of_measurement: "V"
     accuracy_decimals: 2
     update_interval: 3s
-    internal: false
+    internal: $debug_sensor_hide
     web_server:
       sorting_group_id: sorting_group_system
       sorting_weight: 10
@@ -1702,7 +1706,7 @@ sensor:
     unit_of_measurement: "V"
     accuracy_decimals: 3
     update_interval: 3s
-    internal: false
+    internal: $debug_sensor_hide
     web_server:
       sorting_group_id: sorting_group_system
       sorting_weight: 11
@@ -1725,21 +1729,40 @@ sensor:
     unit_of_measurement: "V"
     accuracy_decimals: 3
     update_interval: 3s
-    internal: false
+    internal: $debug_sensor_hide
     web_server:
       sorting_group_id: sorting_group_system
       sorting_weight: 10
     lambda: |-
         return id(voltage_field_drift);
 
+
+
 text_sensor:
+
+  - platform: mqtt_subscribe
+    name: "Lichess response"
+    id: lichess_response
+    topic: chessboard/response
+    internal: true
+    on_value:
+      then:
+        - lambda: |-
+            // push every message into queue
+            id(lichess_queue).push_back(std::string(x.c_str()));
+
+            // start draining if not already draining
+            if (!id(lichess_draining)) {
+              id(lichess_draining) = true;
+              id(lichess_drain_queue).execute();
+            }
 
     # used just to define out-sensor for ha to be set as ha-input sensor
   - platform: template
     name: "Hall max deviation field"
     id: hall_max_deviation_field
     update_interval: 3s
-    internal: false
+    internal: $debug_sensor_hide
     web_server:
       sorting_group_id: sorting_group_system
       sorting_weight: 12
@@ -1758,72 +1781,14 @@ text_sensor:
           return max_deviation_field;
 
   - platform: template
-    name: "lichess_response_out"
-    id: lichess_response_dummy
-    update_interval: never
-    internal: false
-    web_server:
-      sorting_group_id: sorting_group_system
-      sorting_weight: 5
-
-  - platform: homeassistant
-    name: "Lichess Response"
-    id: lichess_response
-    entity_id: sensor.chessboard_lichess_response_out
-    internal: true   
-    on_value:
-      then:
-        - lambda: |-
-            id(lichess_handle_response).execute();
-    web_server:
-      sorting_group_id: sorting_group_system
-      sorting_weight: 4
-
-  - platform: template
-    name: "Lichess Api Call Main"
-    id: lichess_api_call_main
-    update_interval: never
-    web_server:
-      sorting_group_id: sorting_group_system
-      sorting_weight: 2
-
-  - platform: template
-    name: "Lichess Api Call Opponent"
-    id: lichess_api_call_opponent
-    update_interval: never
-    web_server:
-      sorting_group_id: sorting_group_system
-      sorting_weight: 2
-
-  - platform: template
-    name: "Lichess Api Token Main"
-    id: lichess_api_token_main
-    update_interval: never
-    web_server:
-      sorting_group_id: sorting_group_system
-      sorting_weight: 2
-
-  - platform: template
-    name: "Lichess Api Token Opponent"
-    id: lichess_api_token_opponent
-    update_interval: never
-    web_server:
-      sorting_group_id: sorting_group_system
-      sorting_weight: 2
-
-  - platform: template
-    name: "Lichess Stream Event"
-    id: lichess_stream_call_event
-    update_interval: never
-    web_server:
-      sorting_group_id: sorting_group_system
-      sorting_weight: 4
-
-  - platform: template
     name: "Lichess Game Id"
     id: lichess_game_id
     update_interval: never
     internal: False
+    on_value:
+      then:
+        - lambda: |-
+            id(perform_lichess_api_call).execute("game_id", x);
     web_server:
       sorting_group_id: sorting_group_lichess
       sorting_weight: 7
@@ -1833,6 +1798,10 @@ text_sensor:
     id: lichess_tournament_id
     internal: False
     update_interval: never
+    on_value:
+      then:
+        - lambda: |-
+            id(perform_lichess_api_call).execute("lichess_tournament_id", x);
     web_server:
       sorting_group_id: sorting_group_lichess
       sorting_weight: 12
@@ -1840,11 +1809,13 @@ text_sensor:
   - platform: template
     name: "Lichess Stream Events Flag"
     id: lichess_stream_events_flag
-    internal: False
+    internal: True
     on_value:
       then:
         - lambda: |-
-            id(perform_lichess_api_call).execute("Stream", "{\"type\": \"streamEvents\", \"state\": \"" + x + "\"}");
+            if (x == "ON") {
+              id(perform_lichess_api_call).execute("api_call", "{\"type\": \"streamEvents\", \"state\": \"" + x + "\"}");
+            }            
     update_interval: never
     web_server:
       sorting_group_id: sorting_group_system
@@ -2530,7 +2501,7 @@ script:
           id(n_queens_white) = 1;
           id(n_queens_black) = 1;   
           id(invalid_move_counter) = -1;   
-          id(update_lichess_token).execute(false);    
+          id(update_lichess_token).execute();    
           id(lichess_game_id).publish_state(std::string("idle"));
           id(current_move_uci_lichess) = "-";          
 
@@ -2970,7 +2941,7 @@ script:
               // reset current fen string
               id(fen_position_current_string) = "";
               if (id(debug_mode)) {
-                ESP_LOGE("chessboard", std::string("FEN (invalid): " + raw_fen).c_str());
+                id(perform_lichess_api_call).execute("debug", std::string("FEN (invalid): " + raw_fen).c_str());
               }
             }
             
@@ -3911,27 +3882,12 @@ script:
       json_input: string
     then:
       - lambda: |-
-          if (api_endpoint == "GameMain"  && id(lichess_api_call_main).state != json_input) {
-            if (id(debug_mode)) {
-                ESP_LOGE("chessboard", std::string("Game-Endpoint call (main): " + json_input).c_str());
-            }
-            id(lichess_api_call_main).publish_state(json_input);
+          std::string topic = "chessboard/" + api_endpoint;
+          std::transform(topic.begin(), topic.end(), topic.begin(), ::tolower);
+
+          if (id(mqtt_client)->is_connected()) {
+            id(mqtt_client).publish(topic, json_input);
           }
-      - lambda: |-
-          if (api_endpoint == "GameOpponent" && id(lichess_api_call_opponent).state != json_input) {
-            if (id(debug_mode)) {
-                ESP_LOGE("chessboard", std::string("Game-Endpoint call (opponent): " + json_input).c_str());
-            }
-            id(lichess_api_call_opponent).publish_state(json_input);
-          }
-      - lambda: |-
-          if (api_endpoint == "Stream" && id(lichess_stream_call_event).state != json_input) {
-            if (id(debug_mode)) {
-                ESP_LOGE("chessboard", std::string("Stream-Endpoint call (event): " + json_input).c_str());
-            }
-            id(lichess_stream_call_event).publish_state(json_input);
-          }
-      - delay: 10ms
 
   - id: check_opponent_otb_select
     then:
@@ -3950,7 +3906,7 @@ script:
           // if we are currently in a tournament, we have to withdraw
           if (id(lichess_tournament_id).state.length() == 8){              
             std::string withdraw_json = "{\"type\": \"withdrawTournament\", \"id\": \"" + id(lichess_tournament_id).state + "\"}";
-            id(perform_lichess_api_call).execute("GameMain", withdraw_json);
+            id(perform_lichess_api_call).execute("api_call", withdraw_json);
           } 
 
   - id: lichess_arena_join_by_id
@@ -3959,7 +3915,7 @@ script:
           // if we are currently in a tournament, we have to withdraw
           if (id(lichess_tournament_id).state.length() == 8){              
             std::string join_json = "{\"type\": \"joinTournamentById\", \"id\": \"" + id(lichess_tournament_id).state + "\"}";
-            id(perform_lichess_api_call).execute("GameMain", join_json);
+            id(perform_lichess_api_call).execute("api_call", join_json);
           } 
 
   - id: lichess_arena_quit_tournament
@@ -3989,7 +3945,7 @@ script:
           // join tournament
           if (id(lichess_tournament_json) != "") {
             // open the event stream
-            id(perform_lichess_api_call).execute("Stream", "{\"type\": \"streamEvents\", \"state\": \"ON\"}");            
+            id(perform_lichess_api_call).execute("api_call", "{\"type\": \"streamEvents\", \"state\": \"ON\"}");            
             // deserialize for messaging
             JsonDocument root;
             deserializeJson(root, id(lichess_tournament_json));
@@ -3998,7 +3954,7 @@ script:
             id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"joining arena ...\", \"line_1\": \"" + root["tournamentName"].as<std::string>() + "\"}"; 
             id(oled_show_page_message).execute();
             // try to join the tournament
-            id(perform_lichess_api_call).execute("GameMain", id(lichess_tournament_json));           
+            id(perform_lichess_api_call).execute("api_call", id(lichess_tournament_json));           
           }
 
   - id: lichess_tournament_json_update
@@ -4068,19 +4024,17 @@ script:
               if( (id(white_to_move) && id(lichess_is_my_color_white)) || (!id(white_to_move) && !id(lichess_is_my_color_white))) {  
                 std::string move_body = "{\"type\": \"makeMove\", \"move\": \"" + id(current_move_uci) + "\"}"; 
                 // send the move to lichess           
-                id(perform_lichess_api_call).execute("GameMain", move_body);              
+                id(perform_lichess_api_call).execute("api_call", move_body);              
               } else if( id(lichess_opponent_at_board)) {
                 // switch to oppoents token
                 std::string move_body_opponent = "{\"type\": \"makeMoveOpponent\", \"move\": \"" + id(current_move_uci) + "\"}";
                 // make a move for the opponent
-                id(perform_lichess_api_call).execute("GameOpponent", move_body_opponent); 
+                id(perform_lichess_api_call).execute("api_call", move_body_opponent); 
               }                
             }
           }  
 
   - id: update_lichess_token
-    parameters:
-      api_call: bool
     then:
       - lambda: |-
           // update own token
@@ -4103,10 +4057,12 @@ script:
           id(chessboard_token_current) = id(encrypted_message);
 
           // we close the stream with previous token
-          if ( (previous_token != id(chessboard_token_current) ) && previous_active_stream && api::global_api_server->is_connected()) {
+          if ( (previous_token != id(chessboard_token_current) ) && previous_active_stream && id(mqtt_client)->is_connected()) {
             id(lichess_stream_events_flag).publish_state("idle");
+            // idle is skipped in the flag, so we have to close it manually
+            id(perform_lichess_api_call).execute("api_call", "{\"type\": \"streamEvents\", \"state\": \"idle\"}");
             if (id(debug_mode)) {
-                ESP_LOGE("chessboard", "Closing previous stream due to token change");
+                id(perform_lichess_api_call).execute("debug", "Closing previous stream due to token change");
             }
           }
 
@@ -4126,19 +4082,18 @@ script:
           id(encrypt_message).execute(id(chessboard_token_opponent));
           id(chessboard_token_opponent) = id(encrypted_message);
 
-          if (api::global_api_server->is_connected()) {
+          if (id(mqtt_client)->is_connected()) {
 
-            id(lichess_api_token_main).publish_state(id(chessboard_token_current));
-            id(lichess_api_token_opponent).publish_state(id(chessboard_token_opponent));
+            id(perform_lichess_api_call).execute("token_main", id(chessboard_token_current));
+            id(perform_lichess_api_call).execute("token_opponent", id(chessboard_token_opponent));
 
-            //if (id(lichess_stream_events_flag).state == "idle") {
-            //    id(lichess_stream_events_flag).publish_state("ON"); 
-            //}
+            // open the event stream for current user
+            if (id(lichess_stream_events_flag).state == "idle") {
+                id(lichess_stream_events_flag).publish_state("ON"); 
+            }
 
             // get account info
-            if (api_call) {
-              id(perform_lichess_api_call).execute("GameMain", "{\"type\": \"getAccountInfoMain\"}");
-            }
+            id(perform_lichess_api_call).execute("api_call", "{\"type\": \"getAccountInfoMain\"}");
           } else {
             // if we are not connected, we have to reset the token
             id(oled_show_page_temporary_message).execute("{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"No lichess-api connection\"}", "both", 2000);
@@ -4152,18 +4107,16 @@ script:
           id(update_raw_position_current).execute();
           id(initial_position_state_update).execute();
           // not during the gave
-          if (id(initial_position_state) == 3 && api::global_api_server->is_connected()) {
+          if (id(initial_position_state) == 3 && id(mqtt_client)->is_connected()) {
             // stop timer, if running
             id(game_running) = false;
-            // update lichess token, if not selected yet
-            //id(update_lichess_token).execute();
-            // open the event stream
+            // open the event stream, if not already done
             if (id(lichess_stream_events_flag).state == "idle") {
               id(lichess_stream_events_flag).publish_state("ON"); 
             }
 
-            // if we have a game running, try to abort all pengling games
-            //id(perform_lichess_api_call).execute("GameMain", "{\"type\": \"abortRunningGames\"}");
+            // if we have a game running, try to abort all pengling games (TODO: check if we close the stream event in that case)
+            // id(perform_lichess_api_call).execute("api_call", "{\"type\": \"abortRunningGames\"}");
  
             // Create JSON object
             JsonDocument root;  
@@ -4209,30 +4162,49 @@ script:
             id(oled_show_page_message).execute();
 
             // force changed state, to be able to call the same request 
-            id(perform_lichess_api_call).execute("GameMain", json_string);
+            id(perform_lichess_api_call).execute("api_call", json_string);
 
           } else {
               id(beep_long).execute();
-              if (api::global_api_server->is_connected()) {
+              if (id(mqtt_client)->is_connected()) {
                 id(oled_show_page_temporary_message).execute("{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"Set initial position\"}", "both", 2000);   
               } else {
                 id(oled_show_page_temporary_message).execute("{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"No lichess-api connection\"}", "both", 2000); 
               }                  
           }
 
+  - id: lichess_drain_queue
+    mode: restart   # only one drain loop; restart just ensures it runs
+    then:
+      - while:
+          condition:
+            lambda: 'return !id(lichess_queue).empty();'
+          then:
+            - lambda: |-
+                // pop next message
+                std::string msg = id(lichess_queue).front();
+                id(lichess_queue).pop_front();
+
+                // call your actual handler (make it take a string arg)
+                id(lichess_handle_response).execute(msg);
+
+            # optional: tiny yield so Wi-Fi / MQTT stack stays happy
+            - delay: 1ms
+
+      - lambda: |-
+          id(lichess_draining) = false;  
+  
   - id: lichess_handle_response
+    parameters:
+      json_str: string
     mode: queued
     max_runs: 10
     then:
       - lambda: |-
-          // we got a response from lichess, so we assume, the call was done by us, so we reset the api sensors
-          id(perform_lichess_api_call).execute("GameMain", "idle");
-          id(perform_lichess_api_call).execute("GameOpponent", "idle");
-
-          std::string json_str = id(lichess_response).state;
+          // std::string json_str = id(lichess_response).state;
 
           if (id(debug_mode)) {
-              ESP_LOGE("chessboard", std::string("jsom from response: " + json_str).c_str());
+              id(perform_lichess_api_call).execute("debug", std::string("Handling response"));
           }
 
           JsonDocument root;
@@ -4241,9 +4213,7 @@ script:
           if (root["type"].is<std::string>() && root["type"].as<std::string>().length() > 0) {
 
             if (id(debug_mode)) {
-              std::string serialized_json_str;
-              serializeJson(root, serialized_json_str);
-              ESP_LOGE("chessboard", std::string("JSON response: " + serialized_json_str).c_str());
+                id(perform_lichess_api_call).execute("debug", std::string("JSON to handle: " + json_str).c_str());
             }
 
             // #######################################
@@ -4268,7 +4238,7 @@ script:
             if (root["type"].as<std::string>() == "gameStart"){
 
               if (id(debug_mode)) {
-                  ESP_LOGE("chessboard", "Triggered by gameStart");
+                  id(perform_lichess_api_call).execute("debug", "Triggered by gameStart");
               }
 
               if (id(lichess_tournament_id).state.length() == 8) {
@@ -4330,7 +4300,7 @@ script:
             if ((root["type"].as<std::string>() == "gameFinish" ) && (root["gameId"].as<std::string>() == id(lichess_game_id).state)){
 
                 if (id(debug_mode)) {
-                    ESP_LOGE("chessboard", "Triggered by gameFinish");
+                    id(perform_lichess_api_call).execute("debug", "Triggered by gameFinish");
                 }
 
                 // store the win-state
@@ -4408,8 +4378,8 @@ script:
             if ((root["type"].as<std::string>() == "opponentGone") && (root["gone"].as<bool>() == true ) && (root["claimWinInSeconds"].as<int>() == 0) &&  (root["id"].as<std::string>() == id(lichess_game_id).state)  ){
               delay(1000);  // Wait 1s to sync
               // claim victory
-              id(perform_lichess_api_call).execute("GameMain", "idle"); 
-              id(perform_lichess_api_call).execute("GameMain", "{\"type\": \"claim-victory\"}");            
+              id(perform_lichess_api_call).execute("api_call", "idle"); 
+              id(perform_lichess_api_call).execute("api_call", "{\"type\": \"claim-victory\"}");            
             }
 
             // ############# chat line #############
@@ -4433,7 +4403,7 @@ script:
             if ((root["type"].as<std::string>() == "gameState") && root["state"].is<std::string>() && (root["state"].as<std::string>() == "started") &&  (root["id"].as<std::string>() == id(lichess_game_id).state)){
 
               if (id(debug_mode)) {
-                  ESP_LOGE("chessboard", std::string("Triggered by gameState: " + root["last"].as<std::string>()).c_str());
+                  id(perform_lichess_api_call).execute("debug", std::string("Triggered by gameState: " + root["last"].as<std::string>()).c_str());
               }
               // win - state is extracted from the event - json
               

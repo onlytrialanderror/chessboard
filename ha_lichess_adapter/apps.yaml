@@ -1,20 +1,8 @@
 ---
+LichessApiHandler:
+  module: LichessApiHandler
+  class: LichessApiHandler
+
 LichessStreamEvent:
   module: LichessStreamEvent
   class: LichessStreamEvent
-
-LichessStreamBoard:
-  module: LichessStreamBoard
-  class: LichessStreamBoard
-
-LichessStreamBoardOpponent:
-  module: LichessStreamBoardOpponent
-  class: LichessStreamBoardOpponent
-
-LichessRequestHandlerMain:
-  module: LichessRequestHandlerMain
-  class: LichessRequestHandlerMain
-
-LichessRequestHandlerOpponent:
-  module: LichessRequestHandlerOpponent
-  class: LichessRequestHandlerOpponent
