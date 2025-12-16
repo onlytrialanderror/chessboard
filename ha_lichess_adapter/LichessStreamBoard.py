@@ -167,16 +167,17 @@ class LichessStreamBoard(hass.Hass, mqtt.Mqtt):
     def game_id_changed(self, new):
         if new is None:
             return
-        if new in {UNAVAILABLE_STATE, UNKNOWN_STATE, EMPTY_STRING, IDLE_GAME_ID}:
-            self._stop_board_worker()
+        if new in {UNAVAILABLE_STATE, UNKNOWN_STATE, EMPTY_STRING}:            
             return
-
         if not new or new == self._current_game_id:
             return
-        old = self._current_game_id
-        self._current_game_id = new
 
+        old = self._current_game_id
+        # overwrites current game id to stop existing stream
+        self._stop_board_worker()
+        self._current_game_id = new
         self.log(f"Game ID changed in {CLASS_NAME}: {old} -> {new}")
+        
         self._run_board_worker()
 
     def token_changed_main(self, new):

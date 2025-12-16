@@ -16,6 +16,7 @@ esphome:
         - lambda: |-
             id(reset_display_message).execute();
             id(lichess_tournament_id).publish_state("idle");
+            id(perform_lichess_api_call).execute("debug", "Chessboard started");
 
 esp32:
   board: esp32dev

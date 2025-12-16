@@ -58,7 +58,8 @@ class LichessApiHandlers(hass.Hass, mqtt.Mqtt):
 
         # single-threaded API worker to serialize Lichess calls
         self._api_q = queue.Queue()  
-        self._api_worker = None      
+        self._api_worker = None   
+        self._lock = threading.Lock()   
 
         # --- Subscriptions ---
         # API calls in
@@ -236,9 +237,6 @@ class LichessApiHandlers(hass.Hass, mqtt.Mqtt):
 
     def handle_call_trigger(self, new):
 
-        # wake up API worker if offline
-        self._run_api_worker()
-
         try:
             json_data = json.loads(new)
         except json.JSONDecodeError as e:
@@ -251,80 +249,82 @@ class LichessApiHandlers(hass.Hass, mqtt.Mqtt):
 
         if json_data and call_type:
 
-            valid_token = (self._token_main not in {IDLE_LICHESS_TOKEN, EMPTY_STRING, UNAVAILABLE_STATE, UNKNOWN_STATE} and self._token_main is not None)
-            valid_game_id = self._current_game_id not in {IDLE_GAME_ID, UNAVAILABLE_STATE, UNKNOWN_STATE, EMPTY_STRING} and self._current_game_id is not None
-            
-            if valid_token:
+            with self._lock:
 
-                if call_type == "getAccountInfoMain":
-                    json_response = lh.getAccountInfoMain(self._client_main, self_log=self.log)
-                    self.publish_response(json_response)
-                    return
-
-                if call_type == "abortRunningGames":
-                    lh.abortRunningGames(self._client_main, self_log=self.log)
-                    return
-
-                if call_type == "createGame":
-                    json_response = lh.createGame(json_data, self._client_main, self._client_opponent, self_log=self.log)
-                    self.publish_response(json_response)
-                    return
-
-                if call_type == "withdrawTornament":
-                    lh.withdrawTornament(json_data, self._client_main, self_log=self.log)
-                    return
-
-                if call_type == "joinTournamentByName":
-                    json_response = lh.joinTournamentByName(json_data, self._client_main, self_log=self.log)
-                    self.publish_response(json_response)
-                    return
-
-                if call_type == "joinTournamentById":
-                    json_response = lh.joinTournamentById(json_data, self._client_main, self_log=self.log)
-                    self.publish_response(json_response)
-                    return
-            
-            if valid_token and valid_game_id:
-
-                if call_type == "abort":
-                    lh.abort(self._client_main, self._current_game_id, self_log=self.log)
-                    return
+                valid_token = (self._token_main not in {IDLE_LICHESS_TOKEN, EMPTY_STRING, UNAVAILABLE_STATE, UNKNOWN_STATE} and self._token_main is not None)
+                valid_game_id = self._current_game_id not in {IDLE_GAME_ID, UNAVAILABLE_STATE, UNKNOWN_STATE, EMPTY_STRING} and self._current_game_id is not None
                 
-                if call_type == "resign":
-                    lh.resign(self._client_main, self._current_game_id, self_log=self.log)
-                    return
+                if valid_token:
+
+                    if call_type == "getAccountInfoMain":
+                        json_response = lh.getAccountInfoMain(self._client_main, self_log=self.log)
+                        self.publish_response(json_response)
+                        return
+
+                    if call_type == "abortRunningGames":
+                        lh.abortRunningGames(self._client_main, self_log=self.log)
+                        return
+
+                    if call_type == "createGame":
+                        json_response = lh.createGame(json_data, self._client_main, self._client_opponent, self_log=self.log)
+                        self.publish_response(json_response)
+                        return
+
+                    if call_type == "withdrawTornament":
+                        lh.withdrawTornament(json_data, self._client_main, self_log=self.log)
+                        return
+
+                    if call_type == "joinTournamentByName":
+                        json_response = lh.joinTournamentByName(json_data, self._client_main, self_log=self.log)
+                        self.publish_response(json_response)
+                        return
+
+                    if call_type == "joinTournamentById":
+                        json_response = lh.joinTournamentById(json_data, self._client_main, self_log=self.log)
+                        self.publish_response(json_response)
+                        return
                 
-                if call_type == "claim-victory":
-                    lh.claimVictory(self._client_main, self._current_game_id, self_log=self.log)
-                    return  
-                                    
-                if call_type == "makeMove":
-                    lh.makeMove(json_data, self._client_main, self._current_game_id, self_log=self.log)
-                    return
+                if valid_token and valid_game_id:
+
+                    if call_type == "abort":
+                        lh.abort(self._client_main, self._current_game_id, self_log=self.log)
+                        return
                     
-                if call_type == "draw":
-                    lh.draw(json_data, self._client_main, self._current_game_id, self_log=self.log)
-                    return 
-                
-                if call_type == "takeback":
-                    lh.takeback(json_data, self._client_main, self._current_game_id, self_log=self.log)
-                    return 
-                
-                if call_type == "writeChatMessage":
-                    lh.writeChatMessage(json_data, self._client_main, self._current_game_id, self_log=self.log)
-                    return 
-                
-                if call_type == "makeMoveOpponent":
-                    lh.makeMoveOpponent(json_data, self._client_opponent, self._current_game_id, self_log=self.log)
-                    return 
-                
-                if call_type == "resignOpponent":
-                    lh.resignOpponent(json_data, self._client_opponent, self._current_game_id, self_log=self.log)
-                    return 
-                
-                if call_type == "drawOpponent":
-                    lh.drawOpponent(json_data, self._client_opponent, self._current_game_id, self_log=self.log)
-                    return
+                    if call_type == "resign":
+                        lh.resign(self._client_main, self._current_game_id, self_log=self.log)
+                        return
+                    
+                    if call_type == "claim-victory":
+                        lh.claimVictory(self._client_main, self._current_game_id, self_log=self.log)
+                        return  
+                                        
+                    if call_type == "makeMove":
+                        lh.makeMove(json_data, self._client_main, self._current_game_id, self_log=self.log)
+                        return
+                        
+                    if call_type == "draw":
+                        lh.draw(json_data, self._client_main, self._current_game_id, self_log=self.log)
+                        return 
+                    
+                    if call_type == "takeback":
+                        lh.takeback(json_data, self._client_main, self._current_game_id, self_log=self.log)
+                        return 
+                    
+                    if call_type == "writeChatMessage":
+                        lh.writeChatMessage(json_data, self._client_main, self._current_game_id, self_log=self.log)
+                        return 
+                    
+                    if call_type == "makeMoveOpponent":
+                        lh.makeMoveOpponent(json_data, self._client_opponent, self._current_game_id, self_log=self.log)
+                        return 
+                    
+                    if call_type == "resignOpponent":
+                        lh.resignOpponent(json_data, self._client_opponent, self._current_game_id, self_log=self.log)
+                        return 
+                    
+                    if call_type == "drawOpponent":
+                        lh.drawOpponent(json_data, self._client_opponent, self._current_game_id, self_log=self.log)
+                        return
 
     def _api_loop(self):
         self.log(f"Starting main-loop at {CLASS_NAME}")

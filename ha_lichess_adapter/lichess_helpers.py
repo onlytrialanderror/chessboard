@@ -31,7 +31,7 @@ def parse_username_string(input_string):
 
 def decrypt_message(current_secret_key, hex_string):
     decrypted = hex_string
-    if (hex_string is not None and hex_string not in ("idle", "unknown", "unavailable", "")):
+    if (hex_string is not None and hex_string not in ("idle", "unknown", "unavailable", "") and current_secret_key is not None and current_secret_key != ""):
         try:
             encrypted_bytes = bytes.fromhex(hex_string)
             decrypted = "".join(
@@ -200,8 +200,7 @@ def createGame(json_data, lichess_client, lichess_client_opponent, self_log=None
         else:
             username, level = parse_username_string(opponetns_name)
             if self_log:
-                self_log(f"Seek new challenge with {opponetns_name} " + f"({json_data.get('time_s')}+{json_data.get('increment')}), otb={json_data.get('otb')}"
-            )
+                self_log(f"Seek new challenge with {opponetns_name} " + f"({json_data.get('time_s')}+{json_data.get('increment')}), otb={json_data.get('otb')}")
 
             if level == 0:
                 if json_data.get("otb") == "yes":
