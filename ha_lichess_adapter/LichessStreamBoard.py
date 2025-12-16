@@ -23,7 +23,7 @@ STATUS_ONLINE = "online"
 # MQTT topics
 MQTT_RESPONSE_TOPIC = "chessboard/response"
 
-MQTT_GAME_ID_TOPIC = "chessboard/lichess_game_id"
+MQTT_GAME_ID_TOPIC = "chessboard/game_id"
 MQTT_TOKEN_MAIN_TOPIC = "chessboard/token_main"
 MQTT_TOKEN_OPP_TOPIC = "chessboard/token_opponent"
 
@@ -58,6 +58,7 @@ class LichessStreamBoard(hass.Hass, mqtt.Mqtt):
         # single-threaded API worker to serialize Lichess calls
         self._board_worker_main = None      
         self._board_worker_opponent = None  
+        self._lock = threading.Lock()
 
         # --- Subscriptions ---
 
@@ -125,29 +126,32 @@ class LichessStreamBoard(hass.Hass, mqtt.Mqtt):
     def _on_mqtt_status(self, event_name, data, kwargs):
         payload = lh.payload_to_str(data.get("payload"))
         if payload is None or payload in {STATUS_OFFLINE}:
-            self.log(f"Chessboard is oflline at {CLASS_NAME}, stopping API worker")
+            self.log(f"Chessboard is oflline at {CLASS_NAME}, stopping board worker")
             self._stop_board_worker()
         else:
-            self.log(f"Chessboard is online at {CLASS_NAME}, starting API worker")
+            self.log(f"Chessboard is online at {CLASS_NAME}, starting board worker")
             self._run_board_worker()
 
     def _run_board_worker(self):
-        self.log(f"Board (main) worker started at {CLASS_NAME}") 
+        current_game_id = self._current_game_id
+        self.log(f"Board {current_game_id }: (main) worker starting at {CLASS_NAME}") 
         self._board_worker_main = threading.Thread(
             target=self.handle_game_state_main,
-            args=(self._current_game_id,),
+            args=(current_game_id ,),
             daemon=True
         )
-        self.log(f"Board (opponent) worker started at {CLASS_NAME}") 
+        self.log(f"Board {current_game_id }: (opponent) worker starting at {CLASS_NAME}") 
         self._board_worker_opponent = threading.Thread(
             target=self.handle_game_state_opponent,
-            args=(self._current_game_id,),
+            args=(current_game_id ,),
             daemon=True
         )
-
         self._board_worker_main.start()
+        self._board_worker_opponent.start()
+        
 
     def _stop_board_worker(self):
+        self._current_game_id = IDLE_GAME_ID
         self.log(f"Board worker stopping at {CLASS_NAME}") 
         if self._board_worker_main is not None:
             self._board_worker_main.join(timeout=1)
@@ -163,7 +167,8 @@ class LichessStreamBoard(hass.Hass, mqtt.Mqtt):
     def game_id_changed(self, new):
         if new is None:
             return
-        if new in {UNAVAILABLE_STATE, UNKNOWN_STATE, EMPTY_STRING}:
+        if new in {UNAVAILABLE_STATE, UNKNOWN_STATE, EMPTY_STRING, IDLE_GAME_ID}:
+            self._stop_board_worker()
             return
 
         if not new or new == self._current_game_id:
@@ -172,6 +177,7 @@ class LichessStreamBoard(hass.Hass, mqtt.Mqtt):
         self._current_game_id = new
 
         self.log(f"Game ID changed in {CLASS_NAME}: {old} -> {new}")
+        self._run_board_worker()
 
     def token_changed_main(self, new):
         if not new or new in {UNAVAILABLE_STATE, UNKNOWN_STATE, EMPTY_STRING}:
@@ -247,52 +253,59 @@ class LichessStreamBoard(hass.Hass, mqtt.Mqtt):
 
 
     def handle_game_state_main(self, game_id):
-        valid_game_id = game_id != IDLE_GAME_ID and game_id != UNAVAILABLE_STATE and game_id != UNKNOWN_STATE
-        valid_token =   self._token_main != IDLE_LICHESS_TOKEN and self._token_main != UNAVAILABLE_STATE and self._token_main != UNKNOWN_STATE
+        with  self._lock:
+            valid_game_id = game_id != IDLE_GAME_ID and game_id != UNAVAILABLE_STATE and game_id != UNKNOWN_STATE
+            valid_token =   self._token_main != IDLE_LICHESS_TOKEN and self._token_main != UNAVAILABLE_STATE and self._token_main != UNKNOWN_STATE
         if (valid_game_id and valid_token):            
             self.log(f"Starting the board stream (main): {game_id}")
             for line in self._client_main.board.stream_game_state(game_id):
-                if line: # valid dic
-                    reduced_data = json.dumps(lh.reduce_response_board(line))
-                    # let ha know about the move
-                    self.publish_response(reduced_data)
-                    
-                    # check if we have to abort the game
-                    if self.check_game_over(line, game_id):
-                        self.log(f"Terminating the board stream (main): {game_id}")
-                        # close the stream
-                        break
+                if line: # valid dic                    
+                    with  self._lock:
+                        reduced_data = json.dumps(lh.reduce_response_board(game_id, line))
+                        # let ha know about the move
+                        self.publish_response(reduced_data)
+                        self.log(f"Board (main): {reduced_data}")
+                        
+                        # check if we have to abort the game                    
+                        if self.check_game_over(line, game_id):
+                            self.log(f"Terminating the board stream (main): {game_id}")
+                            # close the stream
+                            break
             off_json = {
                         "type": "streamBoardResponse",
                         "state": IDLE_GAME_ID
                     }
             off_json_str = json.dumps(off_json)
-            self.publish_response(off_json_str)
+            with  self._lock:
+                self.publish_response(off_json_str)
             # we are ready to go
-            self.log(f"Waiting for new stream (main)")
+            self.log(f"Waiting for new board stream (main)")
 
 
 
     def handle_game_state_opponent(self, game_id):
-        # do nothing, just keep stream alive
-        valid_game_id = game_id != IDLE_GAME_ID and game_id != UNAVAILABLE_STATE and game_id != UNKNOWN_STATE
-        valid_token =   self._token_opponent != IDLE_LICHESS_TOKEN and self._token_opponent != UNAVAILABLE_STATE and self._token_opponent != UNKNOWN_STATE
+        with  self._lock:
+            # do nothing, just keep stream alive
+            valid_game_id = game_id != IDLE_GAME_ID and game_id != UNAVAILABLE_STATE and game_id != UNKNOWN_STATE
+            valid_token =   self._token_opponent != IDLE_LICHESS_TOKEN and self._token_opponent != UNAVAILABLE_STATE and self._token_opponent != UNKNOWN_STATE
         if (valid_game_id and valid_token):
-            self.log(f"Starting the board stream (opponent): {game_id}")
             for line in self._client_opponent.board.stream_game_state(game_id):
                 if line: # valid dic
+                    self.log(f"Board (opponent): {line}")
                     # check if we have to abort the game
-                    if self.check_game_over(line, game_id):
-                        self.log(f"Terminating the board stream (opponent): {game_id}")
-                        # close the stream
-                        break
+                    with  self._lock:
+                        if self.check_game_over(line, game_id):
+                            self.log(f"Terminating the board stream (opponent): {game_id}")
+                            # close the stream
+                            break
             # reset stream for board on HA (esphome needs to do it as well)
             off_json = {
                         "type": "streamBoardResponseOpponent",
                         "state": IDLE_GAME_ID
                     }
             off_json_str = json.dumps(off_json)
-            self.publish_response(off_json_str)
+            with  self._lock:
+                self.publish_response(off_json_str)
             # we are ready to go
-            self.log(f"Waiting for new stream (opponent)")
+            self.log(f"Waiting for new board stream (opponent)")
 

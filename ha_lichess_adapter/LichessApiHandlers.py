@@ -1,5 +1,3 @@
-from re import S
-import re
 import appdaemon.plugins.hass.hassapi as hass
 import appdaemon.plugins.mqtt.mqttapi as mqtt
 
@@ -26,7 +24,7 @@ STATUS_ONLINE = "online"
 MQTT_API_CALL_TOPIC = "chessboard/api_call"
 MQTT_RESPONSE_TOPIC = "chessboard/response"
 
-MQTT_GAME_ID_TOPIC = "chessboard/lichess_game_id"
+MQTT_GAME_ID_TOPIC = "chessboard/game_id"
 MQTT_TOKEN_MAIN_TOPIC = "chessboard/token_main"
 MQTT_TOKEN_OPP_TOPIC = "chessboard/token_opponent"
 
@@ -34,10 +32,10 @@ MQTT_STATUS_TOPIC = "chessboard/status"
 
 MQTT_NAMESPACE = "mqtt" 
 
-CLASS_NAME = "LichessApiHandler"
+CLASS_NAME = "LichessApiHandlers"
 
 
-class LichessApiHandler(hass.Hass, mqtt.Mqtt):
+class LichessApiHandlers(hass.Hass, mqtt.Mqtt):
 
 
     _client_main = EMPTY_STRING
@@ -341,7 +339,6 @@ class LichessApiHandler(hass.Hass, mqtt.Mqtt):
                 break
 
             try:
-                self.log(f"Item: {item}")
                 self.handle_call_trigger(item)
             except Exception as e:
                 self.log(f"API call error at {CLASS_NAME}: {e}", level="ERROR")

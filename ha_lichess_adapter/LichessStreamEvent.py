@@ -154,10 +154,10 @@ class LichessStreamEvent(hass.Hass, mqtt.Mqtt):
 
             # open the stream for whole chess game
             for event in self._client_main.board.stream_incoming_events():
-                if event:
-                    self.log(f"Event: {event}")
+                if event:                    
                     reduced_data = json.dumps(lh.reduce_response_event(event))
                     self.publish_response(reduced_data)
+                    self.log(f"Event: {reduced_data}")
                     
                     # check if we have to abort the game
                     if token_init != self._token_main:
@@ -166,7 +166,7 @@ class LichessStreamEvent(hass.Hass, mqtt.Mqtt):
                         break
                 else:
                     if token_init != self._token_main:
-                        self.log(f"Terminating the stream (event): {token_init}")
+                        self.log(f"Terminating the stream (no event): {token_init}")
                         # close the stream
                         break
 
