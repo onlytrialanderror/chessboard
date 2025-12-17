@@ -47,12 +47,9 @@ http_request:
 mqtt:
   id: mqtt_client
   discovery: true
-  broker: !secret mqtt_broker_1
-  username: !secret mqtt_user_1
-  password: !secret mqtt_password_1
-  #broker: !secret mqtt_broker_2
-  #username: !secret mqtt_user_2
-  #password: !secret mqtt_password_2
+  broker: !secret mqtt_broker
+  username: !secret mqtt_user
+  password: !secret mqtt_password
 
 captive_portal:
 
@@ -147,35 +144,6 @@ font:
 
 
 globals:
-
-  - id: mqtt_broker_1
-    type: std::string
-    initial_value: !secret mqtt_broker_1
-
-  - id: mqtt_user_1
-    type: std::string
-    initial_value: !secret mqtt_user_1
-
-  - id: mqtt_password_1
-    type: std::string
-    initial_value: !secret mqtt_password_1
-
-  - id: mqtt_broker_2
-    type: std::string
-    initial_value: !secret mqtt_broker_2
-
-  - id: mqtt_user_2
-    type: std::string
-    initial_value: !secret mqtt_user_2
-
-  - id: mqtt_password_2
-    type: std::string
-    initial_value: !secret mqtt_password_2
-
-  - id: mqtt_use_broker_1
-    type: bool
-    restore_value: yes
-    initial_value: 'yes'
 
   # Array of chessboard field names in algebraic notation (a8-h1)
   - id: chess_field_names
@@ -1788,12 +1756,6 @@ text_sensor:
               id(lichess_draining) = true;
               id(lichess_drain_queue).execute();
             }
-
-  - platform: mqtt_subscribe
-    name: "Chessboard status"
-    id: chessboard_status
-    topic: chessboard/status
-    internal: false
 
     # used just to define out-sensor for ha to be set as ha-input sensor
   - platform: template

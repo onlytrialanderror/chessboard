@@ -59,6 +59,10 @@ def td_to_sec(x):
         return 0
     if isinstance(x, timedelta):
         return int(round(x.total_seconds()))
+    if isinstance(x, datetime):
+        # Berserk should not send absolute datetimes for clocks,
+        # but if it does, treat it as 0 or extract seconds safely
+        return int(x.timestamp())
     # fallback if it ever becomes ms-int again
     return int(round(int(x) / 1000))
 
