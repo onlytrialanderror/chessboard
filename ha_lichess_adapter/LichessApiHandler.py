@@ -6,46 +6,38 @@ import lichess_helpers as lh
 import berserk
 import json
 import threading
-from datetime import datetime, timezone, timedelta
 import queue
 
 IDLE_GAME_ID = "idle"
-UNAVAILABLE_STATE = "unavailable"
-UNKNOWN_STATE = "unknown"
-EMPTY_STRING = ""
 IDLE_LICHESS_TOKEN = "idle"
-ON_STATE = "ON"
-OFF_STATE = "OFF"
-IDLE_STATE = "idle"
 STATUS_OFFLINE = "offline"
 STATUS_ONLINE = "online"
 
 # MQTT topics
 MQTT_API_CALL_TOPIC = "chessboard/api_call"
-MQTT_RESPONSE_TOPIC = "chessboard/response"
-
 MQTT_GAME_ID_TOPIC = "chessboard/game_id"
 MQTT_TOKEN_MAIN_TOPIC = "chessboard/token_main"
 MQTT_TOKEN_OPP_TOPIC = "chessboard/token_opponent"
-
 MQTT_STATUS_TOPIC = "chessboard/status"
+MQTT_RESPONSE_TOPIC = "chessboard/response"
 
 MQTT_NAMESPACE = "mqtt" 
 
 CLASS_NAME = "LichessApiHandler"
+SECRET_PATH = "/config/secrets.yaml"
 
 
 class LichessApiHandler(hass.Hass, mqtt.Mqtt):
 
 
-    _client_main = EMPTY_STRING
-    _client_opponent = EMPTY_STRING
-    _current_secret_key = EMPTY_STRING
+    _client_main = None
+    _client_opponent = None
+    _current_secret_key = None
 
 
     def initialize(self):
         self.log(f"AppDaemon {CLASS_NAME} script initialized!")
-        self._current_secret_key = lh.get_secret("chessboard_secret_key")
+        self._current_secret_key = lh.get_secret("chessboard_secret_key", SECRET_PATH)
 
         # current runtime state (protected by self._lock where needed)
         self._current_game_id = IDLE_GAME_ID
@@ -112,7 +104,7 @@ class LichessApiHandler(hass.Hass, mqtt.Mqtt):
             self.log(f"MQTT api_call received without payload in {CLASS_NAME}")
             return
 
-        if payload not in {IDLE_GAME_ID, UNAVAILABLE_STATE, UNKNOWN_STATE, EMPTY_STRING}:
+        if payload not in {IDLE_GAME_ID}:
             """Enqueue an API call payload to be handled by a single worker thread.
             This avoids blocking AppDaemon's event threads and prevents concurrent use of shared clients/state.
             """
@@ -121,10 +113,6 @@ class LichessApiHandler(hass.Hass, mqtt.Mqtt):
     def _on_mqtt_game_id(self, event_name, data, kwargs):
         payload = lh.payload_to_str(data.get("payload"))
         if payload is None:
-            return
-
-        # mimic old HA sensor behaviour: ignore unavailable/unknown/empty
-        if payload in {UNAVAILABLE_STATE, UNKNOWN_STATE, EMPTY_STRING}:
             return
 
         self.game_id_changed(payload)
@@ -157,12 +145,14 @@ class LichessApiHandler(hass.Hass, mqtt.Mqtt):
             self._run_board_worker()
 
     def _run_api_worker(self):
+        # check if api thread is already running
         if self._api_worker and self._api_worker.is_alive():
             return
 
-        self.log(f"API worker started at {CLASS_NAME}") 
+        self.log(f"API worker starting at {CLASS_NAME}") 
+        # start api worker thread
         self._api_worker = threading.Thread(
-            target=self._api_loop,
+            target=self.handle_api_calls,
             daemon=True
         )
         self._api_worker.start()
@@ -170,10 +160,17 @@ class LichessApiHandler(hass.Hass, mqtt.Mqtt):
     def _stop_api_worker(self):
         # sentinel shutdown
         self._api_q.put(None)
+        self._api_worker.join(timeout=2)
+        # check if api thread is stopped
+        if self._api_worker and self._api_worker.is_alive():
+            self.log(f"Stopping API worker at {CLASS_NAME} failed")
+        else:
+            self.log(f"API worker stopped at {CLASS_NAME}")
 
     def _run_stream_worker(self):
         if self._token_main !=  IDLE_LICHESS_TOKEN:
             self.log(f"Stream worker started at {CLASS_NAME}") 
+            # start stream worker thread
             self._stream_worker = threading.Thread(
                 target=self.handle_incoming_events,
                 args=(self._token_main,),
@@ -181,25 +178,32 @@ class LichessApiHandler(hass.Hass, mqtt.Mqtt):
             )
             self._stream_worker.start()
 
-    def _stop_stream_worker(self):
+    def _stop_stream_worker(self):        
         if self._stream_worker and self._stream_worker.is_alive():
             self.log(f"Stopping Stream worker at {CLASS_NAME}")
             # we reset the token to idle to stop the stream
             self._token_main =  IDLE_LICHESS_TOKEN
-            self._stream_worker.join()
-            self.log(f"Stream worker stopped at {CLASS_NAME}")
+            # wait stream thread is finished
+            self._stream_worker.join(timeout=2) 
+            # check if stream thread is stopped           
+            if self._stream_worker and self._stream_worker.is_alive():
+                self.log(f"Stopping Stream worker at {CLASS_NAME} failed")
+            else:
+                self.log(f"Stream worker stopped at {CLASS_NAME}")
 
     def _run_board_worker(self):
         current_game_id = self._current_game_id
         self.log(f"Board {current_game_id }: (main) worker starting at {CLASS_NAME}") 
+        # start board worker thread (main)
         self._board_worker_main = threading.Thread(
-            target=self.handle_game_state_main,
+            target=self.handle_board_stream_main,
             args=(current_game_id ,),
             daemon=True
         )
         self.log(f"Board {current_game_id }: (opponent) worker starting at {CLASS_NAME}") 
+        # start board worker thread (opponent)
         self._board_worker_opponent = threading.Thread(
-            target=self.handle_game_state_opponent,
+            target=self.handle_board_stream_opponent,
             args=(current_game_id ,),
             daemon=True
         )
@@ -208,90 +212,105 @@ class LichessApiHandler(hass.Hass, mqtt.Mqtt):
         
 
     def _stop_board_worker(self):
-        self._current_game_id = IDLE_GAME_ID
-        self.log(f"Board worker stopping at {CLASS_NAME}") 
-        if self._board_worker_main is not None:
+        self._current_game_id = IDLE_GAME_ID        
+        # stop main board worker
+        if self._board_worker_main is not None and self._board_worker_main.is_alive():
+
+            self.log(f"Main board worker stopping at {CLASS_NAME}")
+            # wait main board thread is finished
             self._board_worker_main.join(timeout=1)
-            self._board_worker_main = None
-        if self._board_worker_opponent is not None:
+
+            # check if main thread is stopped
+            if self._board_worker_main and self._board_worker_main.is_alive():
+                self.log(f"Stopping board worker (main) at {CLASS_NAME} failed")
+            else:
+                self.log(f"Board worker (main) stopped at {CLASS_NAME}")
+
+        # stop opponent board worker
+        if self._board_worker_opponent is not None and self._board_worker_opponent.is_alive():
+
+            self.log(f"Opponent board worker stopping at {CLASS_NAME}")
+            # wait opponent board thread is finished
             self._board_worker_opponent.join(timeout=1)
-            self._board_worker_opponent = None
-        self.log(f"Board worker stopped at {CLASS_NAME}")
+        
+            # check if opponent thread is stopped
+            if self._board_worker_opponent and self._board_worker_opponent.is_alive():
+                self.log(f"Stopping board worker (opponent) at {CLASS_NAME} failed")
+            else:
+                self.log(f"Board worker (opponent) stopped at {CLASS_NAME}")
 
     def game_id_changed(self, new):
-        if new is None:
-            return
-        if new in {UNAVAILABLE_STATE, UNKNOWN_STATE, EMPTY_STRING}:
-            return
 
+        # check if game id really changed
         if not new or new == self._current_game_id:
             return
-        old = self._current_game_id
+        
+        self.log(f"Game ID changed in {CLASS_NAME}: {self._current_game_id} -> {new}")
+
         # overwrites current game id to stop existing stream
         self._stop_board_worker()
+        # update game id
         self._current_game_id = new
-
-        self.log(f"Game ID changed in {CLASS_NAME}: {old} -> {new}")
+        # start new board stream        
         self._run_board_worker()
 
     def token_changed_main(self, new):
-        if not new or new in {UNAVAILABLE_STATE, UNKNOWN_STATE, EMPTY_STRING}:
-            if new in {UNAVAILABLE_STATE, UNKNOWN_STATE}:
-                self.log(f"Not allowed token (main) in {CLASS_NAME}: {new}")
-            return
-
+        # get decrypted token
         new_decrypted = lh.decrypt_message(self._current_secret_key, new)
 
+        # check if token really changed
         if new_decrypted == self._token_main:
             return
-        old = self._token_main
-        self._token_main = new_decrypted
 
-        self.log(f"Token changed (main) in {CLASS_NAME}: {old} -> {new_decrypted}")
-
-        # Replace session/client
+        self.log(f"Token changed (main) in {CLASS_NAME}: {self._token_main} -> {new_decrypted}")
+        
+        # close session/client
         try:
             if self._session_main is not None:
                 self._session_main.close()
         except Exception:
             pass
         self._session_main = None
+        self._client_main = None
 
+        # try to stop existing stream
+        self._stop_stream_worker()
+        # update token
+        self._token_main = new_decrypted    
+
+        # start new session/client if not idle
         if new_decrypted != IDLE_LICHESS_TOKEN:
             self._session_main = berserk.TokenSession(new_decrypted)
             self._client_main = berserk.Client(self._session_main) 
             self._run_stream_worker()            
-        else:
-            self._client_main = EMPTY_STRING
-            self._stop_stream_worker()
+            
 
     def token_changed_opponent(self, new):
-        if not new or new in {UNAVAILABLE_STATE, UNKNOWN_STATE, EMPTY_STRING}:
-            if new in {UNAVAILABLE_STATE, UNKNOWN_STATE}:
-                self.log(f"Not allowed token (opponent) in {CLASS_NAME}: {new}")
-            return
-
+        # get decrypted token
         new_decrypted = lh.decrypt_message(self._current_secret_key, new)
 
+        # check if token really changed
         if new_decrypted == self._token_opponent:
             return
-        old = self._token_opponent
-        self._token_opponent = new_decrypted
 
-        self.log(f"Token changed (opponent) in {CLASS_NAME}: {old} -> {new_decrypted}")
+        self.log(f"Token changed (opponent) in {CLASS_NAME}: {self._token_opponent} -> {new_decrypted}")
 
+        # close session/client
         try:
             if self._session_opponent is not None:
                 self._session_opponent.close()
         except Exception:
             pass
         self._session_opponent = None
+        self._client_opponent = None
 
+        # update token
+        self._token_opponent = new_decrypted
+
+        # start new session/client if not idle
         if new_decrypted != IDLE_LICHESS_TOKEN:
             self._session_opponent = berserk.TokenSession(new_decrypted)
             self._client_opponent = berserk.Client(self._session_opponent)
-        else:
-            self._client_opponent = EMPTY_STRING
 
     def check_game_over(self, dat, game_id):
         break_game = False
@@ -308,7 +327,7 @@ class LichessApiHandler(hass.Hass, mqtt.Mqtt):
         
         return break_game
 
-    def handle_call_trigger(self, new):
+    def perform_api_call(self, new):
 
         try:
             json_data = json.loads(new)
@@ -318,14 +337,14 @@ class LichessApiHandler(hass.Hass, mqtt.Mqtt):
 
         call_type = json_data.get("type", None)
 
-        self.log(f"Type of API-call in {CLASS_NAME}: " + str(call_type) + "-> " + json.dumps(json_data))
+        self.log(f"API-call: " + json.dumps(json_data))
 
         if json_data and call_type:
 
             with self._lock:
 
-                valid_token = (self._token_main not in {IDLE_LICHESS_TOKEN, EMPTY_STRING, UNAVAILABLE_STATE, UNKNOWN_STATE} and self._token_main is not None)
-                valid_game_id = self._current_game_id not in {IDLE_GAME_ID, UNAVAILABLE_STATE, UNKNOWN_STATE, EMPTY_STRING} and self._current_game_id is not None
+                valid_token = self._token_main != IDLE_LICHESS_TOKEN and self._token_main is not None
+                valid_game_id = self._current_game_id != IDLE_GAME_ID and self._current_game_id is not None
                 
                 if valid_token:
 
@@ -401,7 +420,7 @@ class LichessApiHandler(hass.Hass, mqtt.Mqtt):
 
     def handle_incoming_events(self, token_init=IDLE_LICHESS_TOKEN):
         
-        if (token_init and token_init not in (IDLE_LICHESS_TOKEN, UNAVAILABLE_STATE, UNKNOWN_STATE)):
+        if token_init and token_init != IDLE_LICHESS_TOKEN:
 
             self.log(f"Starting the stream (event): {token_init}")
 
@@ -428,20 +447,22 @@ class LichessApiHandler(hass.Hass, mqtt.Mqtt):
         else:
             self.log(f"Waiting for new stream (event)")
 
-    def _api_loop(self):
+    def handle_api_calls(self):
         self.log(f"Starting main-loop at {CLASS_NAME}")
         while True:
-
+            # get next item from the queue
             try:
                 item = self._api_q.get(timeout=1)
             except queue.Empty:
                 continue
 
+            # check for sentinel
             if item is None:
                 break
 
+            # handle the API call
             try:
-                self.handle_call_trigger(item)
+                self.perform_api_call(item)
             except Exception as e:
                 self.log(f"API call error at {CLASS_NAME}: {e}", level="ERROR")
             finally:
@@ -449,10 +470,10 @@ class LichessApiHandler(hass.Hass, mqtt.Mqtt):
         self.log(f"Terminating main-loop at {CLASS_NAME}")
 
 
-    def handle_game_state_main(self, game_id):
+    def handle_board_stream_main(self, game_id):
         with  self._lock:
-            valid_game_id = game_id != IDLE_GAME_ID and game_id != UNAVAILABLE_STATE and game_id != UNKNOWN_STATE
-            valid_token =   self._token_main != IDLE_LICHESS_TOKEN and self._token_main != UNAVAILABLE_STATE and self._token_main != UNKNOWN_STATE
+            valid_game_id = game_id != IDLE_GAME_ID
+            valid_token =   self._token_main != IDLE_LICHESS_TOKEN
         if (valid_game_id and valid_token):            
             self.log(f"Starting the board stream (main): {game_id}")
             for line in self._client_main.board.stream_game_state(game_id):
@@ -480,11 +501,11 @@ class LichessApiHandler(hass.Hass, mqtt.Mqtt):
 
 
 
-    def handle_game_state_opponent(self, game_id):
+    def handle_board_stream_opponent(self, game_id):
         with  self._lock:
             # do nothing, just keep stream alive
-            valid_game_id = game_id != IDLE_GAME_ID and game_id != UNAVAILABLE_STATE and game_id != UNKNOWN_STATE
-            valid_token =   self._token_opponent != IDLE_LICHESS_TOKEN and self._token_opponent != UNAVAILABLE_STATE and self._token_opponent != UNKNOWN_STATE
+            valid_game_id = game_id != IDLE_GAME_ID
+            valid_token =   self._token_opponent != IDLE_LICHESS_TOKEN
         if (valid_game_id and valid_token):
             for line in self._client_opponent.board.stream_game_state(game_id):
                 if line: # valid dic
