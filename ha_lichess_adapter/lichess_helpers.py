@@ -2,10 +2,21 @@ import json
 import yaml
 from datetime import timedelta, datetime, timezone
 
-def get_secret(key, path="/config/secrets.yaml"):
+
+def get_secret(key, path="./secrets.yaml"):
     with open(path, "r") as file:
         secrets = yaml.safe_load(file)
     return secrets.get(key, "")
+    
+def load_secrets(path: str = "./secrets.yaml") -> dict:
+    """Load YAML secrets from a local file path."""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return yaml.safe_load(f) or {}
+    except FileNotFoundError as e:
+        raise RuntimeError(f"Secrets file not found: {path}") from e
+    except Exception as e:
+        raise RuntimeError(f"Failed to load secrets.yaml: {e}") from e
 
 def payload_to_str(payload):
     if payload is None:
