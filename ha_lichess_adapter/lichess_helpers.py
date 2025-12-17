@@ -2,10 +2,10 @@ import json
 import yaml
 from datetime import timedelta, datetime, timezone
 
-def get_secret(path="/config/secrets.yaml"):
+def get_secret(key, path="/config/secrets.yaml"):
     with open(path, "r") as file:
         secrets = yaml.safe_load(file)
-    return secrets.get("chessboard_secret_key")
+    return secrets.get(key, "")
 
 def payload_to_str(payload):
     if payload is None:

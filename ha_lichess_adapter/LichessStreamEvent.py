@@ -35,7 +35,7 @@ class LichessStreamEvent(hass.Hass, mqtt.Mqtt):
 
     def initialize(self):
         self.log(f"AppDaemon {CLASS_NAME} script initialized!")
-        self._current_secret_key = lh.get_secret()
+        self._current_secret_key = lh.get_secret("chessboard_secret_key")
 
         # current runtime state (protected by self._lock where needed)
         self._token_main = IDLE_LICHESS_TOKEN
