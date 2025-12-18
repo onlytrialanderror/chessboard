@@ -16,6 +16,9 @@ esphome:
         - lambda: |-
             id(reset_display_message).execute();
             id(lichess_tournament_id).publish_state("idle");
+    - priority: 900
+      then:
+        - lambda: |-
             id(perform_lichess_api_call).execute("debug", "Chessboard started");
 
 esp32:
@@ -46,10 +49,19 @@ http_request:
 
 mqtt:
   id: mqtt_client
-  discovery: true
+  discovery: false
+  port: !secret mqtt_port
   broker: !secret mqtt_broker
   username: !secret mqtt_user
   password: !secret mqtt_password
+  on_connect:
+    then:
+      - lambda: |-
+          id(update_lichess_token).execute();
+          // this calls can be skipped by update_lichess_token script
+          id(perform_lichess_api_call).execute("token_opponent", id(chessboard_token_opponent));
+          id(perform_lichess_api_call).execute("token_main", id(chessboard_token_current));
+          id(perform_lichess_api_call).execute("api_call", "{\"type\": \"getAccountInfoMain\"}");
 
 captive_portal:
 
@@ -4084,12 +4096,13 @@ script:
           id(initial_position_state_update).execute();
           // not during the gave
           if (id(initial_position_state) == 3 && id(mqtt_client)->is_connected()) {
+            // update lichess token
+            id(update_lichess_token).execute();
             // stop timer, if running
             id(game_running) = false;
             // we try to close board stream events, if running
             id(lichess_game_id).publish_state("idle");
-
-            // if we have a game running, try to abort all pengling games (TODO: check if we close the stream event in that case)
+            // if we have a game running, try to abort all pengling games
             id(perform_lichess_api_call).execute("api_call", "{\"type\": \"abortRunningGames\"}");
  
             // Create JSON object
