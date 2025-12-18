@@ -54,7 +54,9 @@ mqtt:
   broker: !secret mqtt_broker
   username: !secret mqtt_user
   password: !secret mqtt_password
-  certificate_authority: !include certs/hivemq.pem
+  certificate_authority: !include {file: hivemq.pem}
+  client_id: "chessboard"
+  clean_session: true
   on_connect:
     then:
       - lambda: |-

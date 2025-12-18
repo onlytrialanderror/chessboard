@@ -83,7 +83,7 @@ class LichessApiHandler(hass.Hass):
 
         
 
-        self._mqtt = paho.Client(client_id=self.mqtt_client_id, protocol=paho.MQTTv311)
+        self._mqtt = paho.Client(client_id=self.mqtt_client_id, protocol=paho.MQTTv311, clean_session=True)
         if self.mqtt_username is not None:
             self._mqtt.username_pw_set(self.mqtt_username, password=self.mqtt_password)
 
