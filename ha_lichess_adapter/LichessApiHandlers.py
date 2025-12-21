@@ -54,7 +54,7 @@ class LichessApiHandlers(hass.Hass):
         self.mqtt_password = mqtt_cfg.get("password") or None
         self.mqtt_keepalive = int(mqtt_cfg.get("keepalive", 60))
         #self.mqtt_client_id = mqtt_cfg.get("client_id", "lichess_api_handler")
-        self.mqtt_client_id = {CLASS_NAME}
+        self.mqtt_client_id = f"{CLASS_NAME}"
         self.mqtt_tls_enabled = bool(mqtt_cfg.get("mqtt_tls", False))
         self.mqtt_ca_cert_path = mqtt_cfg.get("mqtt_ca_cert", CA_CERT_PATH) 
 
