@@ -116,6 +116,7 @@ class LichessApiHandler(hass.Hass):
         self._client_mqtt.on_disconnect = self._mqtt_on_disconnect
 
         # connect + start network loop
+        self._client_mqtt.reconnect_delay_set(min_delay=1, max_delay=30)
         self._client_mqtt.connect(self.mqtt_host, self.mqtt_port, keepalive=self.mqtt_keepalive)
         self._client_mqtt.loop_start()
 
