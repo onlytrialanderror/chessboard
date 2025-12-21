@@ -1,12 +1,4 @@
 ---
-LichessApiHandlers:
-  module: LichessApiHandlers
-  class: LichessApiHandlers
-
-LichessStreamEvent:
-  module: LichessStreamEvent
-  class: LichessStreamEvent
-
-LichessStreamBoard:
-  module: LichessStreamBoard
-  class: LichessStreamBoard   
+LichessApiHandler:
+  module: LichessApiHandler
+  class: LichessApiHandler

@@ -81,7 +81,7 @@ def td_to_sec(x):
     # fallback if it ever becomes ms-int again
     return int(round(int(x) / 1000))
 
-def check_game_over(self, dat):
+def check_game_over(dat):
     break_game = False        
     if (dat.get('type', None) == 'gameState' and dat.get('status', None) != 'started'):
         break_game = True

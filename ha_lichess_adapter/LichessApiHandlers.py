@@ -273,13 +273,15 @@ class LichessApiHandlers(hass.Hass):
     ##################################################################### 
 
     def _init_session_lichess_api_main(self):
-        if self._token_main != IDLE_LICHESS_TOKEN and self._session_lichess_api_main is None:
+        if self._token_main != IDLE_LICHESS_TOKEN:
+            self._close_session_lichess_api_main()
             # open session with new token and create client
             self._session_lichess_api_main = berserk.TokenSession(self._token_main)
             self._client_lichess_api_main = berserk.Client(self._session_lichess_api_main) 
 
     def _init_session_lichess_api_opponent(self):
-        if self._token_opponent != IDLE_LICHESS_TOKEN and self._session_lichess_api_opponent is None:
+        if self._token_opponent != IDLE_LICHESS_TOKEN:
+            self._close_session_lichess_api_opponent()
             # open session with new token and create client
             self._session_lichess_api_opponent = berserk.TokenSession(self._token_opponent)
             self._client_lichess_api_opponent = berserk.Client(self._session_lichess_api_opponent)
@@ -320,7 +322,7 @@ class LichessApiHandlers(hass.Hass):
         if (self._lichess_api_init_value == self._token_main and self._token_main != IDLE_LICHESS_TOKEN) or self._token_main == IDLE_LICHESS_TOKEN:
             return
         
-        self.log(f"API worker starting") 
+        self.log(f"API worker starting: {self._token_main}") 
 
         # start api worker thread
         self.handle_api_calls(self._token_main)
@@ -342,11 +344,11 @@ class LichessApiHandlers(hass.Hass):
             # let the loop escape
             time.sleep(1)
 
-        # check if init variable is reseted
-        if self._lichess_api_init_value != IDLE_LICHESS_TOKEN:
-            self.log(f"Stopping API main worker failed", LEVEL=Warning)
-        else:
-            self.log(f"API main worker stopped")
+            # check if init variable is reseted
+            if self._lichess_api_init_value != IDLE_LICHESS_TOKEN:
+                self.log(f"Stopping API main worker failed", LEVEL=Warning)
+            else:
+                self.log(f"API main worker stopped")
 
     def _stop_all_workers(self):
         self._stop_api_worker()
@@ -359,7 +361,7 @@ class LichessApiHandlers(hass.Hass):
 
     def handle_api_calls(self, init_value):
         # init_value is token main
-        self._lichess_api_init_value == init_value
+        self._lichess_api_init_value = init_value
         self.log(f"Starting main-loop {self._lichess_api_init_value}")
         while True:
             # get next item from the queue
@@ -367,11 +369,6 @@ class LichessApiHandlers(hass.Hass):
                 item = self._api_q.get(timeout=1)
             except queue.Empty:
                 continue
-
-            # check for stop event
-            if self._stop_event_api.is_set():
-                self.log(f"Terminating main-loop {self._lichess_api_init_value} due to stop event")
-                break
 
             # check for sentinel
             if item == "terminate_api_worker":
@@ -416,11 +413,11 @@ class LichessApiHandlers(hass.Hass):
 
         if json_data and call_type:
 
-            valid_token = self._token_main != IDLE_LICHESS_TOKEN and self._token_main is not None and self._client_lichess_api_main
-            valid_token_opponent = self._token_opponent != IDLE_LICHESS_TOKEN and self._token_opponent is not None and self._client_lichess_api_opponent
-            valid_game_id = self._current_game_id != IDLE_GAME_ID and self._current_game_id is not None
+            valid_token = self._token_main != IDLE_LICHESS_TOKEN and self._client_lichess_api_main is not None
+            valid_token_opponent = self._token_opponent != IDLE_LICHESS_TOKEN and self._client_lichess_api_opponent is not None
+            valid_game_id = self._current_game_id != IDLE_GAME_ID
             
-            if valid_token:
+            if valid_token == True:
 
                 if call_type == "getAccountInfoMain":
                     json_response = lh.getAccountInfoMain(self._client_lichess_api_main, self_log=self.log)
@@ -445,14 +442,14 @@ class LichessApiHandlers(hass.Hass):
                     self.publish_response(json_response)
                     return
             
-            if valid_token and valid_token_opponent:
+            if valid_token == True and valid_token_opponent == True:
 
                 if call_type == "createGame" :
                     json_response = lh.createGame(json_data, self._client_lichess_api_main, self._client_lichess_api_opponent, self_log=self.log)
                     self.publish_response(json_response)
                     return
             
-            if valid_token and valid_game_id:
+            if valid_token == True and valid_game_id == True:
 
                 if call_type == "abort":
                     lh.abort(self._client_lichess_api_main, self._current_game_id, self_log=self.log)
@@ -482,7 +479,7 @@ class LichessApiHandlers(hass.Hass):
                     lh.writeChatMessage(json_data, self._client_lichess_api_main, self._current_game_id, self_log=self.log)
                     return 
 
-            if valid_token_opponent and valid_game_id:
+            if valid_token_opponent == True and valid_game_id == True:
 
                 if call_type == "makeMoveOpponent":
                     lh.makeMoveOpponent(json_data, self._client_lichess_api_opponent, self._current_game_id, self_log=self.log)

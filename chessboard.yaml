@@ -4086,14 +4086,9 @@ script:
             }
             // update main token if changed
             if (previous_token_main != id(chessboard_token_current)) {
-              id(perform_lichess_api_call).execute("token_main", id(chessboard_token_current));
-              // get account info
-              id(perform_lichess_api_call).execute("api_call", "{\"type\": \"getAccountInfoMain\"}");
+              id(perform_lichess_api_call).execute("token_main", id(chessboard_token_current));              
             }
-          } else {
-            // if we are not connected, we have to reset the token
-            id(oled_show_page_temporary_message).execute("{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"No lichess-api connection\"}", "both", 2000);
-          }
+          } 
 
   - id: lichess_create_new_game
     mode: single
@@ -4106,6 +4101,8 @@ script:
           if (id(initial_position_state) == 3 && id(mqtt_client)->is_connected()) {
             // update lichess token
             id(update_lichess_token).execute();
+            // get account info
+            id(perform_lichess_api_call).execute("api_call", "{\"type\": \"getAccountInfoMain\"}");
             // stop timer, if running
             id(game_running) = false;
             // we try to close board stream events, if running
