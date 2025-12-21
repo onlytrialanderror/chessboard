@@ -64,7 +64,12 @@ mqtt:
           // this calls can be skipped by update_lichess_token script
           id(perform_lichess_api_call).execute("token_opponent", id(chessboard_token_opponent));
           id(perform_lichess_api_call).execute("token_main", id(chessboard_token_current));
-          id(perform_lichess_api_call).execute("api_call", "{\"type\": \"getAccountInfoMain\"}");
+  on_disconnect:
+    then:
+      - lambda: |-
+          id(perform_lichess_api_call).execute("token_opponent", "idle");
+          id(perform_lichess_api_call).execute("token_main", "idle");
+          id(perform_lichess_api_call).execute("game_id", "idle");
 
 captive_portal:
 

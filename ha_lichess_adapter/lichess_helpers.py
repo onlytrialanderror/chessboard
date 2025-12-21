@@ -1,6 +1,7 @@
 import json
 import yaml
 from datetime import timedelta, datetime, timezone
+from typing import Optional
 
 
 def get_secret(key, path="./secrets.yaml"):
@@ -21,12 +22,26 @@ def load_secrets(path: str = "./secrets.yaml") -> dict:
 def payload_to_str(payload):
     if payload is None:
         return None
+    if isinstance(payload, bytes):
+        try:
+            return payload.decode("utf-8", errors="strict")
+        except Exception:
+            try:
+                return payload.decode("utf-8", errors="replace")
+            except Exception:
+                return None
     if isinstance(payload, str):
         return payload
     try:
         return str(payload)
     except Exception:
         return None
+
+def concat_values(val1, val2, sep = '<+>'):
+    return val1 + sep + val2   
+
+def split_concated_values(val: str, sep = '<+>'):
+    return val.split(sep)
     
 def parse_username_string(input_string):
     username = input_string
@@ -65,6 +80,17 @@ def td_to_sec(x):
         return int(x.timestamp())
     # fallback if it ever becomes ms-int again
     return int(round(int(x) / 1000))
+
+def check_game_over(self, dat):
+    break_game = False        
+    if (dat.get('type', None) == 'gameState' and dat.get('status', None) != 'started'):
+        break_game = True
+    if (dat.get('type', None) == 'gameFull' and dat.get('state', {}).get('status', None) != 'started'):
+        break_game = True
+    if (dat.get('type', None) == 'opponentGone' and dat.get('gone', None) == True and dat.get('claimWinInSeconds', None) == 0):
+        break_game = True
+    
+    return break_game
 
 def reduce_response_board(gid, dat):
     reduced_data = dat
@@ -228,7 +254,10 @@ def createGame(json_data, lichess_client, lichess_client_opponent, self_log=None
                         variant="standard",
                     )
                     if len(game_data.get("id", "")) == 8:
-                        lichess_client_opponent.challenges.accept(game_data["id"])
+                        if lichess_client_opponent is not None:
+                            lichess_client_opponent.challenges.accept(game_data["id"])
+                        else:
+                            self_log(f"Accepting of the challenge is not possible. Wait till opponent accepts the challenge!")
                         game_id = game_data["id"]
                     else:
                         game_id = ""
@@ -401,3 +430,6 @@ def drawOpponent(json_data, lichess_client,current_game_id, self_log=None):
     lichess_client.board.handle_draw_offer(
         game_id=current_game_id, accept=json_data.get("parameter")
     )
+
+def write_into_chat(json_data, lichess_client, current_game_id, room="player", self_log=None):
+    lichess_client.board.chat(game_id=current_game_id, room=room, text=json_data.get("text"))
