@@ -12,6 +12,7 @@ from typing import Optional
 
 IDLE_GAME_ID = "idle"
 IDLE_LICHESS_TOKEN = "idle"
+IDLE_MQTT_STATE = "idle"
 STATUS_OFFLINE = "offline"
 STATUS_ONLINE = "online"
 
@@ -75,8 +76,8 @@ class LichessApiHandler(hass.Hass):
 
         self._lichess_api_init_value = IDLE_LICHESS_TOKEN
         self._lichess_stream_event_init_value = IDLE_LICHESS_TOKEN
-        self._lichess_stream_board_main_init_value = IDLE_LICHESS_TOKEN
-        self._lichess_stream_board_opponent_init_value = IDLE_LICHESS_TOKEN
+        self._lichess_stream_board_main_init_value = lh.concat_values(IDLE_LICHESS_TOKEN, IDLE_GAME_ID)
+        self._lichess_stream_board_opponent_init_value = lh.concat_values(IDLE_LICHESS_TOKEN, IDLE_GAME_ID)
         self._token_opponent_api_init = IDLE_LICHESS_TOKEN
         self._game_id_init = IDLE_GAME_ID
 
@@ -196,16 +197,15 @@ class LichessApiHandler(hass.Hass):
 
     def clear_topics(self):
         """Publish response JSON string to chessboard/response."""
-        payload = "{}"
         try:
             if self._client_mqtt is None:
                 raise RuntimeError("MQTT client not initialized")
-            self._client_mqtt.publish(MQTT_RESPONSE_TOPIC, payload=payload, qos=0, retain=False)
-            self._client_mqtt.publish(MQTT_TOKEN_OPP_TOPIC, payload=payload, qos=0, retain=False)
-            self._client_mqtt.publish(MQTT_TOKEN_MAIN_TOPIC, payload=payload, qos=0, retain=False)
-            self._client_mqtt.publish(MQTT_GAME_ID_TOPIC, payload=payload, qos=0, retain=False)
-            self._client_mqtt.publish(MQTT_API_CALL_TOPIC, payload=payload, qos=0, retain=False)
-            self._client_mqtt.publish(MQTT_STATUS_TOPIC, payload=payload, qos=0, retain=False)
+            self._client_mqtt.publish(MQTT_RESPONSE_TOPIC, payload=IDLE_MQTT_STATE, qos=0, retain=False)
+            self._client_mqtt.publish(MQTT_TOKEN_OPP_TOPIC, payload=IDLE_LICHESS_TOKEN, qos=0, retain=False)
+            self._client_mqtt.publish(MQTT_TOKEN_MAIN_TOPIC, payload=IDLE_LICHESS_TOKEN, qos=0, retain=False)
+            self._client_mqtt.publish(MQTT_GAME_ID_TOPIC, payload=IDLE_GAME_ID, qos=0, retain=False)
+            self._client_mqtt.publish(MQTT_API_CALL_TOPIC, payload=IDLE_MQTT_STATE, qos=0, retain=False)
+            self._client_mqtt.publish(MQTT_STATUS_TOPIC, payload=IDLE_MQTT_STATE, qos=0, retain=False)
         except Exception as e:
             self.log(f"Failed to publish empty MQTT response in LichessApiHandler: {e}")
      
@@ -565,7 +565,7 @@ class LichessApiHandler(hass.Hass):
 
         # check if init variable is reseted
         if self._lichess_stream_board_main_init_value != lh.concat_values(IDLE_LICHESS_TOKEN, IDLE_GAME_ID):
-            self.log(f"Thread init-variable for stream board main worker is still set", LEVEL=Warning)
+            self.log(f"Thread init-variable {self._lichess_stream_board_main_init_value} for stream board main worker is still set", LEVEL=Warning)
 
     def _stop_board_worker_opponent(self):        
         
@@ -587,7 +587,7 @@ class LichessApiHandler(hass.Hass):
 
                 # check if init variable is reseted
         if self._lichess_stream_board_opponent_init_value != lh.concat_values(IDLE_LICHESS_TOKEN, IDLE_GAME_ID):
-            self.log(f"Thread init-variable for stream board opponent worker is still set", LEVEL=Warning)
+            self.log(f"Thread init-variable {self._lichess_stream_board_opponent_init_value} for stream board opponent worker is still set", LEVEL=Warning)
 
     def _stop_board_workers(self):
         self._stop_board_worker_main()
