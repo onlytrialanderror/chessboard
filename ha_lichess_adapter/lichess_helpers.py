@@ -18,6 +18,10 @@ def load_secrets(path: str = "./secrets.yaml") -> dict:
         raise RuntimeError(f"Secrets file not found: {path}") from e
     except Exception as e:
         raise RuntimeError(f"Failed to load secrets.yaml: {e}") from e
+    
+def default_log(msg: str, level: str = "INFO") -> None:
+    # Minimal fallback logger (AppDaemon will inject its own)
+    print(f"[{level}] {msg}")
 
 def payload_to_str(payload):
     if payload is None:

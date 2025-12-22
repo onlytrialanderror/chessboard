@@ -1,7 +1,7 @@
 import appdaemon.plugins.hass.hassapi as hass
 
 import lichess_helpers as lh
-from lichess_components import (LichessClientPool, MqttGateway)
+from lichess_components import (LichessClientPool, MqttGateway, LichessWorkerBoard)
 
 import berserk
 import json
@@ -69,24 +69,22 @@ class LichessApiHandler(hass.Hass):
 
         self._lichess_api_init_value = IDLE_LICHESS_TOKEN
         self._lichess_stream_event_init_value = IDLE_LICHESS_TOKEN
-        self._lichess_stream_board_main_init_value = lh.concat_values(IDLE_LICHESS_TOKEN, IDLE_GAME_ID)
-        self._lichess_stream_board_opponent_init_value = lh.concat_values(IDLE_LICHESS_TOKEN, IDLE_GAME_ID)
-        self._token_opponent_api_init = IDLE_LICHESS_TOKEN
         self._game_id_init = IDLE_GAME_ID
 
         # single-threaded API worker to serialize Lichess calls
         self._api_q = queue.Queue()  
         self._api_worker: Optional[threading.Thread] = None   
         self._stream_worker: Optional[threading.Thread] = None
-        self._board_worker_main: Optional[threading.Thread] = None    
-        self._board_worker_opponent: Optional[threading.Thread] = None 
         self._lock = threading.Lock()   
         self._stop_event_api = threading.Event()
         self._stop_event_stream = threading.Event()
-        self._stop_event_board_main = threading.Event()
-        self._stop_event_board_opponent = threading.Event()
 
-        
+        self._worker_board_main = LichessWorkerBoard(main_worker = True, idle_token = IDLE_LICHESS_TOKEN, idle_game_id = IDLE_GAME_ID, log = self.log)
+        self._worker_board_opponent = LichessWorkerBoard(main_worker = False, idle_token = IDLE_LICHESS_TOKEN, idle_game_id = IDLE_GAME_ID, log = self.log)
+
+        self._worker_board_main.register_publish_function(self.publish_response)
+        self._worker_board_opponent.register_publish_function(self.publish_response)
+
         # ---- Initialize MQTT client ----
         self._mqtt.connect_and_loop(
             (
@@ -166,7 +164,6 @@ class LichessApiHandler(hass.Hass):
         # trying to stop all running workers with previous token
         self._stop_api_worker()
         self._stop_stream_worker()
-        self._stop_board_worker_main()
 
         # update token
         self._token_main = new_token    
@@ -177,7 +174,8 @@ class LichessApiHandler(hass.Hass):
             self._clients.set_token(CLIENT_NAME_EVENT, new_token, idle_token=IDLE_LICHESS_TOKEN)
             self._clients.set_token(CLIENT_NAME_BOARD_MAIN, new_token, idle_token=IDLE_LICHESS_TOKEN)
             self._run_api_worker()
-            self._run_stream_worker()            
+            self._run_stream_worker()
+            self._worker_board_main.update_lichess_client(self._clients.get(CLIENT_NAME_BOARD_MAIN), new_token)            
             
 
     def _on_mqtt_token_opponent(self, payload: str) -> None:
@@ -202,6 +200,7 @@ class LichessApiHandler(hass.Hass):
         if new_token != IDLE_LICHESS_TOKEN:
             self._clients.set_token(CLIENT_NAME_API_OPPONENT, new_token, idle_token=IDLE_LICHESS_TOKEN)
             self._clients.set_token(CLIENT_NAME_BOARD_OPPONENT, new_token, idle_token=IDLE_LICHESS_TOKEN)
+            self._worker_board_main.update_lichess_client(self._clients.get(CLIENT_NAME_BOARD_OPPONENT), new_token)
 
     def _on_mqtt_game_id(self, payload: str) -> None:
 
@@ -210,17 +209,12 @@ class LichessApiHandler(hass.Hass):
             return
         
         self.log(f"Game ID changed in LichessApiHandler: {self._current_game_id} -> {payload}")
-
-        # reset game_id to assist stopping of workers
-        self._current_game_id = IDLE_GAME_ID
-
-        # overwrites current game id to stop existing stream
-        self._stop_board_workers()
-        
+       
         # update game id
         self._current_game_id = payload
         # start new board stream        
-        self._run_board_workers()
+        self._worker_board_main.update_game_id(payload) 
+        self._worker_board_opponent.update_game_id(payload) 
 
     def _on_mqtt_chessboard_status(self, payload: str) -> None:
         # chessboard is online
@@ -229,7 +223,7 @@ class LichessApiHandler(hass.Hass):
             self._init_sessions_all()
             self._run_api_worker()
             self._run_stream_worker()
-            self._run_board_workers()
+
         # chessboard is offline
         elif payload == STATUS_OFFLINE:
             self.log(f"Chessboard is offline in LichessApiHandler")
@@ -293,55 +287,9 @@ class LichessApiHandler(hass.Hass):
         )
         self._stream_worker.start()
 
-
-    def _run_board_worker_main(self):   
-
-        token_plus_game_id = lh.concat_values(self._token_main, self._current_game_id)
-
-        # check if api thread is already running or token still not set, we skip starting
-        if (self._lichess_stream_board_main_init_value == token_plus_game_id and self._board_worker_main and self._board_worker_main.is_alive()) or self._token_main == IDLE_LICHESS_TOKEN or self._current_game_id == IDLE_GAME_ID:
-            return    
-        
-        self._stop_event_board_main.clear()
-
-        self.log(f"Board {token_plus_game_id}: (main) worker starting") 
-
-        # start board worker thread (main)
-        self._board_worker_main = threading.Thread(
-            target=self.handle_board_stream_main,
-            args=(token_plus_game_id, ),
-            daemon=True
-        )
-        self._board_worker_main.start()
-
-    def _run_board_worker_opponent(self):   
-
-        token_plus_game_id = lh.concat_values(self._token_opponent, self._current_game_id)
-
-        # check if api thread is already running or token still not set, we skip starting
-        if (self._lichess_stream_board_opponent_init_value == token_plus_game_id and self._board_worker_opponent and self._board_worker_opponent.is_alive()) or self._token_opponent == IDLE_LICHESS_TOKEN or self._current_game_id == IDLE_GAME_ID:
-            return    
-        
-        self._stop_event_board_opponent.clear()
-
-        self.log(f"Board {token_plus_game_id}: (opponent) worker starting") 
-
-        # start board worker thread (opponent)
-        self._board_worker_opponent = threading.Thread(
-            target=self.handle_board_stream_opponent,
-            args=(token_plus_game_id, ),
-            daemon=True
-        )
-        self._board_worker_opponent.start()
-
-    def _run_board_workers(self): 
-        self._run_board_worker_main()
-        self._run_board_worker_opponent()
-
     def _run_all_workers(self):
         self._run_api_worker()
         self._run_stream_worker()
-        self._run_board_workers()
    
     #####################################################################
     ############## ---------- STOP WOKERS ------------  #################
@@ -391,54 +339,10 @@ class LichessApiHandler(hass.Hass):
         if self._lichess_stream_event_init_value != IDLE_LICHESS_TOKEN:
             self.log(f"Thread init-variable for stream event worker is still set", level="WARNING")
 
-    def _stop_board_worker_main(self):
-               
-        # stop main board worker
-        if  self._board_worker_main is not None and self._board_worker_main.is_alive():
-
-            self._stop_event_board_main.set()
-
-            self.log(f"Main board worker stopping")
-            # wait main board thread is finished
-            self._board_worker_main.join(timeout=1)
-
-            # check if main thread is stopped
-            if self._board_worker_main and self._board_worker_main.is_alive():
-                self.log(f"Stopping board worker (main) failed")
-                # we call dummy function (here abort) to provoke an event in the stream to call the loop-abort checks
-                lh.write_into_chat(self._clients.get(CLIENT_NAME_BOARD_MAIN), self._current_game_id, {"text": f"Event on main board-stream: {self._current_game_id}"})
-            else:
-                self.log(f"Board worker (main) stopped")
-
-        # check if init variable is reseted
-        if self._lichess_stream_board_main_init_value != lh.concat_values(IDLE_LICHESS_TOKEN, IDLE_GAME_ID):
-            self.log(f"Thread init-variable {self._lichess_stream_board_main_init_value} for stream board main worker is still set", level="WARNING")
-
-    def _stop_board_worker_opponent(self):        
-        
-        if self._board_worker_opponent is not None and self._board_worker_opponent.is_alive():
-            # set the opponent stop event and provoke stream exit like the main worker
-            self._stop_event_board_opponent.set()
-
-            self.log(f"Opponent board worker stopping")
-            # wait opponent board thread is finished
-            self._board_worker_opponent.join(timeout=1)
-
-            # check if opponent thread is stopped
-            if self._board_worker_opponent and self._board_worker_opponent.is_alive():
-                self.log(f"Stopping board worker (opponent) failed")
-                # we call dummy function (here abort) to provoke an event in the stream to call the loop-abort checks
-                lh.write_into_chat(self._clients.get(CLIENT_NAME_BOARD_OPPONENT), self._current_game_id, {"text": f"Event on opponent board-stream: {self._current_game_id}"})
-            else:
-                self.log(f"Board worker (opponent) stopped")
-
-        # check if init variable is reseted
-        if self._lichess_stream_board_opponent_init_value != lh.concat_values(IDLE_LICHESS_TOKEN, IDLE_GAME_ID):
-            self.log(f"Thread init-variable {self._lichess_stream_board_opponent_init_value} for stream board opponent worker is still set", level="WARNING")
 
     def _stop_board_workers(self):
-        self._stop_board_worker_main()
-        self._stop_board_worker_opponent()
+        self._worker_board_main._stop_board_worker()
+        self._worker_board_opponent._stop_board_worker()
 
     def _stop_all_workers(self):
         self._stop_api_worker()
@@ -519,79 +423,6 @@ class LichessApiHandler(hass.Hass):
             
         self.log(f"Terminated main-loop {self._lichess_api_init_value}")
 
-
-    def handle_board_stream_main(self, init_value):
-        # init_value is concat(token main + game_id)
-        splitted_init_value = lh.split_concated_values(init_value)
-        game_id = "idle"
-        if len(splitted_init_value) > 1:
-            game_id = splitted_init_value[1]
-
-        # init_value is token main
-        with  self._lock:
-            self._lichess_stream_board_main_init_value = init_value
-          
-        self.log(f"Starting the board stream (main): {init_value}")
-
-        for line in self._clients.get(CLIENT_NAME_BOARD_MAIN).board.stream_game_state(game_id):
-            if line: # valid dic 
-                reduced_data = json.dumps(lh.reduce_response_board(game_id, line))
-                # let ha know about the move
-                self.publish_response(reduced_data)
-                self.log(f"Board (main): {reduced_data}")
-  
-                # check if we have to abort the game                    
-                if lh.check_game_over(line):
-                    self.log(f"Terminating the board stream (main): {init_value}")
-                    # close the stream
-                    break
-                
-            if self._stop_event_board_main.is_set():
-                self.log(f"Board stream stop event set, terminating the board stream (main): {init_value}")
-                break
-            with self._lock:
-                if (lh.concat_values(self._token_main, self._current_game_id)  != init_value):
-                    self.log(f"Board stream stopping: game_id or token changed, terminating the board stream (main): {init_value}")
-                    break
-        # we are ready to go
-        self.log(f"Terminated board stream (main): {init_value}")
-        with  self._lock:
-            self._lichess_stream_board_main_init_value = lh.concat_values(IDLE_LICHESS_TOKEN, IDLE_GAME_ID)
-
-    def handle_board_stream_opponent(self, init_value):
-        # init_value is concat(token main + game_id)
-        splitted_init_value = lh.split_concated_values(init_value)
-        game_id = "idle"
-        if len(splitted_init_value) > 1:
-            game_id = splitted_init_value[1]
-
-        with  self._lock:
-            self._lichess_stream_board_opponent_init_value = init_value
-
-        self.log(f"Starting the board stream (opponent): {init_value}")
-
-        # do nothing, just keep stream alive
-        for line in self._clients.get(CLIENT_NAME_BOARD_OPPONENT).board.stream_game_state(game_id):
-            if line: # valid dic
-                self.log(f"Board (opponent): {line}")
-
-                # check if we have to abort the game
-                if lh.check_game_over(line):
-                    self.log(f"Terminating the board stream (opponent): {init_value}")
-                    # close the stream
-                    break
-            if self._stop_event_board_opponent.is_set():
-                self.log(f"Board stream stop event set, terminating the board stream (opponent): {init_value}")
-                break
-            with self._lock:
-                if (lh.concat_values(self._token_opponent, self._current_game_id)  != init_value):
-                    self.log(f"Board stream stopping: game_id or token changed, terminating the board stream (opponent): {init_value}")
-                    break
-        with  self._lock:
-            self._lichess_stream_board_opponent_init_value = lh.concat_values(IDLE_LICHESS_TOKEN, IDLE_GAME_ID)
-
-        # we are ready to go
-        self.log(f"Terminated board stream (opponent): {init_value}")
 
     #####################################################################
     ############## ---------- HELPER FUNCTIONS ----------  ##############
