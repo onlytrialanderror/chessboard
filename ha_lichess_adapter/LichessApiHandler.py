@@ -1,9 +1,7 @@
 import appdaemon.plugins.hass.hassapi as hass
-import paho.mqtt.client as paho
 
-import ssl
 import lichess_helpers as lh
-from LichessClientPool import LichessClientPool
+from lichess_components import (LichessClientPool, MqttGateway)
 
 import berserk
 import json
@@ -26,7 +24,6 @@ MQTT_STATUS_TOPIC = "chessboard/status"
 MQTT_RESPONSE_TOPIC = "chessboard/response"
 
 SECRET_PATH = "/config/secrets.yaml"
-CA_CERT_PATH = "/config/hivemq.pem"
 
 CLIENT_NAME_API_MAIN = "client_api_main"
 CLIENT_NAME_API_OPPONENT = "client_api_opponent"
@@ -52,15 +49,14 @@ class LichessApiHandler(hass.Hass):
             raise RuntimeError("Missing 'chessboard_secret_key' in {}.".format(SECRET_PATH))
 
         # ---- MQTT config (from secrets.yaml) ----
-        mqtt_cfg = self.secrets.get("mqtt", {}) or {}
-        self.mqtt_host = mqtt_cfg.get("host", "127.0.0.1")
-        self.mqtt_port = int(mqtt_cfg.get("port", 1883))        
-        self.mqtt_username = mqtt_cfg.get("username") or None
-        self.mqtt_password = mqtt_cfg.get("password") or None
-        self.mqtt_keepalive = int(mqtt_cfg.get("keepalive", 60))
-        self.mqtt_client_id = mqtt_cfg.get("client_id", "lichess_api_handler")
-        self.mqtt_tls_enabled = bool(mqtt_cfg.get("mqtt_tls", False))
-        self.mqtt_ca_cert_path = mqtt_cfg.get("mqtt_ca_cert", CA_CERT_PATH) 
+        self._mqtt = MqttGateway(self.secrets, self.log)
+
+        # ---- MQTT topic routing ----
+        self._mqtt.register_handler(MQTT_API_CALL_TOPIC, self._on_mqtt_api_call)
+        self._mqtt.register_handler(MQTT_GAME_ID_TOPIC, self._on_mqtt_game_id)
+        self._mqtt.register_handler(MQTT_TOKEN_MAIN_TOPIC, self._on_mqtt_token_main)
+        self._mqtt.register_handler(MQTT_TOKEN_OPP_TOPIC, self._on_mqtt_token_opponent)
+        self._mqtt.register_handler(MQTT_STATUS_TOPIC, self._on_mqtt_chessboard_status)
 
         # current runtime state (protected by self._lock where needed)
         self._current_game_id = IDLE_GAME_ID
@@ -92,39 +88,16 @@ class LichessApiHandler(hass.Hass):
 
         
         # ---- Initialize MQTT client ----
-        self._client_mqtt = paho.Client(client_id=self.mqtt_client_id, protocol=paho.MQTTv311, clean_session=True)
-        if self.mqtt_username is not None:
-            self._client_mqtt.username_pw_set(self.mqtt_username, password=self.mqtt_password)
-
-        # TLS/SSL setup
-        if self.mqtt_tls_enabled:
-            if not self.mqtt_ca_cert_path:
-                raise ValueError("mqtt_tls is true but mqtt_ca_cert is not set (path to CA certificate).")
-            self._client_mqtt.tls_set(
-                ca_certs=self.mqtt_ca_cert_path,
-                certfile=None,
-                keyfile=None,
-                cert_reqs=ssl.CERT_REQUIRED,
-                tls_version=ssl.PROTOCOL_TLS_CLIENT,
+        self._mqtt.connect_and_loop(
+            (
+                (MQTT_API_CALL_TOPIC, 0),
+                (MQTT_GAME_ID_TOPIC, 0),
+                (MQTT_TOKEN_MAIN_TOPIC, 0),
+                (MQTT_TOKEN_OPP_TOPIC, 0),
+                (MQTT_STATUS_TOPIC, 0),
             )
-
-        self._client_mqtt.on_connect = self._mqtt_on_connect
-        self._client_mqtt.on_message = self._mqtt_on_message
-        self._client_mqtt.on_disconnect = self._mqtt_on_disconnect
-
-        # connect + start network loop
-        self._client_mqtt.reconnect_delay_set(min_delay=1, max_delay=30)
-        self._client_mqtt.connect(self.mqtt_host, self.mqtt_port, keepalive=self.mqtt_keepalive)
-        self._client_mqtt.loop_start()
-
-        self.log(
-            f"MQTT ready in LichessApiHandler via paho. host={self.mqtt_host} port={self.mqtt_port} "
-            f"tls={'on' if self.mqtt_tls_enabled else 'off'} api_call='{MQTT_API_CALL_TOPIC}', response='{MQTT_RESPONSE_TOPIC}'"
         )
-        self.log(
-            f"MQTT inputs for LichessApiHandler: game_id='{MQTT_GAME_ID_TOPIC}', "
-            f"token_main='{MQTT_TOKEN_MAIN_TOPIC}', token_opponent='{MQTT_TOKEN_OPP_TOPIC}'"
-        )
+
         self.log(f"Initialization complete for LichessApiHandler")
 
     def terminate(self):
@@ -140,77 +113,30 @@ class LichessApiHandler(hass.Hass):
             pass
 
         try:
-            if self._client_mqtt is not None:
-                self._client_mqtt.loop_stop()
-                self._client_mqtt.disconnect()
+            if hasattr(self, "_mqtt") and self._mqtt:
+                self._mqtt.stop()
         except Exception:
             pass
 
-    #####################################################################
-    ############## ---------- MQTT callbacks ---------- #################
-    #####################################################################
-
-    def _mqtt_on_connect(self, client, userdata, flags, rc):
-        if rc != 0:
-            self.log(f"MQTT connection failed in LichessApiHandler, rc={rc}", level="ERROR")
-            return
-
-        self.log(f"MQTT connected in LichessApiHandler, subscribing to topics...")
-        client.subscribe([
-            (MQTT_API_CALL_TOPIC, 0),
-            (MQTT_GAME_ID_TOPIC, 0),
-            (MQTT_TOKEN_MAIN_TOPIC, 0),
-            (MQTT_TOKEN_OPP_TOPIC, 0),
-            (MQTT_STATUS_TOPIC, 0),
-        ])
-
-    def _mqtt_on_disconnect(self, client, userdata, rc):
-        # rc==0 means clean disconnect
-        self.log(f"MQTT disconnected in LichessApiHandler, rc={rc}")
-
-    def _mqtt_on_message(self, client, userdata, msg):
-        topic = msg.topic
-        payload = lh.payload_to_str(msg.payload)
-        if payload is None:
-            return
-
-        if topic == MQTT_API_CALL_TOPIC:
-            self._on_mqtt_api_call(payload)
-        elif topic == MQTT_GAME_ID_TOPIC:
-            self._on_mqtt_game_id(payload)
-        elif topic == MQTT_TOKEN_MAIN_TOPIC:
-            self._on_mqtt_token_main(payload)
-        elif topic == MQTT_TOKEN_OPP_TOPIC:
-            self._on_mqtt_token_opponent(payload)
-        elif topic == MQTT_STATUS_TOPIC:
-            self._on_mqtt_chessboard_status(payload)
 
     #####################################################################
     ############## ---------- MQTT handlers ----------  #################
     #####################################################################
 
-    def publish_response(self, payload: str):
-        """Publish response JSON string to chessboard/response."""
-        try:
-            if self._client_mqtt is None:
-                raise RuntimeError("MQTT client not initialized")
-            self._client_mqtt.publish(MQTT_RESPONSE_TOPIC, payload=payload, qos=0, retain=False)
-        except Exception as e:
-            self.log(f"Failed to publish MQTT response in LichessApiHandler: {e}")
+    # ------------------------------------------------------------------
+    # MQTT publisher helpers
+    # ------------------------------------------------------------------
 
-    def clear_topics(self):
-        """Publish response JSON string to chessboard/response."""
-        try:
-            if self._client_mqtt is None:
-                raise RuntimeError("MQTT client not initialized")
-            self._client_mqtt.publish(MQTT_RESPONSE_TOPIC, payload=IDLE_MQTT_STATE, qos=0, retain=False)
-            self._client_mqtt.publish(MQTT_TOKEN_OPP_TOPIC, payload=IDLE_LICHESS_TOKEN, qos=0, retain=False)
-            self._client_mqtt.publish(MQTT_TOKEN_MAIN_TOPIC, payload=IDLE_LICHESS_TOKEN, qos=0, retain=False)
-            self._client_mqtt.publish(MQTT_GAME_ID_TOPIC, payload=IDLE_GAME_ID, qos=0, retain=False)
-            self._client_mqtt.publish(MQTT_API_CALL_TOPIC, payload=IDLE_MQTT_STATE, qos=0, retain=False)
-            self._client_mqtt.publish(MQTT_STATUS_TOPIC, payload=IDLE_MQTT_STATE, qos=0, retain=False)
-        except Exception as e:
-            self.log(f"Failed to publish empty MQTT response in LichessApiHandler: {e}")
+    def publish_response(self, payload: str) -> None:
+        self._mqtt.publish(MQTT_RESPONSE_TOPIC, payload)
+
+    def clear_topics(self) -> None:
+        self._mqtt.publish(MQTT_API_CALL_TOPIC, IDLE_MQTT_STATE)
+        self._mqtt.publish(MQTT_GAME_ID_TOPIC, IDLE_MQTT_STATE)
+        self._mqtt.publish(MQTT_TOKEN_MAIN_TOPIC, IDLE_MQTT_STATE)
+        self._mqtt.publish(MQTT_TOKEN_OPP_TOPIC, IDLE_MQTT_STATE)
+        self._mqtt.publish(MQTT_STATUS_TOPIC, IDLE_MQTT_STATE)
+        self._mqtt.publish(MQTT_RESPONSE_TOPIC, IDLE_MQTT_STATE)
      
 
     def _on_mqtt_api_call(self, payload: str) -> None:
