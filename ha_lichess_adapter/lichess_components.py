@@ -1,9 +1,11 @@
 import berserk
 import threading
+import queue
 from typing import Callable, Dict, Optional, Tuple
 import json
 import paho.mqtt.client as paho
 import ssl
+import time
 import lichess_helpers as lh
 
 CA_CERT_PATH = "/config/hivemq.pem"
@@ -188,58 +190,33 @@ class LichessWorkerBoard:
         self._log(f"Board ({self.worker_type}) worker is initialized", LEVEL = "INFO")
 
     def update_game_id(self, game_id:str) -> None:
-        self._game_id(game_id)
-   
-    def update_lichess_client(self, lichess_client: berserk.Client, token: str = "idle") -> None:
-        self._client_lichess = lichess_client
-        self._update_token_main(token)
-       
-    def register_publish_function(self, publish_function: Callable[[str], None]):
-        self._mqtt_publish_function  = publish_function
-
-
-
-    #####################################################################
-    ############## ---------- MQTT handlers ----------  #################
-    #####################################################################
-
-    # ------------------------------------------------------------------
-    # MQTT publisher helpers
-    # ------------------------------------------------------------------
-
-    def _publish_response(self, payload: str) -> None:
-        self._mqtt_publish_function(payload)
-
-
-    def _update_token_main(self, new_token: str) -> None:
-        # check if token really changed
-        if new_token == self._current_token:
-            return
-
-        self._stop_board_worker()
-
-        # update token
-        self._current_token = new_token    
-
-
-    def _game_id(self, game_id: str) -> None:
-
         # check if game id really changed
         if game_id == self._current_game_id:
             return
         
+        self.stop_worker()
+        
         self._log(f"Board ({self.worker_type}) worker: game_id is updateded from {self._current_game_id} to {game_id}", LEVEL = "INFO")
         
         # reset game_id to assist stopping of workers
-        self._current_game_id = self._idle_game_id
-
-        # overwrites current game id to stop existing stream
-        self._stop_board_worker()
-        
-        # update game id
         self._current_game_id = game_id
-        # start new board stream        
-        self._run_board_worker()
+   
+    def update_lichess_client(self, lichess_client: berserk.Client, new_token: str) -> None:
+        self._client_lichess = lichess_client
+        # check if token really changed
+        if new_token == self._current_token:
+            return
+
+        self.stop_worker()
+
+        # update token
+        self._current_token = new_token 
+       
+    def register_publish_function(self, publish_function: Callable[[str], None]):
+        self._mqtt_publish_function  = publish_function
+
+    def is_any_thread_alive(self):
+        return  bool(self._board_worker and self._board_worker.is_alive())
 
 
     #####################################################################
@@ -247,7 +224,7 @@ class LichessWorkerBoard:
     #####################################################################
 
 
-    def _run_board_worker(self):   
+    def run_worker(self):   
 
         token_plus_game_id = lh.concat_values(self._current_token, self._current_game_id)
 
@@ -261,7 +238,7 @@ class LichessWorkerBoard:
 
         # start board worker thread ({self.worker_type})
         self._board_worker = threading.Thread(
-            target=self.handle_board_stream,
+            target=self._handle_board_stream,
             args=(token_plus_game_id, ),
             daemon=True
         )
@@ -273,7 +250,7 @@ class LichessWorkerBoard:
     #####################################################################
 
 
-    def _stop_board_worker(self):
+    def stop_worker(self):
                
         # stop main board worker
         if  self._board_worker is not None and self._board_worker.is_alive():
@@ -297,12 +274,11 @@ class LichessWorkerBoard:
             self._log(f"Thread init-variable {self._lichess_stream_board_init_value} for stream board {self.worker_type} worker is still set", level="WARNING")
 
 
-
     #####################################################################
     ############## ---------- HANDLER FUNCTIONS ---------  ##############
     #####################################################################
 
-    def handle_board_stream(self, init_value):
+    def _handle_board_stream(self, init_value):
         # init_value is concat(token main + game_id)
         splitted_init_value = lh.split_concated_values(init_value)
         game_id = "idle"
@@ -318,11 +294,11 @@ class LichessWorkerBoard:
         for line in self._client_lichess.board.stream_game_state(game_id):
             if line: # valid dic 
 
-                if self._main_worker == True:
+                if self._main_worker == True and self._mqtt_publish_function is not None:
 
                     reduced_data = json.dumps(lh.reduce_response_board(game_id, line))
                     # let ha know about the move
-                    self._publish_response(reduced_data)
+                    self._mqtt_publish_function(reduced_data)
                     self._log(f"Board ({self.worker_type}): {reduced_data}")
   
                 # check if we have to abort the game                    
@@ -342,3 +318,396 @@ class LichessWorkerBoard:
         self._log(f"Terminated board stream ({self.worker_type}): {init_value}")
         with  self._lock:
             self._lichess_stream_board_init_value = lh.concat_values(self._idle_token, self._idle_game_id)
+
+
+class LichessWorkerEvent:
+     
+
+    def __init__(self, idle_token: str = "idle", log: Callable[[str, str], None] = lh.default_log):
+
+        self._idle_token = idle_token
+        self._lichess_stream_event_init_value = self._idle_token
+        self._current_token = self._idle_token
+
+        # single-threaded API worker to serialize Lichess calls
+        self._stream_worker: Optional[threading.Thread] = None    
+        self._lock = threading.Lock()   
+        self._stop_event_stream = threading.Event()
+
+        self._client_lichess: Optional[berserk.Client] = None 
+
+        self._mqtt_publish_function  = None
+
+        self._log = log
+
+        self._log(f"Event worker is initialized", LEVEL = "INFO")
+
+  
+    def update_lichess_client(self, lichess_client: berserk.Client, new_token: str) -> None:
+        self._client_lichess = lichess_client
+        # check if token really changed
+        if new_token == self._current_token:
+            return
+
+        self.stop_worker()
+
+        # update token
+        self._current_token = new_token 
+       
+    def register_publish_function(self, publish_function: Callable[[str], None]):
+        self._mqtt_publish_function  = publish_function
+
+    def is_any_thread_alive(self):
+        return  bool(self._stream_worker and self._stream_worker.is_alive())
+
+
+    #####################################################################
+    ############## ---------- RUN WOKERS -------------  #################
+    #####################################################################
+
+
+    def run_worker(self):   
+
+        # check if api thread is already running or token still not set, we skip starting
+        if (self._lichess_stream_event_init_value == self._current_token and self._lichess_stream_event_init_value != self._idle_token and self._stream_worker and self._stream_worker.is_alive()) or self._current_token == self._idle_token:
+            return
+        
+        self._stop_event_stream.clear()
+
+        self._log(f"Stream worker started") 
+        # start stream worker thread
+        self._stream_worker = threading.Thread(
+            target=self._handle_incoming_events,
+            args=(self._current_token,),
+            daemon=True
+        )
+        self._stream_worker.start()
+
+   
+    #####################################################################
+    ############## ---------- STOP WOKERS ------------  #################
+    #####################################################################
+
+
+    def stop_worker(self):
+               
+        if self._stream_worker and self._stream_worker.is_alive():
+            self._log(f"Stream event worker is running, trying to stop")
+            # thread shutdown
+            self._stop_event_stream.set()
+            # we reset the token to idle to stop the stream
+            self._current_token =  self._idle_token
+
+            if self._stream_worker and self._stream_worker.is_alive():
+                self._stream_worker.join(timeout=2)
+
+            # check if stream thread is stopped           
+            if self._stream_worker and self._stream_worker.is_alive():
+                self._log(f"Stopping Stream event worker failed")
+            else:
+                self._log(f"Stream worker stopped")
+
+        # check if init variable is reseted
+        if self._lichess_stream_event_init_value != self._idle_token:
+            self._log(f"Thread init-variable for stream event worker is still set", level="WARNING")
+
+
+    #####################################################################
+    ############## ---------- HANDLER FUNCTIONS ---------  ##############
+    #####################################################################
+
+    def _handle_incoming_events(self, token_init):
+        
+        self._lichess_stream_event_init_value = token_init
+
+        self._log(f"Starting the stream (event): {token_init}")
+
+        # open the stream for whole chess game        
+        for event in self._client_lichess.board.stream_incoming_events():
+            if event:                    
+                reduced_data = json.dumps(lh.reduce_response_event(event))                
+                self._log(f"Event: {reduced_data}")
+                if self._mqtt_publish_function is not None:
+                    self._mqtt_publish_function(reduced_data)
+            if self._stop_event_stream.is_set():
+                self._log(f"Stream stop event set, terminating the stream (event): {self._lichess_stream_event_init_value}")
+                break
+            with  self._lock:
+                if self._lichess_stream_event_init_value != self._current_token:
+                    self._log(f"Terminating the event stream (token changed): {self._lichess_stream_event_init_value}->{self._current_token}")
+                    # close the stream
+                    break
+
+        self._log(f"Terminated the stream (event): {self._lichess_stream_event_init_value}")            
+        self._lichess_stream_event_init_value = self._idle_token
+
+
+
+
+class LichessWorkerApi:
+     
+
+    def __init__(self, idle_token: str = "idle", idle_game_id: str = "idle", log: Callable[[str, str], None] = lh.default_log):
+
+        self._idle_token = idle_token
+        self._idle_game_id = idle_game_id
+        self._lichess_api_init_value = self._idle_token
+        self._current_game_id = self._idle_game_id
+        self._current_token_main = self._idle_token
+        self._current_token_opponent = self._idle_token
+
+        # single-threaded API worker to serialize Lichess calls
+        self._api_worker: Optional[threading.Thread] = None    
+        self._lock = threading.Lock()   
+        self._stop_event_api = threading.Event()
+        self._api_q = queue.Queue() 
+
+        self._client_lichess_main: Optional[berserk.Client] = None 
+        self._client_lichess_opponent: Optional[berserk.Client] = None 
+
+        self._mqtt_publish_function  = None
+
+        self._log = log
+
+        self._log(f"Api worker is initialized", LEVEL = "INFO")
+
+    def update_game_id(self, game_id:str) -> None:
+        # check if game id really changed
+        if game_id == self._current_game_id:
+            return
+        
+        # reset game_id to assist stopping of workers
+        self._current_game_id = game_id
+   
+    def update_lichess_client_main(self, lichess_client: berserk.Client, new_token: str) -> None:
+        self._client_lichess_main = lichess_client
+        # check if token really changed
+        if new_token == self._current_token_main:
+            return
+
+        # update token
+        self._current_token_main = new_token 
+
+    def update_lichess_client_opponent(self, lichess_client: berserk.Client, new_token: str) -> None:
+        self._client_lichess_opponent = lichess_client
+        # check if token really changed
+        if new_token == self._current_token_opponent:
+            return
+
+        # update token
+        self._current_token_opponent = new_token
+
+        # we have to reset client if idle token
+        if new_token == self._idle_token and self._client_lichess_opponent is not None:
+            self._client_lichess_opponent = None
+       
+    def register_publish_function(self, publish_function: Callable[[str], None]):
+        self._mqtt_publish_function  = publish_function
+
+    def perform_api_call(self, api_json: str):
+        if api_json and api_json != self._idle_game_id:
+            self._api_q.put(api_json)
+
+    def is_any_thread_alive(self):
+        return  bool(self._api_worker and self._api_worker.is_alive())
+
+
+    #####################################################################
+    ############## ---------- RUN WOKERS -------------  #################
+    #####################################################################
+
+
+    def run_worker(self):   
+
+        # check if api thread is already running, we skip starting
+        if self._api_worker and self._api_worker.is_alive():
+            return
+        
+        self._log(f"API worker starting") 
+        
+        self._stop_event_api.clear()
+
+        # start api worker thread
+        self._api_worker = threading.Thread(
+            target=self._handle_api_calls,
+            daemon=True
+        )
+        self._api_worker.start()
+
+   
+    #####################################################################
+    ############## ---------- STOP WOKERS ------------  #################
+    #####################################################################
+
+
+    def stop_worker(self):
+               
+        if self._api_worker and self._api_worker.is_alive():
+            self._log(f"API main worker is running, trying to stop")
+            # sentinel shutdown
+            self._api_q.put("terminate_api_worker")
+            # thread shutdown
+            self._stop_event_api.set()
+
+            if self._api_worker and self._api_worker.is_alive():
+                self._api_worker.join(timeout=1)
+
+            # check if api thread is stopped
+            if self._api_worker and self._api_worker.is_alive():
+                self._log(f"Stopping API main worker failed", level="WARNING")
+            else:
+                self._log(f"API main worker stopped")
+
+        # check if init variable is reseted
+        if self._lichess_api_init_value != self._idle_token:
+            self._log(f"Thread init-variable for API main worker is still set", level="WARNING")
+
+
+    #####################################################################
+    ############## ---------- HANDLER FUNCTIONS ---------  ##############
+    #####################################################################
+ 
+
+    def _handle_api_calls(self):
+        # we set to any value, that is not equal to idle
+        self._lichess_api_init_value = "loop_is_running"
+        # init_value is token main
+        self._log(f"Starting main-loop")
+        while True:
+            # get next item from the queue
+            try:
+                item = self._api_q.get(timeout=1)
+            except queue.Empty:
+                continue
+
+            # check for stop event
+            if self._stop_event_api.is_set():
+                self._log(f"Terminating main-loop due to stop event")
+                break
+
+            # check for sentinel
+            if item == "terminate_api_worker":
+                self._log(f"Terminating main-loop due to sentinel")
+                break
+
+            # handle the API call
+            try:
+                if item:
+                    self._perform_api_call(item)
+                else:
+                    self._log(f"Empty API call received", level="WARNING")
+            except Exception as e:
+                self._log(f"API call error: {e}", level="ERROR")
+            finally:
+                self._api_q.task_done()
+
+            # if a game isn't running, we sleep
+            if self._current_game_id == self._idle_game_id:
+                time.sleep(1)
+            
+        self._log(f"Terminated main-loop")
+        self._lichess_api_init_value = self._idle_token
+
+
+    #####################################################################
+    ############## ---------- HELPER FUNCTIONS ----------  ##############
+    #####################################################################
+
+    def _perform_api_call(self, new):
+
+        try:
+            json_data = json.loads(new)
+        except json.JSONDecodeError as e:
+            self._log(f"Invalid JSON in api_call: {e} payload={new!r}", level="WARNING")
+            return
+
+        call_type = json_data.get("type", None)
+
+        self._log(f"API-call: " + json.dumps(json_data))
+
+        if json_data and call_type:
+
+            with self._lock:
+
+                valid_token = self._current_token_main != self._idle_token and self._client_lichess_main is not None
+                valid_token_opponent = (self._current_token_opponent == self._idle_token and self._client_lichess_opponent is None) or (self._current_token_opponent != self._idle_token and self._client_lichess_opponent is not None)
+                valid_game_id = self._current_game_id != self._idle_game_id
+                
+                if valid_token == True:
+
+                    if call_type == "getAccountInfoMain":
+                        json_response = lh.getAccountInfoMain(self._client_lichess_main, self_log=self._log)
+                        self._mqtt_publish_function(json_response)
+                        return
+
+                    if call_type == "abortRunningGames":
+                        lh.abortRunningGames(self._client_lichess_main, self_log=self._log)
+                        return
+
+                    if call_type == "withdrawTornament":
+                        lh.withdrawTornament(json_data, self._client_lichess_main, self_log=self._log)
+                        return
+
+                    if call_type == "joinTournamentByName":
+                        json_response = lh.joinTournamentByName(json_data, self._client_lichess_main, self_log=self._log)
+                        self._mqtt_publish_function(json_response)
+                        return
+
+                    if call_type == "joinTournamentById":
+                        json_response = lh.joinTournamentById(json_data, self._client_lichess_main, self_log=self._log)
+                        self._mqtt_publish_function(json_response)
+                        return
+                
+                if valid_token == True and valid_token_opponent == True:
+
+                    if call_type == "createGame" :
+                        json_response = lh.createGame(json_data, self._client_lichess_main, self._current_token_opponent, self_log=self._log)
+                        self._mqtt_publish_function(json_response)
+                        return
+                
+                if valid_token == True and valid_game_id == True:
+
+                    if call_type == "abort":
+                        lh.abort(self._client_lichess_main, self._current_game_id, self_log=self._log)
+                        return
+                    
+                    if call_type == "resign":
+                        lh.resign(self._client_lichess_main, self._current_game_id, self_log=self._log)
+                        return
+                    
+                    if call_type == "claim-victory":
+                        lh.claimVictory(self._client_lichess_main, self._current_game_id, self_log=self._log)
+                        return  
+                                        
+                    if call_type == "makeMove":
+                        lh.makeMove(json_data, self._client_lichess_main, self._current_game_id, self_log=self._log)
+                        return
+                        
+                    if call_type == "draw":
+                        lh.draw(json_data, self._client_lichess_main, self._current_game_id, self_log=self._log)
+                        return 
+                    
+                    if call_type == "takeback":
+                        lh.takeback(json_data, self._client_lichess_main, self._current_game_id, self_log=self._log)
+                        return 
+                    
+                    if call_type == "writeChatMessage":
+                        lh.writeChatMessage(json_data, self._client_lichess_main, self._current_game_id, self_log=self._log)
+                        return 
+
+                if valid_token_opponent == True and valid_game_id == True:
+
+                    if call_type == "makeMoveOpponent":
+                        lh.makeMoveOpponent(json_data, self._current_token_opponent, self._current_game_id, self_log=self._log)
+                        return 
+                    
+                    if call_type == "resignOpponent":
+                        lh.resignOpponent(json_data, self._current_token_opponent, self._current_game_id, self_log=self._log)
+                        return 
+                    
+                    if call_type == "drawOpponent":
+                        lh.drawOpponent(json_data, self._current_token_opponent, self._current_game_id, self_log=self._log)
+                        return
+                
+                # we should return till that point    
+                self._log(f"API-Call " + json.dumps(json_data) + " could not be performed!", level="WARNING")
