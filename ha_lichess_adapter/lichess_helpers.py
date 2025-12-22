@@ -11,8 +11,6 @@ Notes:
 import json
 import yaml
 from datetime import timedelta, datetime, timezone
-from typing import Optional
-
 
 def get_secret(key, path="./secrets.yaml"):
     """
@@ -279,7 +277,7 @@ def reduce_response_event(dat):
 
     return reduced_data
 
-def getAccountInfoMain(lichess_client, self_log=None):
+def getAccountInfoMain(lichess_client, self_log=default_log):
     """
     Fetch account info and return a compact JSON string used by the UI/consumer.
     """
@@ -296,7 +294,7 @@ def getAccountInfoMain(lichess_client, self_log=None):
     return json.dumps(data)
 
 
-def abortRunningGames(lichess_client, self_log=None):
+def abortRunningGames(lichess_client, self_log=default_log):
     """
     Abort all ongoing games for the authenticated account (best-effort).
     """
@@ -309,7 +307,7 @@ def abortRunningGames(lichess_client, self_log=None):
                 self_log("Aborting: " + game["gameId"])
                 lichess_client.board.abort_game(game_id=game["gameId"])
 
-def createGame(json_data, lichess_client, lichess_client_opponent, self_log=None):
+def createGame(json_data, lichess_client, lichess_client_opponent, self_log=default_log):
     """
     Create a new game or seek/challenge based on the given request payload.
 
@@ -409,13 +407,13 @@ def createGame(json_data, lichess_client, lichess_client_opponent, self_log=None
         )
 
 
-def withdrawTornament(json_data, lichess_client, self_log=None):
+def withdrawTornament(json_data, lichess_client, self_log=default_log):
     """
     Withdraw from an arena tournament by id.
     """
     lichess_client.tournaments.withdraw_arena(json_data.get("id"))
 
-def joinTournamentByName(json_data, lichess_client, self_log=None):
+def joinTournamentByName(json_data, lichess_client, self_log=default_log):
     """
     Join an official Lichess arena tournament by matching name and clock settings.
 
@@ -463,7 +461,7 @@ def joinTournamentByName(json_data, lichess_client, self_log=None):
 
     return json.dumps(data)
 
-def joinTournamentById(json_data, lichess_client, self_log=None):
+def joinTournamentById(json_data, lichess_client, self_log=default_log):
     """
     Join an arena tournament by its id.
 
@@ -491,28 +489,28 @@ def joinTournamentById(json_data, lichess_client, self_log=None):
     return json.dumps(data)
 
 
-def abort(lichess_client, current_game_id, self_log=None):
+def abort(lichess_client, current_game_id, self_log=default_log):
     """
     Abort the current game by id.
     """
     lichess_client.board.abort_game(game_id=current_game_id)
 
 
-def resign(lichess_client, current_game_id, self_log=None):
+def resign(lichess_client, current_game_id, self_log=default_log):
     """
     Resign the current game by id.
     """
     lichess_client.board.resign_game(game_id=current_game_id)
 
 
-def claimVictory(lichess_client, current_game_id, self_log=None):
+def claimVictory(lichess_client, current_game_id, self_log=default_log):
     """
     Claim victory for the current game by id (when claimable).
     """
     lichess_client.board.claim_victory(game_id=current_game_id)
 
 
-def makeMove(json_data, lichess_client, current_game_id, self_log=None):
+def makeMove(json_data, lichess_client, current_game_id, self_log=default_log):
     """
     Play a move for the current game using UCI notation from `json_data['move']`.
     """
@@ -523,7 +521,7 @@ def makeMove(json_data, lichess_client, current_game_id, self_log=None):
     )
 
 
-def draw(json_data, lichess_client, current_game_id, self_log=None):
+def draw(json_data, lichess_client, current_game_id, self_log=default_log):
     """
     Accept or decline a draw offer based on `json_data['parameter']`.
     """
@@ -532,7 +530,7 @@ def draw(json_data, lichess_client, current_game_id, self_log=None):
     )
 
 
-def takeback(json_data, lichess_client, current_game_id, self_log=None):
+def takeback(json_data, lichess_client, current_game_id, self_log=default_log):
     """
     Accept or decline a takeback offer based on `json_data['parameter']`.
     """
@@ -541,7 +539,7 @@ def takeback(json_data, lichess_client, current_game_id, self_log=None):
     )
 
 
-def writeChatMessage(json_data, lichess_client, current_game_id, self_log=None):
+def writeChatMessage(json_data, lichess_client, current_game_id, self_log=default_log):
     """
     Post a chat message in the current game using `json_data['text']`.
     """
@@ -549,7 +547,7 @@ def writeChatMessage(json_data, lichess_client, current_game_id, self_log=None):
         game_id=current_game_id, text=json_data.get("text")
     )
 
-def makeMoveOpponent(json_data, lichess_client, current_game_id, self_log=None):
+def makeMoveOpponent(json_data, lichess_client, current_game_id, self_log=default_log):
     """
     Play a move as the opponent client (same API call, separate log message).
     """
@@ -559,13 +557,13 @@ def makeMoveOpponent(json_data, lichess_client, current_game_id, self_log=None):
         game_id=current_game_id, move=json_data.get("move")
     )
 
-def resignOpponent(lichess_client, current_game_id, self_log=None):
+def resignOpponent(lichess_client, current_game_id, self_log=default_log):
     """
     Resign the current game as the opponent client.
     """
     lichess_client.board.resign_game(game_id=current_game_id)
 
-def drawOpponent(json_data, lichess_client, current_game_id, self_log=None):
+def drawOpponent(json_data, lichess_client, current_game_id, self_log=default_log):
     """
     Accept or decline a draw offer as the opponent client.
     """
@@ -573,7 +571,7 @@ def drawOpponent(json_data, lichess_client, current_game_id, self_log=None):
         game_id=current_game_id, accept=json_data.get("parameter")
     )
 
-def write_into_chat(json_data, lichess_client, current_game_id, room="player", self_log=None):
+def write_into_chat(json_data, lichess_client, current_game_id, room="player", self_log=default_log):
     """
     Write a message into a given chat room ('player' or 'spectator') for a game.
     """

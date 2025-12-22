@@ -13,9 +13,6 @@ No business logic should live on the MQTT callbacks beyond:
 
 import appdaemon.plugins.hass.hassapi as hass
 
-import json
-from typing import Optional  # kept for backwards-compatibility / potential future use
-
 import lichess_helpers as lh
 from lichess_components import (
     LichessClientPool,
@@ -105,10 +102,6 @@ class LichessApiHandler(hass.Hass):
         # Keep references to sessions so we can close them on token change.
         # Lichess (berserk) clients/sessions are managed by this pool.
         self._clients = LichessClientPool(log=self.log)
-
-        # Kept for backwards-compatibility / older configurations.
-        self._lichess_api_init_value = IDLE_LICHESS_TOKEN
-        self._game_id_init = IDLE_GAME_ID
 
         # Worker instances:
         # - Board workers stream board/game state per player token
@@ -310,6 +303,7 @@ class LichessApiHandler(hass.Hass):
         if payload == STATUS_ONLINE:
             self.log("Chessboard is online")
             self._init_sessions_all()
+            # if the board is online, we run the api worker (even without berserk clients set)
             self._worker_api.run_worker()
             self._worker_event.run_worker()
 
