@@ -82,7 +82,9 @@ def td_to_sec(x):
     return int(round(int(x) / 1000))
 
 def check_game_over(dat):
-    break_game = False        
+    break_game = False     
+    if isinstance(dat, str):   
+        dat = json.loads(dat)
     if (dat.get('type', None) == 'gameState' and dat.get('status', None) != 'started'):
         break_game = True
     if (dat.get('type', None) == 'gameFull' and dat.get('state', {}).get('status', None) != 'started'):
