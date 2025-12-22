@@ -1,3 +1,13 @@
+"""Utility helpers for interacting with the Lichess API client and stream payloads.
+
+This module intentionally keeps most helpers small and dependency-light. Many functions
+return JSON strings/dicts that are forwarded to other components (e.g., UI or AppDaemon).
+
+Notes:
+- Formatting/comment updates only: runtime behavior is unchanged.
+- Some naming (e.g., `withdrawTornament`) is kept as-is for compatibility.
+"""
+
 import json
 import yaml
 from datetime import timedelta, datetime, timezone
@@ -5,11 +15,21 @@ from typing import Optional
 
 
 def get_secret(key, path="./secrets.yaml"):
+    """
+    Load a single secret value from a YAML file.
+
+    Args:
+        key: Secret key to look up.
+        path: Path to the YAML file.
+
+    Returns:
+        The value for `key` if present, otherwise an empty string.
+    """
     with open(path, "r") as file:
         secrets = yaml.safe_load(file)
     return secrets.get(key, "")
-    
-def load_secrets(path: str = "./secrets.yaml") -> dict:
+
+def load_secrets(path: str="./secrets.yaml") -> dict:
     """Load YAML secrets from a local file path."""
     try:
         with open(path, "r", encoding="utf-8") as f:
@@ -18,12 +38,24 @@ def load_secrets(path: str = "./secrets.yaml") -> dict:
         raise RuntimeError(f"Secrets file not found: {path}") from e
     except Exception as e:
         raise RuntimeError(f"Failed to load secrets.yaml: {e}") from e
-    
-def default_log(msg: str, level: str = "INFO") -> None:
+
+def default_log(msg: str, level: str="INFO") -> None:
+    """
+    Fallback logger.
+
+    AppDaemon typically injects its own logger. This helper keeps the module usable
+    outside of AppDaemon (e.g., during local testing).
+    """
     # Minimal fallback logger (AppDaemon will inject its own)
     print(f"[{level}] {msg}")
 
 def payload_to_str(payload):
+    """
+    Convert a payload into a safe UTF-8 string.
+
+    Handles bytes (strict decode first, then replacement), strings, and arbitrary
+    objects via `str()`. Returns None if conversion is not possible.
+    """
     if payload is None:
         return None
     if isinstance(payload, bytes):
@@ -41,13 +73,25 @@ def payload_to_str(payload):
     except Exception:
         return None
 
-def concat_values(val1, val2, sep = '<+>'):
-    return val1 + sep + val2   
+def concat_values(val1, val2, sep='<+>'):
+    """
+    Concatenate two values into a single string using a separator.
+    """
+    return val1 + sep + val2
 
-def split_concated_values(val: str, sep = '<+>'):
+def split_concated_values(val: str, sep='<+>'):
+    """
+    Split a concatenated string created by `concat_values` back into parts.
+    """
     return val.split(sep)
-    
+
 def parse_username_string(input_string):
+    """
+    Parse a username string and optional AI level.
+
+    Expected format for AI opponents is `AI_<level>` with level 1..8.
+    Returns a tuple of (username, level). Level is 0 for human opponents.
+    """
     username = input_string
     level = 0
     if input_string.startswith("AI_") and len(input_string) == 4:
@@ -60,25 +104,41 @@ def parse_username_string(input_string):
     return username, level
 
 def decrypt_message(current_secret_key, hex_string):
+    """
+    Decrypt a hex-encoded XOR-encrypted string using the current secret key.
+
+    If the payload is not decryptable (invalid hex, missing key, or special
+    sentinel values), the original value is returned unchanged.
+    """
     decrypted = hex_string
     if (hex_string is not None and hex_string not in ("idle", "unknown", "unavailable", "") and current_secret_key is not None and current_secret_key != ""):
         try:
             encrypted_bytes = bytes.fromhex(hex_string)
+            # XOR-decrypt each byte with the repeating secret key
             decrypted = "".join(
                 chr(b ^ ord(current_secret_key[i % len(current_secret_key)]))
                 for i, b in enumerate(encrypted_bytes)
             )
         except ValueError as e:
             # just pass
-            decrypted = hex_string            
+            decrypted = hex_string
     return decrypted
 
 def td_to_sec(x):
+    """
+    Normalize a duration-like value to seconds.
+
+    Supports:
+    - `timedelta` (total seconds)
+    - `datetime` (timestamp seconds; defensive fallback)
+    - numeric millisecond values (legacy fallback)
+    """
     if x is None:
         return 0
     if isinstance(x, timedelta):
         return int(round(x.total_seconds()))
     if isinstance(x, datetime):
+        # Defensive: some callers may send absolute datetimes instead of durations.
         # Berserk should not send absolute datetimes for clocks,
         # but if it does, treat it as 0 or extract seconds safely
         return int(x.timestamp())
@@ -86,19 +146,30 @@ def td_to_sec(x):
     return int(round(int(x) / 1000))
 
 def check_game_over(dat):
-    break_game = False     
-    if isinstance(dat, str):   
+    """
+    Detect whether a Lichess event payload indicates that a game is over.
+
+    Accepts either a dict or a JSON string and checks the relevant event types.
+    """
+    break_game = False
+    if isinstance(dat, str):
         dat = json.loads(dat)
+        # Stream payloads sometimes arrive as JSON strings; normalize to dict.
     if (dat.get('type', None) == 'gameState' and dat.get('status', None) != 'started'):
         break_game = True
     if (dat.get('type', None) == 'gameFull' and dat.get('state', {}).get('status', None) != 'started'):
         break_game = True
     if (dat.get('type', None) == 'opponentGone' and dat.get('gone', None) == True and dat.get('claimWinInSeconds', None) == 0):
         break_game = True
-    
+
     return break_game
 
 def reduce_response_board(gid, dat):
+    """
+    Reduce/compact board stream responses into a smaller JSON-friendly dict.
+
+    Used to limit payload size when forwarding game information.
+    """
     reduced_data = dat
 
     if dat.get("type") == "gameState":
@@ -149,6 +220,7 @@ def reduce_response_board(gid, dat):
     if dat.get("type") == "chatLine":
         reduced_data = {"type": "chatLine", "text": dat.get("text", ""), "id": gid}
         max_text_length = 255 - len(json.dumps({"type": "chatLine", "id": "12345678", "text": ""}))
+        # Ensure the resulting JSON stays within typical message-size limits.
         if len(reduced_data["text"]) > max_text_length:
             reduced_data["text"] = reduced_data["text"][: max_text_length - 3] + "..."
 
@@ -158,6 +230,11 @@ def reduce_response_board(gid, dat):
     return reduced_data
 
 def reduce_response_event(dat):
+    """
+    Reduce/compact event stream messages into a smaller dict.
+
+    Supports gameStart/gameFinish and challenge-related event types.
+    """
     reduced_data = dat
 
     if dat.get("type") == "gameStart":
@@ -203,6 +280,9 @@ def reduce_response_event(dat):
     return reduced_data
 
 def getAccountInfoMain(lichess_client, self_log=None):
+    """
+    Fetch account info and return a compact JSON string used by the UI/consumer.
+    """
     account_info = lichess_client.account.get()
     if self_log:
         self_log("getAccountInfoMain: " + account_info["username"])
@@ -217,6 +297,9 @@ def getAccountInfoMain(lichess_client, self_log=None):
 
 
 def abortRunningGames(lichess_client, self_log=None):
+    """
+    Abort all ongoing games for the authenticated account (best-effort).
+    """
     my_games = lichess_client.games.get_ongoing()
     if len(my_games) > 0:
         if self_log:
@@ -227,6 +310,15 @@ def abortRunningGames(lichess_client, self_log=None):
                 lichess_client.board.abort_game(game_id=game["gameId"])
 
 def createGame(json_data, lichess_client, lichess_client_opponent, self_log=None):
+    """
+    Create a new game or seek/challenge based on the given request payload.
+
+    Supports:
+    - random seek
+    - direct challenge vs human
+    - AI challenge using `AI_<level>` format
+    - optional 'otb' mode where an opponent client may auto-accept
+    """
 
     if json_data.get("opponentname"):
 
@@ -236,6 +328,7 @@ def createGame(json_data, lichess_client, lichess_client_opponent, self_log=None
         game_data = {"error": "Failed to create game"}
 
         if opponetns_name == "random":
+            # 'random' uses a seek (open challenge) instead of targeting a user.
             if self_log:
                 self_log(f"Seek new game ({json_data.get('time_m', 15)}+{json_data.get('increment', 0)})")
             lichess_client.board.seek(
@@ -279,6 +372,7 @@ def createGame(json_data, lichess_client, lichess_client_opponent, self_log=None
                     if len(game_data.get("id", "")) != 8:
                         game_id = ""
             else:
+                # Non-zero level indicates an AI opponent (see `parse_username_string`).
                 game_data = lichess_client.challenges.create_ai(
                     level=level,
                     clock_limit=json_data.get("time_s", 600),
@@ -314,12 +408,19 @@ def createGame(json_data, lichess_client, lichess_client_opponent, self_log=None
             }
         )
 
-    
 
 def withdrawTornament(json_data, lichess_client, self_log=None):
+    """
+    Withdraw from an arena tournament by id.
+    """
     lichess_client.tournaments.withdraw_arena(json_data.get("id"))
 
 def joinTournamentByName(json_data, lichess_client, self_log=None):
+    """
+    Join an official Lichess arena tournament by matching name and clock settings.
+
+    Returns a JSON string with join status and the time until start (minutes).
+    """
 
     all_tournaments = lichess_client.tournaments.get()
 
@@ -363,6 +464,11 @@ def joinTournamentByName(json_data, lichess_client, self_log=None):
     return json.dumps(data)
 
 def joinTournamentById(json_data, lichess_client, self_log=None):
+    """
+    Join an arena tournament by its id.
+
+    Returns a JSON string with join status.
+    """
     tournament_id = json_data.get("id")
     if len(tournament_id) == 8:
         lichess_client.tournaments.join_arena(
@@ -386,18 +492,30 @@ def joinTournamentById(json_data, lichess_client, self_log=None):
 
 
 def abort(lichess_client, current_game_id, self_log=None):
+    """
+    Abort the current game by id.
+    """
     lichess_client.board.abort_game(game_id=current_game_id)
 
 
-def resign(lichess_client,current_game_id, self_log=None):
+def resign(lichess_client, current_game_id, self_log=None):
+    """
+    Resign the current game by id.
+    """
     lichess_client.board.resign_game(game_id=current_game_id)
 
 
-def claimVictory(lichess_client,current_game_id, self_log=None):
+def claimVictory(lichess_client, current_game_id, self_log=None):
+    """
+    Claim victory for the current game by id (when claimable).
+    """
     lichess_client.board.claim_victory(game_id=current_game_id)
 
 
-def makeMove(json_data, lichess_client,current_game_id, self_log=None):
+def makeMove(json_data, lichess_client, current_game_id, self_log=None):
+    """
+    Play a move for the current game using UCI notation from `json_data['move']`.
+    """
     if self_log:
         self_log("Move: " + json_data.get("move"))
     lichess_client.board.make_move(
@@ -405,37 +523,58 @@ def makeMove(json_data, lichess_client,current_game_id, self_log=None):
     )
 
 
-def draw(json_data, lichess_client,current_game_id, self_log=None):
+def draw(json_data, lichess_client, current_game_id, self_log=None):
+    """
+    Accept or decline a draw offer based on `json_data['parameter']`.
+    """
     lichess_client.board.handle_draw_offer(
         game_id=current_game_id, accept=json_data.get("parameter")
     )
 
 
-def takeback(json_data, lichess_client,current_game_id, self_log=None):
+def takeback(json_data, lichess_client, current_game_id, self_log=None):
+    """
+    Accept or decline a takeback offer based on `json_data['parameter']`.
+    """
     lichess_client.board.handle_takeback_offer(
         game_id=current_game_id, accept=json_data.get("parameter")
     )
 
 
-def writeChatMessage(json_data, lichess_client,current_game_id, self_log=None):
+def writeChatMessage(json_data, lichess_client, current_game_id, self_log=None):
+    """
+    Post a chat message in the current game using `json_data['text']`.
+    """
     lichess_client.board.post_message(
         game_id=current_game_id, text=json_data.get("text")
     )
 
-def makeMoveOpponent(json_data, lichess_client,current_game_id, self_log=None):
+def makeMoveOpponent(json_data, lichess_client, current_game_id, self_log=None):
+    """
+    Play a move as the opponent client (same API call, separate log message).
+    """
     if self_log:
         self_log("Opponents move: " + json_data.get("move"))
     lichess_client.board.make_move(
         game_id=current_game_id, move=json_data.get("move")
     )
 
-def resignOpponent(lichess_client,current_game_id, self_log=None):
+def resignOpponent(lichess_client, current_game_id, self_log=None):
+    """
+    Resign the current game as the opponent client.
+    """
     lichess_client.board.resign_game(game_id=current_game_id)
 
-def drawOpponent(json_data, lichess_client,current_game_id, self_log=None):
+def drawOpponent(json_data, lichess_client, current_game_id, self_log=None):
+    """
+    Accept or decline a draw offer as the opponent client.
+    """
     lichess_client.board.handle_draw_offer(
         game_id=current_game_id, accept=json_data.get("parameter")
     )
 
 def write_into_chat(json_data, lichess_client, current_game_id, room="player", self_log=None):
+    """
+    Write a message into a given chat room ('player' or 'spectator') for a game.
+    """
     lichess_client.board.chat(game_id=current_game_id, room=room, text=json_data.get("text"))
