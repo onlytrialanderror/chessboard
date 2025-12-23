@@ -12,6 +12,7 @@ No business logic should live on the MQTT callbacks beyond:
 """
 
 import appdaemon.plugins.hass.hassapi as hass
+import json
 
 import lichess_helpers as lh
 from lichess_components import (
@@ -203,6 +204,9 @@ class LichessApiHandler(hass.Hass):
           - stop workers that depend on it
           - update the token and recreate clients/workers if the token is not idle
         """
+        if payload:
+            data = json.loads(payload)                # convert JSON string -> Python dict
+            payload = data["token"]
         # Decrypt token from MQTT payload (board sends encrypted token).
         new_token = lh.decrypt_message(self._current_secret_key, payload)
 
@@ -246,6 +250,9 @@ class LichessApiHandler(hass.Hass):
 
         Similar to the main token handler, but only affects opponent API/board clients.
         """
+        if payload:
+            data = json.loads(payload)                # convert JSON string -> Python dict
+            payload = data["token"]
         # Decrypt token from MQTT payload.
         new_token = lh.decrypt_message(self._current_secret_key, payload)
 
@@ -279,6 +286,10 @@ class LichessApiHandler(hass.Hass):
         A game-id change triggers (re)starting the board stream workers so they subscribe to
         the new game stream.
         """
+        if payload:
+            data = json.loads(payload)                # convert JSON string -> Python dict
+            payload = data["game_id"]
+
         # Short-circuit if game id did not change.
         if payload == self._current_game_id:
             return

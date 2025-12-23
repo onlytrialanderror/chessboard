@@ -320,12 +320,15 @@ def createGame(json_data, lichess_client, lichess_client_opponent, self_log=defa
     - optional 'otb' mode where an opponent client may auto-accept
     """
 
+    request_id = json_data.get("request_id", "idle")
+
     if json_data.get("opponentname"):
 
         opponetns_name = json_data.get("opponentname", None)
 
         game_id = "idle"
         game_data = {"error": "Failed to create game"}
+        
 
         if opponetns_name == "random":
             # 'random' uses a seek (open challenge) instead of targeting a user.
@@ -386,25 +389,27 @@ def createGame(json_data, lichess_client, lichess_client_opponent, self_log=defa
                     game_id = ""
 
         if game_id == "idle":
-            data = {"type": "createdGameId", "id": "seek", "status": "success", "error": ""}
+            data = {"type": "createdGameId", "id": "seek", "status": "success", "error": "", "request_id": request_id}
         else:
             if len(game_id) == 8:
-                data = {"type": "createdGameId", "id": game_id, "status": "success", "error": ""}
+                data = {"type": "createdGameId", "id": game_id, "status": "success", "error": "", "request_id": request_id}
             else:
                 data = {
                     "type": "createdGameId",
-                    "id": "-",
+                    "id": "idle",
                     "status": "failed",
                     "error": game_data.get("error", "Failed to create game"),
+                    "request_id": request_id
                 }
         return json.dumps(data)
     else:
         return json.dumps(
             {
                 "type": "createdGameId",
-                "id": "-",
+                "id": "idle",
                 "status": "error",
                 "error": "No opponent name provided",
+                "request_id": request_id
             }
         )
 
@@ -573,8 +578,8 @@ def drawOpponent(json_data, lichess_client, current_game_id, self_log=default_lo
         game_id=current_game_id, accept=json_data.get("parameter")
     )
 
-def write_into_chat(json_data, lichess_client, current_game_id, room="player", self_log=default_log):
+def write_into_chat(json_data, lichess_client, current_game_id, spectator=False, self_log=default_log):
     """
     Write a message into a given chat room ('player' or 'spectator') for a game.
     """
-    lichess_client.board.chat(game_id=current_game_id, room=room, text=json_data.get("text"))
+    lichess_client.board.post_message(game_id=current_game_id, spectator=spectator, text=json_data.get("text"))

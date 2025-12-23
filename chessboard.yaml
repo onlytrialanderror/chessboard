@@ -1,33 +1,50 @@
+# -----------------------------------------------------------------------------
+# Core device configuration and boot sequence
+# -----------------------------------------------------------------------------
 esphome:
   name: chessboard
   friendly_name: chessboard
 
   includes:
     - chess_validator.h
-  
+
 
   # Do some initialition work
   on_boot:
     - priority: 400
       then:
-      - script.execute: reset_current_game_values 
+        - script.execute: reset_current_game_values
     - priority: 700
       then:
         - lambda: |-
             id(reset_display_message).execute();
             id(lichess_tournament_id).publish_state("idle");
+
+# -----------------------------------------------------------------------------
+# ESP32 platform and framework settings
+# -----------------------------------------------------------------------------
 esp32:
   board: esp32dev
   framework:
     type: esp-idf
 
 # Enable logging
+
+# -----------------------------------------------------------------------------
+# Logging configuration
+# -----------------------------------------------------------------------------
 logger:
   level: ERROR
 
+# -----------------------------------------------------------------------------
+# Over-the-air update settings
+# -----------------------------------------------------------------------------
 ota:
   - platform: esphome
 
+# -----------------------------------------------------------------------------
+# WiFi connection and fallback access point
+# -----------------------------------------------------------------------------
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
@@ -38,10 +55,17 @@ wifi:
     password: "chessboard"
 
 # HTTP request component
+
+# -----------------------------------------------------------------------------
+# HTTP request component (used for REST calls)
+# -----------------------------------------------------------------------------
 http_request:
   timeout: 10s
-  verify_ssl: false 
+  verify_ssl: false
 
+# -----------------------------------------------------------------------------
+# MQTT client configuration
+# -----------------------------------------------------------------------------
 mqtt:
   id: mqtt_client
   discovery: false
@@ -56,18 +80,25 @@ mqtt:
     then:
       - lambda: |-
           id(update_lichess_token).execute(true);
-          id(perform_lichess_api_call).execute("debug", std::string("Board connected"));
+          id(perform_lichess_api_call).execute("debug", std::string("Board connected"), "");
   on_disconnect:
     then:
       - lambda: |-
-          id(perform_lichess_api_call).execute("token_opponent", "idle");
-          id(perform_lichess_api_call).execute("token_main", "idle");
-          id(perform_lichess_api_call).execute("game_id", "idle");
-          id(perform_lichess_api_call).execute("debug", std::string("Board disconnected"));
+          id(perform_lichess_api_call).execute("token_opponent", "idle", "");
+          id(perform_lichess_api_call).execute("token_main", "idle", "");
+          id(perform_lichess_api_call).execute("game_id", "idle", "");
+          id(perform_lichess_api_call).execute("debug", std::string("Board disconnected"), "");
 
+# -----------------------------------------------------------------------------
+# Captive portal for fallback AP
+# -----------------------------------------------------------------------------
 captive_portal:
 
 # Enable web server
+
+# -----------------------------------------------------------------------------
+# Embedded web server (status / debug UI)
+# -----------------------------------------------------------------------------
 web_server:
   port: 80
   include_internal: False
@@ -91,30 +122,43 @@ web_server:
     - id: sorting_group_system
       name: "System"
       sorting_weight: 70
+
+# -----------------------------------------------------------------------------
+# Time sources (NTP / Home Assistant)
+# -----------------------------------------------------------------------------
 time:
   - platform: sntp
     id: sntp_time
-    timezone: "Europe/Berlin"  
+    timezone: "Europe/Berlin"
 
 
+# -----------------------------------------------------------------------------
+# Project constants / tunables
+# -----------------------------------------------------------------------------
 substitutions:
   # shorter delay and high amount of samples works best
-  adc_n_sampels: '40' 
+  adc_n_sampels: '40'
   attenuation_value: 12dB
-  hall_sensor_intervall_game: 300ms 
+  hall_sensor_intervall_game: 300ms
   hall_sensor_intervall_idle: 500ms
-  delay_before_adc_reading: '2' 
+  delay_before_adc_reading: '2'
   debug_sensor_hide: true
 
+# -----------------------------------------------------------------------------
+# I²C bus configuration
+# -----------------------------------------------------------------------------
 i2c:
   sda: GPIO21
   scl: GPIO22
   id: i2c0
   scan: false
-  frequency: 200kHz 
+  frequency: 200kHz
   # max frequency of pcf8574 is 100kHz, we try higher frequencies for faster display update
-  
 
+
+# -----------------------------------------------------------------------------
+# I²C multiplexer configuration
+# -----------------------------------------------------------------------------
 tca9548a:
   - address: 0x70
     id: i2c_mux_b
@@ -132,6 +176,9 @@ tca9548a:
       - bus_id: i2c_mux_w_display
         channel: 7
 
+# -----------------------------------------------------------------------------
+# PCF8574 GPIO expanders configuration
+# -----------------------------------------------------------------------------
 pcf8574:
   - id: 'pcf8574_b'
     address: 0x20
@@ -142,6 +189,9 @@ pcf8574:
     i2c_id: i2c0
     pcf8575: false
 
+# -----------------------------------------------------------------------------
+# Fonts used on the display
+# -----------------------------------------------------------------------------
 font:
   - file: "gfonts://Roboto"
     id: roboto_10
@@ -157,6 +207,9 @@ font:
     size: 30
 
 
+# -----------------------------------------------------------------------------
+# Global variables (state, counters, buffers)
+# -----------------------------------------------------------------------------
 globals:
 
   # Array of chessboard field names in algebraic notation (a8-h1)
@@ -192,7 +245,7 @@ globals:
   # Unicode symbols for chess pieces and empty squares (for display)
   - id: chess_symbols
     type: std::map<char, std::string>
-    initial_value: |- 
+    initial_value: |-
       /*
         Standard spaces (" ") can be too narrow. Instead, use:
         Non-Breaking Space (\u00A0) → " "
@@ -252,7 +305,7 @@ globals:
         2.39, 2.54, 2.50, 2.46, 2.43, 2.53, 2.42, 2.38,
         2.48, 2.45, 2.50, 2.44, 2.48, 2.44, 2.43, 2.43,
         2.52, 2.47, 2.42, 2.43, 2.45, 2.51, 2.45, 2.47,
-        2.46, 2.44, 2.53, 2.55, 2.35, 2.41, 2.39, 2.50, 
+        2.46, 2.44, 2.53, 2.55, 2.35, 2.41, 2.39, 2.50,
         2.40, 2.39, 2.55, 2.46, 2.38, 2.41, 2.43, 2.49,
         2.48, 2.46, 2.40, 2.50, 2.52, 2.42, 2.51, 2.45,
         2.50, 2.44, 2.45, 2.53, 2.54, 2.55, 2.46, 2.47,
@@ -292,8 +345,8 @@ globals:
         '0','0','0','0','0','0','0','0',
         'P','P','P','P','P','P','P','P',
         'R','N','B','Q','K','B','N','R',
-        'w','K','Q','k','q', 
-        '-', '-', 
+        'w','K','Q','k','q',
+        '-', '-',
         '0', '0',
         '0', '0', '1'
       }
@@ -363,7 +416,7 @@ globals:
   # PGN move history as string (all moves in PGN format)
   - id: pgn_history
     type: std::string
-    initial_value: '""'    
+    initial_value: '""'
 
   # Full PGN including headers (for export/sharing)
   - id: full_pgn
@@ -428,12 +481,12 @@ globals:
   # The piece that was moved in the last move (FEN char)
   - id: moved_piece
     type: char
-    initial_value: "'0'"  
+    initial_value: "'0'"
 
   # The piece that was on the target square (FEN char)
   - id: target_piece
     type: char
-    initial_value: "'0'"  
+    initial_value: "'0'"
 
   # State of the initial position (0 = none, 1 = black, 2 = white, 3 = both set)
   - id: initial_position_state
@@ -673,9 +726,21 @@ globals:
     type: bool
     restore_value: no
     initial_value: 'false'
+  
+  # Current request-id for create-game
+  - id: current_request_id
+    type: std::string
+    initial_value: '""'
+  - id: userdefined_request_id
+    type: std::string
+    initial_value: '""'
 
 
 # we updating all the time the values of hall sensors
+
+# -----------------------------------------------------------------------------
+# Periodic tasks / scheduler loops
+# -----------------------------------------------------------------------------
 interval:
   - interval: $hall_sensor_intervall_game
     then:
@@ -703,6 +768,9 @@ interval:
       - script.execute: update_timer
       - script.execute: check_opponent_otb_select
 
+# -----------------------------------------------------------------------------
+# OLED / display rendering
+# -----------------------------------------------------------------------------
 display:
   - platform: ssd1306_i2c
     id: oled_white
@@ -746,7 +814,7 @@ display:
             }
             if (root["n_lines"].as<int>() == 1) {
               std::string line_0 = root["line_0"].as<std::string>();
-              it.printf(0, 0, id(roboto_24), line_0.c_str());              
+              it.printf(0, 0, id(roboto_24), line_0.c_str());
             }
           }
         }
@@ -780,7 +848,7 @@ display:
 
         } else { // message
 
-          std::string json_str = id(display_message_black);          
+          std::string json_str = id(display_message_black);
           JsonDocument root;
           deserializeJson(root, json_str);
 
@@ -793,12 +861,16 @@ display:
             }
             if (root["n_lines"].as<int>() == 1) {
               std::string line_0 = root["line_0"].as<std::string>();
-              it.printf(0, 0, id(roboto_24), line_0.c_str());              
+              it.printf(0, 0, id(roboto_24), line_0.c_str());
             }
           }
         }
 
 # Declare a LCD menu
+
+# -----------------------------------------------------------------------------
+# On-device menu configuration
+# -----------------------------------------------------------------------------
 graphical_display_menu:
   id: my_menu
   # display: oled_test
@@ -817,7 +889,7 @@ graphical_display_menu:
           text: 'Start new game'
           on_value:
             then:
-              - display_menu.hide:  my_menu 
+              - display_menu.hide:  my_menu
               - lambda: |-
                   id(lichess_create_new_game).execute();
         - type: command
@@ -836,13 +908,13 @@ graphical_display_menu:
                   // set otb
                   auto call_3 = id(lichess_opponent_at_board_select).make_call();
                   call_3.set_option("yes");
-                  call_3.perform();            
+                  call_3.perform();
                   // set if rated
                   auto call_4 = id(lichess_seek_rated).make_call();
                   call_4.set_option("not rated");
                   call_4.perform();
                   // delay
-                  delay(1000)
+                  delay(1000);
                   // start lichess game
                   id(lichess_create_new_game).execute();
 
@@ -862,13 +934,13 @@ graphical_display_menu:
                   // set otb
                   auto call_3 = id(lichess_opponent_at_board_select).make_call();
                   call_3.set_option("yes");
-                  call_3.perform();            
+                  call_3.perform();
                   // set if rated
                   auto call_4 = id(lichess_seek_rated).make_call();
                   call_4.set_option("not rated");
                   call_4.perform();
                   // delay
-                  delay(1000)
+                  delay(1000);
                   // start lichess game
                   id(lichess_create_new_game).execute();
 
@@ -888,13 +960,13 @@ graphical_display_menu:
                   // set otb
                   auto call_3 = id(lichess_opponent_at_board_select).make_call();
                   call_3.set_option("yes");
-                  call_3.perform();            
+                  call_3.perform();
                   // set if rated
                   auto call_4 = id(lichess_seek_rated).make_call();
                   call_4.set_option("not rated");
                   call_4.perform();
                   // delay
-                  delay(1000)
+                  delay(1000);
                   // start lichess game
                   id(lichess_create_new_game).execute();
 
@@ -910,7 +982,7 @@ graphical_display_menu:
                   // set otb
                   auto call_2 = id(lichess_opponent_at_board_select).make_call();
                   call_2.set_option("no");
-                  call_2.perform();            
+                  call_2.perform();
                   // set if rated
                   auto call_3 = id(lichess_seek_rated).make_call();
                   call_3.set_option("rated");
@@ -928,7 +1000,7 @@ graphical_display_menu:
                   call_6.set_option("Wait for next");
                   call_6.perform();
                   // delay
-                  delay(1000)
+                  delay(1000);
                   // start lichess game
                   id(lichess_arena_join_new_tournament).execute();
 
@@ -944,7 +1016,7 @@ graphical_display_menu:
                   // set otb
                   auto call_2 = id(lichess_opponent_at_board_select).make_call();
                   call_2.set_option("no");
-                  call_2.perform();            
+                  call_2.perform();
                   // set if rated
                   auto call_3 = id(lichess_seek_rated).make_call();
                   call_3.set_option("rated");
@@ -962,7 +1034,7 @@ graphical_display_menu:
                   call_6.set_option("Join now");
                   call_6.perform();
                   // delay
-                  delay(1000)
+                  delay(1000);
                   // start lichess game
                   id(lichess_arena_join_new_tournament).execute();
 
@@ -987,93 +1059,93 @@ graphical_display_menu:
           on_value:
             then:
               - lambda: |-
-                  // force changed state, to be able to call the same request 
-                  id(perform_lichess_api_call).execute("api_call", "{\"type\": \"resign\"}");
-                  id(oled_show_page_clock).execute();                  
-              - display_menu.hide:  my_menu 
+                  // force changed state, to be able to call the same request
+                  id(perform_lichess_api_call).execute("api_call", "{\"type\": \"resign\"}", "");
+                  id(oled_show_page_clock).execute();
+              - display_menu.hide:  my_menu
         - type: command
           text: 'Resign Opponent'
           on_value:
             then:
               - lambda: |-
-                  // force changed state, to be able to call the same request 
-                  id(perform_lichess_api_call).execute("api_call", "{\"type\": \"resignOpponent\"}");
+                  // force changed state, to be able to call the same request
+                  id(perform_lichess_api_call).execute("api_call", "{\"type\": \"resignOpponent\"}", "");
                   id(oled_show_page_clock).execute();
-              - display_menu.hide:  my_menu 
+              - display_menu.hide:  my_menu
         - type: command
           text: 'Draw both (otb)'
           on_value:
             then:
               - lambda: |-
-                  // force changed state, to be able to call the same request 
-                  id(perform_lichess_api_call).execute("api_call", "{\"type\": \"draw\", \"parameter\": true}");
-                  id(perform_lichess_api_call).execute("api_call", "{\"type\": \"drawOpponent\", \"parameter\": true}");
+                  // force changed state, to be able to call the same request
+                  id(perform_lichess_api_call).execute("api_call", "{\"type\": \"draw\", \"parameter\": true}", "");
+                  id(perform_lichess_api_call).execute("api_call", "{\"type\": \"drawOpponent\", \"parameter\": true}", "");
                   id(oled_show_page_clock).execute();
-              - display_menu.hide:  my_menu 
+              - display_menu.hide:  my_menu
         - type: command
           text: 'Draw (yes)'
           on_value:
             then:
               - lambda: |-
-                  // force changed state, to be able to call the same request 
-                  id(perform_lichess_api_call).execute("api_call", "{\"type\": \"draw\", \"parameter\": true}");
+                  // force changed state, to be able to call the same request
+                  id(perform_lichess_api_call).execute("api_call", "{\"type\": \"draw\", \"parameter\": true}", "");
                   id(oled_show_page_clock).execute();
-              - display_menu.hide:  my_menu 
+              - display_menu.hide:  my_menu
         - type: command
           text: 'Draw (no)'
           on_value:
             then:
               - lambda: |-
-                  // force changed state, to be able to call the same request 
-                  id(perform_lichess_api_call).execute("api_call", "{\"type\": \"draw\", \"parameter\": false}");
+                  // force changed state, to be able to call the same request
+                  id(perform_lichess_api_call).execute("api_call", "{\"type\": \"draw\", \"parameter\": false}", "");
                   id(oled_show_page_clock).execute();
-              - display_menu.hide:  my_menu 
+              - display_menu.hide:  my_menu
         - type: command
           text: 'Claim victory'
           on_value:
             then:
               - lambda: |-
-                  // force changed state, to be able to call the same request 
-                  id(perform_lichess_api_call).execute("api_call", "{\"type\": \"claim-victory\"}");
+                  // force changed state, to be able to call the same request
+                  id(perform_lichess_api_call).execute("api_call", "{\"type\": \"claim-victory\"}", "");
                   id(oled_show_page_clock).execute();
-              - display_menu.hide:  my_menu 
+              - display_menu.hide:  my_menu
 
         - type: command
           text: 'Takeback (yes)'
           on_value:
             then:
               - lambda: |-
-                  id(perform_lichess_api_call).execute("api_call", "{\"type\": \"takeback\", \"parameter\": \"yes\"}");
+                  id(perform_lichess_api_call).execute("api_call", "{\"type\": \"takeback\", \"parameter\": \"yes\"}", "");
                   id(oled_show_page_clock).execute();
-              - display_menu.hide:  my_menu 
+              - display_menu.hide:  my_menu
         - type: command
           text: 'Takeback (no)'
           on_value:
             then:
               - lambda: |-
-                  // force changed state, to be able to call the same request 
-                  id(perform_lichess_api_call).execute("api_call", "{\"type\": \"takeback\", \"parameter\": \"no\"}");
+                  // force changed state, to be able to call the same request
+                  id(perform_lichess_api_call).execute("api_call", "{\"type\": \"takeback\", \"parameter\": \"no\"}", "");
                   id(oled_show_page_clock).execute();
-              - display_menu.hide:  my_menu 
+              - display_menu.hide:  my_menu
         - type: command
           text: 'Abort game'
           on_value:
             then:
               - lambda: |-
-                  // force changed state, to be able to call the same request 
-                  id(perform_lichess_api_call).execute("api_call", "{\"type\": \"abort\"}");
+                  // force changed state, to be able to call the same request
+                  id(perform_lichess_api_call).execute("api_call", "{\"type\": \"abort\"}", "");
                   id(oled_show_page_clock).execute();
-              - display_menu.hide:  my_menu 
+              - display_menu.hide:  my_menu
         - type: command
           text: 'Join arena'
           on_value:
             then:
-              - display_menu.hide:  my_menu 
+              - display_menu.hide:  my_menu
               - lambda: |-
                   id(lichess_arena_join_new_tournament).execute();
         - type: command
           text: 'Quit arena'
-          on_value: 
+          on_value:
             then:
               - lambda: |-
                   id(lichess_arena_quit_tournament).execute();
@@ -1123,6 +1195,10 @@ graphical_display_menu:
               id(device_factory_reset).press();
 
 # Define internal outputs
+
+# -----------------------------------------------------------------------------
+# PWM / output channels
+# -----------------------------------------------------------------------------
 output:
   # outputs for analog multiplexer
   - platform: gpio
@@ -1146,6 +1222,9 @@ output:
         output: true
       inverted: false
 
+# -----------------------------------------------------------------------------
+# Switch entities (template / GPIO / etc.)
+# -----------------------------------------------------------------------------
 switch:
 
 # LED color to move
@@ -1221,6 +1300,9 @@ switch:
       inverted: true
     internal: true
 
+# -----------------------------------------------------------------------------
+# Button entities (actions / helpers)
+# -----------------------------------------------------------------------------
 button:
   - platform: factory_reset
     name: Restart with Factory Default Settings
@@ -1232,7 +1314,7 @@ button:
   - platform: template
     name: "PGN to telegram"
     id: pgn_to_telegram
-    on_press: 
+    on_press:
       then:
         lambda: |-
           id(send_telegram_message).execute();
@@ -1261,6 +1343,9 @@ button:
       sorting_weight: 8
 
 
+# -----------------------------------------------------------------------------
+# Binary sensors (e.g., hall sensors, buttons)
+# -----------------------------------------------------------------------------
 binary_sensor:
   - platform: gpio
     name: "White finished"
@@ -1303,7 +1388,7 @@ binary_sensor:
     on_press:
       then:
         - display_menu.show_main:   my_menu
-        - display_menu.hide:  my_menu 
+        - display_menu.hide:  my_menu
         - lambda: |-
             if (id(halfmove_counter) > 0) {
               // start the clock during a game
@@ -1362,15 +1447,18 @@ binary_sensor:
                 - lambda: |-
                     id(game_running) = false;
                     // read hall sensors
-                    id(update_all_hall_sensors).execute();          
+                    id(update_all_hall_sensors).execute();
                     // transform voltage to position flags (-1, 0, 1)
                     id(update_raw_position_current).execute();
                     // update variables, if black & white init-positions are set
                     id(initial_position_state_update).execute();
-                    id(led_update_initial_position_state).execute(); 
+                    id(led_update_initial_position_state).execute();
                     id(oled_show_page_menu).execute();
     internal: true
 
+# -----------------------------------------------------------------------------
+# Select entities (mode / options)
+# -----------------------------------------------------------------------------
 select:
   - platform: template
     name: "Time Control"
@@ -1389,7 +1477,7 @@ select:
       - "Classical (60+0)"
       - "Classical (90+30)"
     initial_option: "Rapid (15+10)"
-    on_value: 
+    on_value:
       then:
         - lambda: |-
             // not during the game
@@ -1468,7 +1556,7 @@ select:
       - "Bishop"
       - "Knight"
     initial_option: "Queen"
-    on_value: 
+    on_value:
       then:
         lambda: |-
           if (x == "Queen") {
@@ -1498,7 +1586,7 @@ select:
       - !secret chessboard_player_c
       - !secret chessboard_player_d
     initial_option: !secret chessboard_player_b
-    on_value: 
+    on_value:
       then:
         lambda: |-
           id(update_lichess_token).execute(false);
@@ -1523,11 +1611,11 @@ select:
       - "AI_6"
       - "AI_7"
       - "AI_8"
-      - !secret chessboard_opponent_d      
+      - !secret chessboard_opponent_d
       - !secret chessboard_opponent_e
       - !secret chessboard_opponent_f
     initial_option: random
-    on_value: 
+    on_value:
       then:
         lambda: |-
           id(update_lichess_token).execute(false);
@@ -1576,7 +1664,7 @@ select:
       - "Monthly"
       - "Yearly"
     initial_option: "Hourly"
-    on_value: 
+    on_value:
       then:
         lambda: |-
           id(lichess_tournament_json_update).execute(x, id(lichess_tournament_speed).current_option(), id(lichess_tournament_start).current_option());
@@ -1593,9 +1681,9 @@ select:
       - "Classical (20+10)"
       - "Blitz (5+0)"
     initial_option: "Rapid (10+0)"
-    on_value: 
+    on_value:
       then:
-        lambda: |-           
+        lambda: |-
           // we create json of the tournament
           id(lichess_tournament_json_update).execute(id(lichess_tournament).current_option(), x, id(lichess_tournament_start).current_option());
     web_server:
@@ -1610,9 +1698,9 @@ select:
       - "Join now"
       - "Wait for next"
     initial_option: "Wait for next"
-    on_value: 
+    on_value:
       then:
-        lambda: |-           
+        lambda: |-
           // we create json of the tournament
           id(lichess_tournament_json_update).execute(id(lichess_tournament).current_option(), id(lichess_tournament_speed).current_option(), x);
     web_server:
@@ -1626,14 +1714,14 @@ select:
     options:
       - "yes"
       - "no"
-    on_value: 
+    on_value:
       then:
         lambda: |-
           if (x == "yes") {
             id(lichess_opponent_at_board) = true;
           } else {
             id(lichess_opponent_at_board) = false;
-          }  
+          }
     initial_option: "no"
     web_server:
       sorting_group_id: sorting_group_lichess
@@ -1647,14 +1735,14 @@ select:
       - "enabled"
       - "disabled"
     initial_option: "enabled"
-    on_value: 
+    on_value:
       then:
         lambda: |-
           if (x == "disabled") {
             id(validator_enabled) = false;
           } else {
             id(validator_enabled) = true;
-          }   
+          }
     web_server:
       sorting_group_id: sorting_group_system
       sorting_weight: -1
@@ -1667,17 +1755,21 @@ select:
       - "enabled"
       - "disabled"
     initial_option: "disabled"
-    on_value: 
+    on_value:
       then:
         lambda: |-
           if (x == "enabled") {
             id(debug_mode) = true;
           } else {
             id(debug_mode) = false;
-          }   
+          }
     web_server:
       sorting_group_id: sorting_group_system
       sorting_weight: -1
+
+# -----------------------------------------------------------------------------
+# Sensors (numeric values, diagnostics)
+# -----------------------------------------------------------------------------
 sensor:
   - platform: adc
     pin: GPIO34
@@ -1794,7 +1886,7 @@ sensor:
           std::sort(std::begin(sorted), std::end(sorted), [](int a, int b) {
             return abs(a) > abs(b);
           });
-          return sorted[0]; 
+          return sorted[0];
       } else {
         return float(0.0);
       }
@@ -1814,6 +1906,9 @@ sensor:
 
 
 
+# -----------------------------------------------------------------------------
+# Text sensors (status strings)
+# -----------------------------------------------------------------------------
 text_sensor:
 
   - platform: mqtt_subscribe
@@ -1864,7 +1959,7 @@ text_sensor:
     on_value:
       then:
         - lambda: |-
-            id(perform_lichess_api_call).execute("game_id", x);
+            id(perform_lichess_api_call).execute("game_id", "{\"game_id\": \"" + x + "\"}", "");
         - delay: 1s
     web_server:
       sorting_group_id: sorting_group_lichess
@@ -1878,7 +1973,7 @@ text_sensor:
     on_value:
       then:
         - lambda: |-
-            id(perform_lichess_api_call).execute("lichess_tournament_id", x);
+            id(perform_lichess_api_call).execute("lichess_tournament_id", x, "");
     web_server:
       sorting_group_id: sorting_group_lichess
       sorting_weight: 12
@@ -1893,7 +1988,7 @@ text_sensor:
       sorting_weight: 12
     lambda: |-
       return id(fen_position_previous_string);
-  
+
   - platform: template
     name: "Timer (white)"
     id: timer_white
@@ -1906,7 +2001,7 @@ text_sensor:
         sprintf(buffer, "%02d:%02d", minutes, seconds);
         return {buffer};
       } else {
-        std::string e = "--:--";        
+        std::string e = "--:--";
         return e;
       }
     on_value:
@@ -1962,7 +2057,7 @@ text_sensor:
         if (id(halfmove_counter) % 2 == 0) {
             pgn_move += " ...";
         } else {
-          pgn_move = "... " + pgn_move; 
+          pgn_move = "... " + pgn_move;
         }
         pgn_move = std::to_string(fullmove) + ". " + pgn_move;
       }
@@ -1985,7 +2080,7 @@ text_sensor:
     id: pgn_history_2
     name: "PGN_2"
     lambda: |-
-      std::string cutted_history = id(pgn_history);      
+      std::string cutted_history = id(pgn_history);
       if (cutted_history.length() > 255) {
         return cutted_history.substr(255, 255);  // Safe substring
       } else {
@@ -2173,17 +2268,21 @@ text_sensor:
       sorting_group_id: sorting_group_board
       sorting_weight: 8
 
+# -----------------------------------------------------------------------------
+# Reusable scripts (state machine actions)
+# -----------------------------------------------------------------------------
 script:
+  # Script: main_loop — helper routine used by the main state machine / UI
   - id: main_loop    # to avoid long queues, we skip the iteration if not finished till next call
-    mode: single 
+    mode: single
     then:
       - lambda: |-
           uint32_t tic = millis();
           // read hall sensors
-          id(update_all_hall_sensors).execute();   
+          id(update_all_hall_sensors).execute();
           // Store in circular buffer
           id(loop_durations_hall)[id(median_array_index)] = millis() - tic;
-          tic = millis(); 
+          tic = millis();
           // transform voltage to position flags (-1, 0, 1)
           id(update_raw_position_current).execute();
           // check, if we have new position in comparison to the previous
@@ -2202,8 +2301,8 @@ script:
               id(led_update_valid_move).execute();
               // we check, if we should store the move (i.e. button pressed, or lichess-move is applied)
             }
-            id(store_move).execute(id(game_result));            
-          } else {            
+            id(store_move).execute(id(game_result));
+          } else {
             // reset flags
             id(reset_validator_flags).execute();
             // same position, turn on blue
@@ -2213,15 +2312,16 @@ script:
           id(clear_display_messages).execute();
           // Store in circular buffer
           id(loop_durations_calc)[id(median_array_index)] = millis() - tic;
-                 
+
+  # Script: button_black_finished_script — helper routine used by the main state machine / UI
   - id: button_black_finished_script
     mode: single
-    then: 
+    then:
       - lambda: |-
           // only during the gave
           if (id(game_running)) {
             // if our turn, we store the move and let opponent play
-            if (!id(white_to_move) && id(valid_move)) {                
+            if (!id(white_to_move) && id(valid_move)) {
                 id(move_to_store_flag) = true;
             }
           } else if (id(halfmove_counter) == 0) {
@@ -2231,20 +2331,21 @@ script:
             id(led_update_color_to_move).execute();
             // show timer
             id(oled_show_page_clock).execute();
-          } 
+          }
 
+  # Script: button_white_finished_script — helper routine used by the main state machine / UI
   - id: button_white_finished_script
     mode: single
-    then: 
+    then:
       - lambda: |-
             // only during the gave
             if (id(game_running)){
               // if our turn, we store the move and let opponent play
               if (id(white_to_move) && id(valid_move)) {
-                id(move_to_store_flag) = true; 
+                id(move_to_store_flag) = true;
               }
             // we assume here, initial-position-set is updated by the idle iteration loop
-            } else if (!id(game_running) && id(white_to_move) && !id(lichess_game_running) && id(halfmove_counter) == 0 && id(initial_position_state) == 3) { 
+            } else if (!id(game_running) && id(white_to_move) && !id(lichess_game_running) && id(halfmove_counter) == 0 && id(initial_position_state) == 3) {
                 // if initial position, white can also start the the clock
                 id(game_running) = true;
                 // update LEDs
@@ -2253,6 +2354,7 @@ script:
                 id(oled_show_page_clock).execute();
             }
 
+  # Script: take_back — helper routine used by the main state machine / UI
   - id: take_back
     then:
       - lambda: |-
@@ -2291,30 +2393,30 @@ script:
             id(pgn_history_1).update();
             // update furhter sensors (take previous length)
             if ( previous_length > 255) {
-              id(pgn_history_2).update();  
+              id(pgn_history_2).update();
             }
             if ( previous_length > 510) {
-              id(pgn_history_3).update();  
+              id(pgn_history_3).update();
             }
             if ( previous_length > 765) {
-              id(pgn_history_4).update();  
+              id(pgn_history_4).update();
             }
             if ( previous_length > 1020) {
-              id(pgn_history_5).update();  
+              id(pgn_history_5).update();
             }
             if ( previous_length > 1275) {
-              id(pgn_history_6).update();  
+              id(pgn_history_6).update();
             }
             if ( previous_length > 1530) {
-              id(pgn_history_7).update();  
+              id(pgn_history_7).update();
             }
             if ( previous_length > 1785) {
-              id(pgn_history_8).update();  
+              id(pgn_history_8).update();
             }
             if ( previous_length > 2040) {
-              id(pgn_history_9).update();  
+              id(pgn_history_9).update();
             }
-                
+
             // update further sensors
             id(update_chess_board).execute();
             id(last_move_pgn_sensor).update();
@@ -2322,6 +2424,7 @@ script:
             id(fen_array_to_string).execute();
           }
 
+  # Script: update_chess_board — helper routine used by the main state machine / UI
   - id: update_chess_board
     mode: queued
     then:
@@ -2331,7 +2434,7 @@ script:
             int line_counter = 0;
             std::string line_representation = "|";
 
-            // iterate over current fen raw position  
+            // iterate over current fen raw position
             for (int i=0; i<64; i++) {
               // extend current line
               char curr_fen_char = 'x';
@@ -2341,7 +2444,7 @@ script:
               line_representation += id(chess_symbols)[curr_fen_char] + "|";
 
               if ((i + 1) % 8 == 0) { // store line
-                
+
                 int line_counter = (int)(i / 8);
 
                 // update line
@@ -2370,11 +2473,12 @@ script:
                 {
                   id(line_1).publish_state(line_representation);
                 }
-             
+
                 line_representation = "|";
-              } 
+              }
             }
 
+  # Script: update_timer — helper routine used by the main state machine / UI
   - id: update_timer
     mode: queued
     then:
@@ -2397,6 +2501,7 @@ script:
             id(oled_black).update();
           }
 
+  # Script: send_telegram_message — helper routine used by the main state machine / UI
   - id: send_telegram_message
     then:
       - script.execute: create_full_pgn
@@ -2411,6 +2516,7 @@ script:
             - script.wait: telegram_pgn_chessboard_b
             - script.execute: beep_short
 
+  # Script: telegram_pgn_chessboard_a — helper routine used by the main state machine / UI
   - id: telegram_pgn_chessboard_a
     then:
       - http_request.post:
@@ -2419,9 +2525,10 @@ script:
             Content-Type: application/json
           json:
             chat_id: !secret telegram_cheesboard_chat_id_a
-            text: !lambda |-                
+            text: !lambda |-
                 return id(full_pgn);
 
+  # Script: telegram_pgn_chessboard_b — helper routine used by the main state machine / UI
   - id: telegram_pgn_chessboard_b
     then:
       - http_request.post:
@@ -2430,9 +2537,10 @@ script:
             Content-Type: application/json
           json:
             chat_id: !secret telegram_cheesboard_chat_id_b
-            text: !lambda |-                
+            text: !lambda |-
                 return id(full_pgn);
 
+  # Script: create_full_pgn — helper routine used by the main state machine / UI
   - id: create_full_pgn
     mode: queued
     then:
@@ -2462,19 +2570,21 @@ script:
           std::string full_message = header + "\n" + id(pgn_history);
           id(full_pgn) = full_message;
 
+  # Script: post_game_operation — helper routine used by the main state machine / UI
   - id: post_game_operation
     then:
       - lambda: |-
           if (id(halfmove_counter) > 0 && !id(lichess_game_running)) {
               id(send_telegram_message).execute();
-          }            
+          }
 
+  # Script: initial_position_state_update — helper routine used by the main state machine / UI
   - id: initial_position_state_update
     then:
       - lambda: |-
           int initial_position_previous = id(initial_position_state);
           // 0 - non, 1 - black, 2 - white, 3 - both set
-          int initial_position_current = 0b11; // 3      
+          int initial_position_current = 0b11; // 3
           // check black
           for (int i = 0; i < 16; i++) {
             if (id(raw_position_current)[i]  != id(raw_position_init)[i])
@@ -2493,19 +2603,19 @@ script:
             }
           }
 
-          id(initial_position_state) = initial_position_current; 
+          id(initial_position_state) = initial_position_current;
 
           // do some stuff at changed init - position - state
           if (initial_position_previous != initial_position_current) {
-            
+
             // 0 - non, 1 - black, 2 - white, 3 - both are set
 
-            // both colors are in init position            
-            if (initial_position_current == 0b11) { 
+            // both colors are in init position
+            if (initial_position_current == 0b11) {
               // intial position set, reset game
               id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"Initial position set\", \"line_1\": \"Reseting game ...\"}";
               id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"Initial position set\", \"line_1\": \"Reseting game ...\"}";
-              id(oled_show_page_message).execute(); 
+              id(oled_show_page_message).execute();
               delay(2000);
               // reset all values
               id(reset_current_game_values).execute();
@@ -2515,17 +2625,17 @@ script:
             }
 
             // white only: 2
-            if (initial_position_current == 0b10) { 
+            if (initial_position_current == 0b10) {
               // intial position set, reset game
               id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"Initial position set\", \"line_1\": \"Waiting for black ...\"}";
               id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"Black player\", \"line_1\": \"Set initial position\"}";
-              id(oled_show_page_message).execute();              
+              id(oled_show_page_message).execute();
             }
 
             // black only: 1
-            if (initial_position_current == 0b01) { 
+            if (initial_position_current == 0b01) {
               // intial position set, reset game
-              id(display_message_black) ="{\"n_lines\": 2, \"line_0\": \"Initial position set\", \"line_1\": \"Waiting for white ...\"}"; 
+              id(display_message_black) ="{\"n_lines\": 2, \"line_0\": \"Initial position set\", \"line_1\": \"Waiting for white ...\"}";
               id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"White player\", \"line_1\": \"Set initial position\"}";
               id(oled_show_page_message).execute();
             }
@@ -2536,37 +2646,39 @@ script:
               id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"Black player\", \"line_1\": \"Set initial position\"}";
               id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"White player\", \"line_1\": \"Set initial position\"}";
               id(oled_show_page_message).execute();
-            }              
+            }
           }
 
-  - id: reset_current_game_values 
+  # Script: reset_current_game_values — helper routine used by the main state machine / UI
+  - id: reset_current_game_values
     then:
       - lambda: |-
-          id(led_all_turn_off).execute(); 
+          id(led_all_turn_off).execute();
           id(reset_fen_position).execute();
           id(reset_raw_position).execute();
           id(reset_pgn_values).execute();
           id(white_to_move) = true;
           id(game_running) = false;
           id(lichess_is_my_color_white) = true;
-          id(lichess_game_running) = false;                   
-          id(move_to_store_flag) = false;          
+          id(lichess_game_running) = false;
+          id(move_to_store_flag) = false;
           id(halfmove_counter) = 0;
           id(halfmove_or_capture_counter) = 0;
           id(last_move_white) = "";
-          id(last_move_black) = "";          
+          id(last_move_black) = "";
           id(sync_time_control).execute();
           id(time_control_timer_black) = id(time_control_duration);
-          id(time_control_timer_white) = id(time_control_duration);  
+          id(time_control_timer_white) = id(time_control_duration);
           id(timer_black).update();
-          id(timer_white).update();        
+          id(timer_white).update();
           id(n_queens_white) = 1;
-          id(n_queens_black) = 1;   
-          id(invalid_move_counter) = -1;   
-          id(update_lichess_token).execute(true);    
+          id(n_queens_black) = 1;
+          id(invalid_move_counter) = -1;
+          id(update_lichess_token).execute(true);
           id(lichess_game_id).publish_state(std::string("idle"));
-          id(current_move_uci_lichess) = "-";          
+          id(current_move_uci_lichess) = "-";
 
+  # Script: reset_display_message — helper routine used by the main state machine / UI
   - id: reset_display_message
     then:
       - lambda: |-
@@ -2574,11 +2686,13 @@ script:
           id(display_message_white) = std::string("{\"n_lines\": 2, \"line_0\": \"White player\", \"line_1\": \"") + id(chess_time_control).current_option() + std::string("\"}");
           id(oled_show_page_message).execute();
 
+  # Script: redraw_displays — helper routine used by the main state machine / UI
   - id: redraw_displays
     then:
       - component.update: oled_white
       - component.update: oled_black
 
+  # Script: update_pgn_history — helper routine used by the main state machine / UI
   - id: update_pgn_history
     mode: queued
     then:
@@ -2591,35 +2705,36 @@ script:
             id(pgn_history) = id(pgn_history) + " " + id(last_move_pgn) + "\n";
           }
 
-          // allways update first pgn          
+          // allways update first pgn
           id(pgn_history_1).update();
           // update furhter sensors (pgn can not be shorten in game)
           int curr_pgn_length = id(pgn_history).length();
           if ( curr_pgn_length > 255) {
-            id(pgn_history_2).update();  
+            id(pgn_history_2).update();
           }
           if ( curr_pgn_length > 510) {
-            id(pgn_history_3).update();  
+            id(pgn_history_3).update();
           }
           if ( curr_pgn_length > 765) {
-            id(pgn_history_4).update();  
+            id(pgn_history_4).update();
           }
           if ( curr_pgn_length > 1020) {
-            id(pgn_history_5).update();  
+            id(pgn_history_5).update();
           }
           if ( curr_pgn_length > 1275) {
-            id(pgn_history_6).update();  
+            id(pgn_history_6).update();
           }
           if ( curr_pgn_length > 1530) {
-            id(pgn_history_7).update();  
+            id(pgn_history_7).update();
           }
           if ( curr_pgn_length > 1785) {
-            id(pgn_history_8).update();  
+            id(pgn_history_8).update();
           }
           if ( curr_pgn_length > 2040) {
-            id(pgn_history_9).update();  
+            id(pgn_history_9).update();
           }
 
+  # Script: reset_pgn_values — helper routine used by the main state machine / UI
   - id: reset_pgn_values
     then:
       - lambda: |-
@@ -2639,6 +2754,7 @@ script:
 
           id(last_move_pgn_sensor).update();
 
+  # Script: reset_fen_position — helper routine used by the main state machine / UI
   - id: reset_fen_position
     then:
       - lambda: |-
@@ -2649,12 +2765,14 @@ script:
           id(update_chess_board).execute();
           id(fen_position_previous_string_sensor).update();
 
+  # Script: reset_raw_position — helper routine used by the main state machine / UI
   - id: reset_raw_position
     then:
       - lambda: |-
           std::memcpy(id(raw_position_previous).data(), id(raw_position_init).data(), sizeof(int)*64);
           std::memcpy(id(raw_position_last_valid).data(), id(raw_position_init).data(), sizeof(int)*64);
 
+  # Script: inform_game_over — helper routine used by the main state machine / UI
   - id: inform_game_over
     parameters:
       game_result: string
@@ -2673,9 +2791,9 @@ script:
             std::string message_white = "{\"n_lines\": 1, \"line_0\": \"Game finished\"}";
             std::string message_black = "{\"n_lines\": 1, \"line_0\": \"Game finished\"}";
 
-            if (white_won) { 
+            if (white_won) {
               id(led_white_green).execute(); // green
-              id(led_black_red).execute(); // red            
+              id(led_black_red).execute(); // red
               message_black = "{\"n_lines\": 1, \"line_0\": \"LOST\"}";
               message_white = "{\"n_lines\": 1, \"line_0\": \"WINNER\"}";
               id(pgn_history) += " 1-0";
@@ -2686,7 +2804,7 @@ script:
 
             if (black_won) {
               id(led_black_green).execute(); // green
-              id(led_white_red).execute(); // red       
+              id(led_white_red).execute(); // red
               message_black = "{\"n_lines\": 1, \"line_0\": \"WINNER\"}";
               message_white = "{\"n_lines\": 1, \"line_0\": \"LOST\"}";
               id(pgn_history) += " 0-1";
@@ -2697,7 +2815,7 @@ script:
 
             if (draw) {
               id(led_black_blue).execute(); // blue
-              id(led_white_blue).execute(); // blue 
+              id(led_white_blue).execute(); // blue
               message_black = "{\"n_lines\": 1, \"line_0\": \"DRAW\"}";
               message_white = "{\"n_lines\": 1, \"line_0\": \"DRAW\"}";
               id(pgn_history) += " 1/2-1/2";
@@ -2706,7 +2824,7 @@ script:
             // on a lichess game, we have to end the game (abort, mate, draw)
             if (!id(lichess_game_running) && !white_won && !black_won && !draw) {
               id(led_black_red).execute(); // red
-              id(led_white_red).execute(); // red 
+              id(led_white_red).execute(); // red
               message_black = "{\"n_lines\": 1, \"line_0\": \"Aborted\"}";
               message_white = "{\"n_lines\": 1, \"line_0\": \"Aborted\"}";
             }
@@ -2731,8 +2849,9 @@ script:
             lambda: 'return id(game_running);'
           then:
             - delay: 2s
-        
 
+
+  # Script: sync_time_control — helper routine used by the main state machine / UI
   - id: sync_time_control
     then:
       - lambda: |-
@@ -2766,6 +2885,7 @@ script:
           }
           call.perform();
 
+  # Script: store_move — helper routine used by the main state machine / UI
   - id: store_move
     parameters:
       game_result: string
@@ -2789,7 +2909,7 @@ script:
               if (id(fen_position_current_string) != "") {
 
                 // overwrite previous data by current data
-                std::memcpy(id(raw_position_previous).data(), id(raw_position_last_valid).data(), sizeof(int)*64);                
+                std::memcpy(id(raw_position_previous).data(), id(raw_position_last_valid).data(), sizeof(int)*64);
                 id(fen_position_previous_string) = id(fen_position_current_string);
 
                 // check three fold repetition for non lichess-games
@@ -2810,7 +2930,7 @@ script:
                 }
 
                 // replace last fen by current fen
-                std::memcpy(id(fen_position_previous).data(), id(fen_position_current).data(), sizeof(char)*76); 
+                std::memcpy(id(fen_position_previous).data(), id(fen_position_current).data(), sizeof(char)*76);
 
                 //update pgn sensors
                 id(update_pgn_history).execute();
@@ -2837,16 +2957,16 @@ script:
                   id(post_game_operation).execute();
                   // stop game
                   id(game_running) = false;
-                } else {               
+                } else {
                   // toggle white_to_move
-                  id(white_to_move) = !id(white_to_move);               
+                  id(white_to_move) = !id(white_to_move);
                   // increase coutner of halfmoves
                   id(halfmove_counter) += 1;
                   // update timer
-                  id(time_control_add_increment).execute();              
+                  id(time_control_add_increment).execute();
                   // reset flags
                   id(reset_validator_flags).execute();
-                }            
+                }
               }
               id(valid_move) = false;
               id(move_to_store_flag) = false;
@@ -2855,6 +2975,7 @@ script:
             }
           }
 
+  # Script: update_number_of_queens — helper routine used by the main state machine / UI
   - id: update_number_of_queens
     then:
       - lambda: |-
@@ -2864,7 +2985,7 @@ script:
               id(n_queens_white) += 1;
             } else {
               id(n_queens_black) += 1;
-            }            
+            }
           }
           // decrease number of queens
           if (id(current_move_type) == "TAKE" && id(current_move_to) > -1 ) {
@@ -2876,7 +2997,8 @@ script:
               id(n_queens_white) -= 1;
             }
           }
-  
+
+  # Script: time_control_add_increment — helper routine used by the main state machine / UI
   - id: time_control_add_increment
     then:
       - lambda: |-
@@ -2888,6 +3010,7 @@ script:
             }
           }
 
+  # Script: update_uci_notation — helper routine used by the main state machine / UI
   - id: update_uci_notation
     then:
       - lambda: |-
@@ -2901,7 +3024,7 @@ script:
             // we have to add promotion to UCI
             bool move_or_take = (bool)(id(current_move_type) == "MOVE" ||  id(current_move_type) == "TAKE");
             bool promotion_move = (bool)(fen_name_from  == 'P' || fen_name_from  == 'p' );
-            if (move_or_take && promotion_move) {  
+            if (move_or_take && promotion_move) {
 
               // white
               if (id(white_to_move) && (field_name_to.find('8') != std::string::npos)) {
@@ -2917,17 +3040,18 @@ script:
                 std::transform(uci_move.begin(), uci_move.end(), uci_move.begin(), ::tolower);
               }
             }
-            
+
             id(current_move_uci) = uci_move;
           }
 
+  # Script: fen_array_to_string — helper routine used by the main state machine / UI
   - id: fen_array_to_string
     mode: queued
     then:
       - lambda: |-
             // transform array to fen-string
             std::string raw_fen;
-            int emptyCount = 0;            
+            int emptyCount = 0;
             for (int row = 0; row < 8; ++row) {
                 for (int col = 0; col < 8; ++col) {
                     char piece = id(fen_position_current)[row * 8 + col];
@@ -2957,14 +3081,14 @@ script:
             for (int i=65; i<69; i++){
               if (id(fen_position_current)[i] != '-'){
                 castling_part += id(fen_position_current)[i];
-              }              
+              }
             }
             if (castling_part.length() > 0) {
               raw_fen += " " +  castling_part;
             }
             else {
               raw_fen += " -";
-            }            
+            }
 
             // en passant (idx 69 and 70)
             raw_fen += " ";
@@ -2975,7 +3099,7 @@ script:
               raw_fen += id(fen_position_current)[69];
               raw_fen += id(fen_position_current)[70];
             }
-            
+
 
             // half move since last take (idx 71 and 72)
             raw_fen += " ";
@@ -3003,33 +3127,34 @@ script:
               // reset current fen string
               id(fen_position_current_string) = "";
               if (id(debug_mode)) {
-                id(perform_lichess_api_call).execute("debug", std::string("FEN (invalid): " + raw_fen).c_str());
+                id(perform_lichess_api_call).execute("debug", std::string("FEN (invalid): " + raw_fen).c_str(), "");
               }
             }
-            
 
+
+  # Script: check_chess_rules — helper routine used by the main state machine / UI
   - id: check_chess_rules
     mode: queued
     then:
       - lambda: |-
-          // define flag          
+          // define flag
           bool valid_check = false;
 
           if (id(validator_enabled)) {
-          
+
             std::string previous_fen = id(fen_position_previous_string);
             std::string new_uci = id(current_move_uci);
 
             chess_validator::TableState table_state;
             bool valid_fen = chess_validator::get_table_state( previous_fen.c_str() , &table_state );
             if (valid_fen && (new_uci.length() == 4 || new_uci.length() == 5)) {
-              
+
               chess_validator::INVALID_REASON invalid = chess_validator::is_move_invalid( &table_state , new_uci.c_str() );
-              if( invalid ){                  
+              if( invalid ){
                   // we have to reset store flag, if since we pressed the button, the position become invalid
                   id(move_to_store_flag) = false;
                   std::string fen_string = ", FEN = " + id(fen_position_previous_string) + ", MOVE: " + new_uci;
-                  std::string invalid_reason = "";              
+                  std::string invalid_reason = "";
                   switch(invalid){
                       case chess_validator::INVALID_FEN_STRING:
                           ESP_LOGW("Validator", "Invalid move... reason: INVALID_FEN_STRING %s",  fen_string.c_str() );
@@ -3089,7 +3214,7 @@ script:
                         id(game_result) = "1-0";
                       } else {
                         id(game_result) = "0-1";
-                      }                    
+                      }
                   }
                   // draw ?
                   chess_validator::DRAW_REASON   draw  = chess_validator::get_draw_reason(&new_table_state);
@@ -3109,6 +3234,7 @@ script:
           // reset flag if not valid
           id(valid_move) = valid_check;
 
+  # Script: calculate_position_differences — helper routine used by the main state machine / UI
   - id: calculate_position_differences
     then:
       - lambda: |-
@@ -3141,7 +3267,7 @@ script:
               } else if (id(raw_position_previous)[value] > 0 ) {
                 n_pieces_previous += 1;
                 n_white_pieces_previous += 1;
-              }  
+              }
               // calculate n pieces current
               if (id(raw_position_current)[value] < 0) {
                 n_pieces_current += 1;
@@ -3159,7 +3285,8 @@ script:
             id(differences_sum_abs) = sum_abs;
             id(differences_n_changes) = n_changes;
           }
-  
+
+  # Script: reset_validator_flags — helper routine used by the main state machine / UI
   - id: reset_validator_flags
     then:
       - lambda: |-
@@ -3181,8 +3308,9 @@ script:
           // we have to reset FEN, to allow move correction
           std::memcpy(id(fen_position_current).data(), id(fen_position_previous).data(), sizeof(char)*76);
 
+  # Script: move_validator — helper routine used by the main state machine / UI
   - id: move_validator
-    mode: queued 
+    mode: queued
     then:
       - lambda: |-
           if (id(game_running) && (!id(move_to_store_flag) || id(changed_last_valid_position))) {
@@ -3215,10 +3343,10 @@ script:
               }
             }
 
-            
+
             if (id(valid_move)) {
               // store last valid position
-              std::memcpy(id(raw_position_last_valid).data(), id(raw_position_current).data(), sizeof(int)*64); 
+              std::memcpy(id(raw_position_last_valid).data(), id(raw_position_current).data(), sizeof(int)*64);
             } else {
               // reset flags, if valid move and no check / mate
               id(game_result) = "";
@@ -3231,7 +3359,7 @@ script:
                 std::memcpy(id(raw_position_last_valid).data(), id(raw_position_init).data(), sizeof(int)*64);
                 id(invalid_move_counter) = -1; // we dont want to reset every iteration
               }
-              
+
             }
 
             // LICHESS MOVE
@@ -3241,7 +3369,7 @@ script:
               if (id(lichess_is_my_color_white)) {
                 id(button_black_finished_script).execute();
               } else {
-                id(button_white_finished_script).execute();             
+                id(button_white_finished_script).execute();
               }
             }
 
@@ -3256,11 +3384,12 @@ script:
             }
           }
 
+  # Script: clear_display_messages — helper routine used by the main state machine / UI
   - id: clear_display_messages
-    mode: queued 
+    mode: queued
     then:
       - lambda: |-
-          // if we had some messages in a non-lichess game, clear them at valid move 
+          // if we had some messages in a non-lichess game, clear them at valid move
           if (!id(lichess_game_running) && id(valid_move) && id(game_running)) {
             if (id(white_to_move) && id(oled_white_acitve_page) == 2) {
               id(oled_white_acitve_page) = 1;
@@ -3269,7 +3398,8 @@ script:
               id(oled_black_acitve_page) = 1;
             }
           }
- 
+
+  # Script: validate_move — helper routine used by the main state machine / UI
   - id: validate_move
     parameters:
       lichess_opponents_move: bool
@@ -3304,7 +3434,7 @@ script:
               bool king_castling = king_move && std::abs(from - to) == 2;
 
               // skip, till the opponent pawn is removed from board and we recognize the "enpassant - move"
-              if (!take_enpassant && !king_castling) { 
+              if (!take_enpassant && !king_castling) {
 
                 id(current_move_from) = from;
                 id(current_move_to) = to;
@@ -3317,7 +3447,7 @@ script:
                   if (id(white_to_move)) { // white
                     if (from != 48) { // left diagonal (not a2 -> a4)
                       idx_to_check.push_back(to - 1);
-                    } 
+                    }
                     if (from != 55) { // right diagonal (not h2 -> h4)
                       idx_to_check.push_back(to + 1);
                     }
@@ -3331,7 +3461,7 @@ script:
                   } else { // black
                     if (from != 8) { // left diagonal (not a7 -> a5)
                       idx_to_check.push_back(to - 1);
-                    } 
+                    }
                     if (from != 15) { // right diagonal (not h7 -> h5)
                       idx_to_check.push_back(to + 1);
                     }
@@ -3365,13 +3495,14 @@ script:
               id(fen_position_current)[to] = id(fen_position_previous)[from];
               id(fen_position_current)[from] = '0';
 
-              id(update_chess_board).execute();  
+              id(update_chess_board).execute();
 
-              // run pgn move extractor 
-              id(update_pgn).execute(); 
+              // run pgn move extractor
+              id(update_pgn).execute();
             }
           }
 
+  # Script: validate_take — helper routine used by the main state machine / UI
   - id: validate_take
     parameters:
       lichess_opponents_move: bool
@@ -3411,7 +3542,7 @@ script:
                 // we dont need to validate lichess moves
                 id(valid_move) = (id(current_move_uci_lichess) == id(current_move_uci));
               }
-            } 
+            }
 
             // still valid
             if (id(valid_move)) {
@@ -3419,13 +3550,14 @@ script:
               id(fen_position_current)[to] = id(fen_position_previous)[from];
               id(fen_position_current)[from] = '0';
 
-              id(update_chess_board).execute();   
+              id(update_chess_board).execute();
 
-              // run pgn move extractor 
+              // run pgn move extractor
               id(update_pgn).execute();
             }
           }
 
+  # Script: validate_castling — helper routine used by the main state machine / UI
   - id: validate_castling
     parameters:
       lichess_opponents_move: bool
@@ -3452,7 +3584,7 @@ script:
               id(current_move_type) = "CASTLING_LONG";
             }
           }
-          // black 
+          // black
           if (id(raw_position_differences)[4] == -1) {
             from_k = 4;
             if (id(raw_position_differences)[7] == -1) { // short
@@ -3503,18 +3635,19 @@ script:
 
               // update fen
               id(fen_position_current)[to_k] = id(fen_position_previous)[from_k];
-              id(fen_position_current)[from_k] = '0';            
-              
-              id(fen_position_current)[to_r] = id(fen_position_previous)[from_r];   
-              id(fen_position_current)[from_r] = '0'; 
+              id(fen_position_current)[from_k] = '0';
+
+              id(fen_position_current)[to_r] = id(fen_position_previous)[from_r];
+              id(fen_position_current)[from_r] = '0';
 
               id(update_chess_board).execute();
 
-              // run pgn move extractor 
-              id(update_pgn).execute(); 
+              // run pgn move extractor
+              id(update_pgn).execute();
             }
           }
-        
+
+  # Script: validate_enpassant — helper routine used by the main state machine / UI
   - id: validate_enpassant
     parameters:
       lichess_opponents_move: bool
@@ -3526,12 +3659,12 @@ script:
           // find from index
           auto it_from = std::find(id(raw_position_differences).begin(), id(raw_position_differences).end(), -1);
           if (it_from != id(raw_position_differences).end()) {
-              from = std::distance(id(raw_position_differences).begin(), it_from);              
+              from = std::distance(id(raw_position_differences).begin(), it_from);
               if (id(raw_position_differences)[from - 1] == 1) {
-                from_opponent = from - 1;  
+                from_opponent = from - 1;
               }
               if (id(raw_position_differences)[from + 1] == 1) {
-                from_opponent = from + 1;  
+                from_opponent = from + 1;
               }
 
               if (from_opponent > -1) {
@@ -3558,7 +3691,7 @@ script:
           if ( (id(moved_piece) == 'P' || id(moved_piece) == 'p' ) && id(target_piece) == '0'  && from_opponent_piece == 'P' ) {
 
             id(current_move_from) = from;
-            id(current_move_to) = to;          
+            id(current_move_to) = to;
             id(current_move_type) = "ENPASSANT";
 
             // prepare uci notation
@@ -3582,12 +3715,13 @@ script:
               id(fen_position_current)[from_opponent] = '0';
 
               id(update_chess_board).execute();
-              
-              // run pgn move extractor
-              id(update_pgn).execute(); 
-            }
-          }     
 
+              // run pgn move extractor
+              id(update_pgn).execute();
+            }
+          }
+
+  # Script: update_fen_additional_fields — helper routine used by the main state machine / UI
   - id: update_fen_additional_fields
     mode: queued
     then:
@@ -3606,13 +3740,13 @@ script:
                 if (id(current_move_from) == 63) {
                   id(fen_position_current)[65] = '-';
                 }
-                // Q-rook 
+                // Q-rook
                 if (id(current_move_from) == 56) {
                   id(fen_position_current)[66] = '-';
-                } 
+                }
             }
           }
-          // update castling part (black) 
+          // update castling part (black)
           if ((id(moved_piece) == 'k' || id(moved_piece) == 'r') && (id(fen_position_current)[67] == 'k' || id(fen_position_current)[68] == 'q')) {
             // king
             if (id(moved_piece) == 'k'){
@@ -3622,11 +3756,11 @@ script:
                 // k-rook
                 if (id(current_move_from) == 7) {
                   id(fen_position_current)[67] = '-';
-                } 
+                }
                 // q-rook
                 if (id(current_move_from) == 0) {
                   id(fen_position_current)[68] = '-';
-                }                   
+                }
             }
           }
 
@@ -3641,11 +3775,11 @@ script:
 
           // update fen capture counters (idx 71 and 72)
           if (id(current_move_type) == "TAKE" || id(moved_piece) == 'p' || id(moved_piece) == 'P') {
-            id(halfmove_or_capture_counter) = 0;                        
+            id(halfmove_or_capture_counter) = 0;
           } else {
             id(halfmove_or_capture_counter) += 1;
           }
-          std::string count_capture = std::to_string(id(halfmove_or_capture_counter)); 
+          std::string count_capture = std::to_string(id(halfmove_or_capture_counter));
           if (count_capture.length() == 2) {
             id(fen_position_current)[71] = count_capture.at(0);
             id(fen_position_current)[72] = count_capture.at(1);
@@ -3653,7 +3787,7 @@ script:
             id(fen_position_current)[71] = '0';
             id(fen_position_current)[72] = count_capture.at(0);
           }
-              
+
           // update fen move counter (idx 73,74 and 75)
           std::string count_move = id(white_to_move) ? std::to_string((int)(id(halfmove_counter) / 2.) + 1) : std::to_string((int)(id(halfmove_counter) / 2.) + 2);
           if (count_move.length() == 3) {
@@ -3669,17 +3803,18 @@ script:
             id(fen_position_current)[74] = '0';
             id(fen_position_current)[75] = count_move.at(0);
           }
-  
 
+
+  # Script: update_pgn — helper routine used by the main state machine / UI
   - id: update_pgn
     mode: queued
     then:
       - lambda: |-
             // create pgn notation (internal)
             std::string pgn_move = "";
-            
-            if ((id(current_move_type) == "MOVE" ||  id(current_move_type) == "TAKE" ||  id(current_move_type) == "ENPASSANT") && id(current_move_to) > -1 && id(current_move_from) > -1) {            
-              
+
+            if ((id(current_move_type) == "MOVE" ||  id(current_move_type) == "TAKE" ||  id(current_move_type) == "ENPASSANT") && id(current_move_to) > -1 && id(current_move_from) > -1) {
+
               // from FEN-position to upper case
               char fen_from = (char)toupper(id(fen_position_previous)[id(current_move_from)]);
 
@@ -3695,8 +3830,8 @@ script:
                 pgn_move += fen_from;
               }
 
-              //for pawns, king and bishops we dont need to use "from" field (and queens, as long 1 on the board) 
-              if (id(current_move_type) == "MOVE" ) { 
+              //for pawns, king and bishops we dont need to use "from" field (and queens, as long 1 on the board)
+              if (id(current_move_type) == "MOVE" ) {
                 if (pkb_move || q_1_move) {
                   // pgn without from field
                   pgn_move += id(chess_field_names)[id(current_move_to)];
@@ -3710,25 +3845,25 @@ script:
               if (id(current_move_type) == "TAKE" ||  id(current_move_type) == "ENPASSANT") {
                 if (kb_move || (q_move && (id(n_queens_white) == 1 || id(n_queens_black) == 1))) {
                   pgn_move += "x" + id(chess_field_names)[id(current_move_to)];
-                } else {  
+                } else {
                   pgn_move += id(chess_field_names)[id(current_move_from)] + "x" + id(chess_field_names)[id(current_move_to)];
-                }  
+                }
               }
 
               // PAWN PROMOTION
               // for move and take by a pawn we have to check the promotion
-              if (p_move ) {                                 
+              if (p_move ) {
                 // white
                 if (id(white_to_move) && (id(chess_field_names)[id(current_move_to)].find('8') != std::string::npos)) {
                   // add promotion piece
-                  pgn_move += "=" + id(default_pawn_promotion_to);  
-                  // update fen by promoted piece 
-                  id(fen_position_current)[id(current_move_to)] = id(default_pawn_promotion_to).at(0); 
+                  pgn_move += "=" + id(default_pawn_promotion_to);
+                  // update fen by promoted piece
+                  id(fen_position_current)[id(current_move_to)] = id(default_pawn_promotion_to).at(0);
                 }
                 // black
                 if (!id(white_to_move) && (id(chess_field_names)[id(current_move_to)].find('1') != std::string::npos)) {
-                  
-                  // add promotion piece 
+
+                  // add promotion piece
                   pgn_move += "=" + id(default_pawn_promotion_to);
                   // update fen by promoted piece (for black we have to lower it)
                   id(fen_position_current)[id(current_move_to)] = (char)tolower(id(default_pawn_promotion_to).at(0));
@@ -3739,7 +3874,7 @@ script:
             // CASTLING
             if (id(current_move_type) == "CASTLING_SHORT" ) {
                 pgn_move += "O-O";
-            } 
+            }
             if (id(current_move_type) == "CASTLING_LONG" ) {
                 pgn_move += "O-O-O";
             }
@@ -3748,8 +3883,9 @@ script:
             pgn_move +=  id(last_move_pgn_additional);
 
             id(last_move_pgn) = pgn_move;
-            id(last_move_pgn_sensor).update();  
+            id(last_move_pgn_sensor).update();
 
+  # Script: compare_raw_position — helper routine used by the main state machine / UI
   - id: compare_raw_position
     then:
       - lambda: |-
@@ -3764,6 +3900,7 @@ script:
             }
           }
 
+  # Script: compare_last_valid_position — helper routine used by the main state machine / UI
   - id: compare_last_valid_position
     then:
       - lambda: |-
@@ -3776,6 +3913,7 @@ script:
             }
           }
 
+  # Script: update_raw_position_current — helper routine used by the main state machine / UI
   - id: update_raw_position_current
     mode: queued
     then:
@@ -3817,7 +3955,7 @@ script:
               id(raw_position_current)[value] = field_occupied * sign;
             }
 
-            if (id(debug_mode)){ 
+            if (id(debug_mode)){
               id(loop_min_voltage_occupied)[id(median_array_index)] = min_voltage_occupied;
               id(loop_max_voltage_non_occupied)[id(median_array_index)] = max_voltage_non_occupied;
               id(loop_max_deviation_field_idx)[id(median_array_index)] = max_deviation_field_idx;
@@ -3829,6 +3967,7 @@ script:
             }
           }
 
+  # Script: update_all_hall_sensors — helper routine used by the main state machine / UI
   - id: update_all_hall_sensors
     mode: queued
     then:
@@ -3867,13 +4006,13 @@ script:
               // all outputs are set
 
               // if, during the reading of sensors, the flag for storing is set, we abbort the loop
-              // so, we dont need to wait in worst case ~200ms 
+              // so, we dont need to wait in worst case ~200ms
               if(id(move_to_store_flag)) {
                 break;
               }
 
               // let the multiplexer select the sensor to be read
-              delay($delay_before_adc_reading);  
+              delay($delay_before_adc_reading);
 
               // let the ADC reads the sampels
               id(current_hall_sensor_1).update(); // update adc value
@@ -3896,6 +4035,7 @@ script:
             }
           }
 
+  # Script: beep_short — helper routine used by the main state machine / UI
   - id: beep_short
     then:
       - lambda: |-
@@ -3904,6 +4044,7 @@ script:
       - lambda: |-
           id(beep_switch).turn_off();
 
+  # Script: beep_long — helper routine used by the main state machine / UI
   - id: beep_long
     then:
       - lambda: |-
@@ -3912,6 +4053,7 @@ script:
       - lambda: |-
           id(beep_switch).turn_off();
 
+  # Script: encrypt_message — helper routine used by the main state machine / UI
   - id: encrypt_message
     parameters:
       input_string: string
@@ -3928,7 +4070,7 @@ script:
               encrypted += (char)(input_string[i] ^ key[i % key.size()]);
             }
 
-            
+
             const char* hex_chars = "0123456789ABCDEF";
             for (char c : encrypted) {
               hex += hex_chars[(c >> 4) & 0xF];
@@ -3938,24 +4080,42 @@ script:
 
           id(encrypted_message) = hex;
 
+  # Script: perform_lichess_api_call — helper routine used by the main state machine / UI
   - id: perform_lichess_api_call
     parameters:
-      api_endpoint: string 
+      api_endpoint: string
       json_input: string
+      request_id: string
     then:
       - lambda: |-
           std::string topic = "chessboard/" + api_endpoint;
           std::transform(topic.begin(), topic.end(), topic.begin(), ::tolower);
 
-          if (id(mqtt_client)->is_connected()) {
-            id(mqtt_client).publish(topic, json_input);
+          if (id(mqtt_client)->is_connected()) {            
+            // deserialize json
+            JsonDocument root;
+            deserializeJson(root, json_input);
+            // calcualte id
+            if (request_id == "") {
+              id(create_request_id).execute(false);            
+              root["request_id"] = id(current_request_id);
+            } else {
+              root["request_id"] = request_id;
+            }
+            
+            // Convert JSON to string
+            std::string json_input_with_request_id;
+            serializeJson(root, json_input_with_request_id);
+            // publish the extended json
+            id(mqtt_client).publish(topic, json_input_with_request_id);
           } else {
             ESP_LOGE("MQTT", "Publish of the MQTT-Message on %s failed: %s", api_endpoint.c_str(), json_input.c_str() );
           }
 
+  # Script: check_opponent_otb_select — helper routine used by the main state machine / UI
   - id: check_opponent_otb_select
     then:
-      - lambda: |- 
+      - lambda: |-
           bool otb_player = (
             id(lichess_opponent).current_option() == id(lichess_opponent).at(0) ||
             id(lichess_opponent).current_option() == id(lichess_opponent).at(1) ||
@@ -3965,35 +4125,39 @@ script:
             // not possible to play "on board"
             auto call = id(lichess_opponent_at_board_select).make_call();
             call.set_option("no");
-            call.perform();          
+            call.perform();
           }
 
+  # Script: lichess_arena_withdraw_by_id — helper routine used by the main state machine / UI
   - id: lichess_arena_withdraw_by_id
     then:
       - lambda: |-
           // if we are currently in a tournament, we have to withdraw
-          if (id(lichess_tournament_id).state.length() == 8){              
+          if (id(lichess_tournament_id).state.length() == 8){
             std::string withdraw_json = "{\"type\": \"withdrawTournament\", \"id\": \"" + id(lichess_tournament_id).state + "\"}";
-            id(perform_lichess_api_call).execute("api_call", withdraw_json);
-          } 
+            id(perform_lichess_api_call).execute("api_call", withdraw_json, "");
+          }
 
+  # Script: lichess_arena_join_by_id — helper routine used by the main state machine / UI
   - id: lichess_arena_join_by_id
     then:
       - lambda: |-
           // if we are currently in a tournament, we have to withdraw
-          if (id(lichess_tournament_id).state.length() == 8){              
+          if (id(lichess_tournament_id).state.length() == 8){
             std::string join_json = "{\"type\": \"joinTournamentById\", \"id\": \"" + id(lichess_tournament_id).state + "\"}";
-            id(perform_lichess_api_call).execute("api_call", join_json);
-          } 
+            id(perform_lichess_api_call).execute("api_call", join_json, "");
+          }
 
+  # Script: lichess_arena_quit_tournament — helper routine used by the main state machine / UI
   - id: lichess_arena_quit_tournament
-    then: 
+    then:
       - lambda: |-
           id(lichess_arena_withdraw_by_id).execute();
           id(lichess_tournament_id).publish_state("idle");
           id(lichess_tournament_json) = "";
 
 
+  # Script: lichess_arena_join_new_tournament — helper routine used by the main state machine / UI
   - id: lichess_arena_join_new_tournament
     then:
       - lambda: |-
@@ -4001,7 +4165,7 @@ script:
           auto call = id(chess_time_control).make_call();
           call.set_option(id(lichess_tournament_speed).current_option());
           call.perform();
-         
+
           // withdraw current tournament
           id(lichess_arena_withdraw_by_id).execute();
           // update current tournament json
@@ -4015,12 +4179,13 @@ script:
             deserializeJson(root, id(lichess_tournament_json));
             // update display message
             id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"joining arena ...\", \"line_1\": \"" + root["tournamentName"].as<std::string>() + "\"}";
-            id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"joining arena ...\", \"line_1\": \"" + root["tournamentName"].as<std::string>() + "\"}"; 
+            id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"joining arena ...\", \"line_1\": \"" + root["tournamentName"].as<std::string>() + "\"}";
             id(oled_show_page_message).execute();
             // try to join the tournament
-            id(perform_lichess_api_call).execute("api_call", id(lichess_tournament_json));           
+            id(perform_lichess_api_call).execute("api_call", id(lichess_tournament_json), "");
           }
 
+  # Script: lichess_tournament_json_update — helper routine used by the main state machine / UI
   - id: lichess_tournament_json_update
     parameters:
       freq: string
@@ -4029,7 +4194,7 @@ script:
     then:
       - lambda: |-
           std::string tournament_json = "";
-          std::string tournament_name = "";          
+          std::string tournament_name = "";
           std::string tournament_start = "";
 
           int limit = 0;
@@ -4065,12 +4230,12 @@ script:
           }
 
           // Create JSON object
-          JsonDocument root;  
-          root["type"] = "joinTournamentByName";   
-          root["tournamentName"] = tournament_name;     
+          JsonDocument root;
+          root["type"] = "joinTournamentByName";
+          root["tournamentName"] = tournament_name;
           root["tournamentStatus"] = tournament_start;
           root["limit"] = limit;
-          root["increment"] = increment;            
+          root["increment"] = increment;
 
           // Convert JSON to string
           serializeJson(root, tournament_json);
@@ -4078,26 +4243,28 @@ script:
           // overwrite current tournament json
           id(lichess_tournament_json) = tournament_json;
 
+  # Script: lichess_make_move — helper routine used by the main state machine / UI
   - id: lichess_make_move
     then:
-      - lambda: |- 
-          if (id(current_move_uci) != "") {                                 
-            // do lichess calls and updates 
+      - lambda: |-
+          if (id(current_move_uci) != "") {
+            // do lichess calls and updates
             if (id(lichess_game_running) ) {
-              // let lichess know about my move              
-              if( (id(white_to_move) && id(lichess_is_my_color_white)) || (!id(white_to_move) && !id(lichess_is_my_color_white))) {  
-                std::string move_body = "{\"type\": \"makeMove\", \"move\": \"" + id(current_move_uci) + "\"}"; 
-                // send the move to lichess           
-                id(perform_lichess_api_call).execute("api_call", move_body);              
+              // let lichess know about my move
+              if( (id(white_to_move) && id(lichess_is_my_color_white)) || (!id(white_to_move) && !id(lichess_is_my_color_white))) {
+                std::string move_body = "{\"type\": \"makeMove\", \"move\": \"" + id(current_move_uci) + "\"}";
+                // send the move to lichess
+                id(perform_lichess_api_call).execute("api_call", move_body, "");
               } else if( id(lichess_opponent_at_board)) {
                 // switch to oppoents token
                 std::string move_body_opponent = "{\"type\": \"makeMoveOpponent\", \"move\": \"" + id(current_move_uci) + "\"}";
                 // make a move for the opponent
-                id(perform_lichess_api_call).execute("api_call", move_body_opponent); 
-              }                
+                id(perform_lichess_api_call).execute("api_call", move_body_opponent, "");
+              }
             }
-          }  
+          }
 
+  # Script: update_lichess_token — helper routine used by the main state machine / UI
   - id: update_lichess_token
     parameters:
       enforce_update: bool
@@ -4150,18 +4317,20 @@ script:
           if (id(mqtt_client)->is_connected()) {
             // update main token if changed
             if (previous_token_main != id(chessboard_token_current) or enforce_update == true) {
-              id(perform_lichess_api_call).execute("token_main", id(chessboard_token_current));              
+              id(perform_lichess_api_call).execute("token_main", "{\"token\": \"" + id(chessboard_token_current) + "\"}", "");
+              
             }
             // update opponents token if changed
             if (previous_token_opponent != id(chessboard_token_opponent) or enforce_update == true) {
-              id(perform_lichess_api_call).execute("token_opponent", id(chessboard_token_opponent));
-            }            
+              id(perform_lichess_api_call).execute("token_opponent", "{\"token\": \"" + id(chessboard_token_opponent) + "\"}", "");
+            }
             // get user information
             if (enforce_update == true) {
-              id(perform_lichess_api_call).execute("api_call", "{\"type\": \"getAccountInfoMain\"}");
+              id(perform_lichess_api_call).execute("api_call", "{\"type\": \"getAccountInfoMain\"}", "");
             }
-          } 
+          }
 
+  # Script: lichess_create_new_game — helper routine used by the main state machine / UI
   - id: lichess_create_new_game
     mode: single
     then:
@@ -4175,14 +4344,14 @@ script:
             id(game_running) = false;
             // we try to close board stream events, if running
             id(lichess_game_id).publish_state("idle");
-             
+
             // Create JSON object
-            JsonDocument root;  
-            root["type"] = "createGame";   
-            root["color"] = id(lichess_seek_color).current_option();     
+            JsonDocument root;
+            root["type"] = "createGame";
+            root["color"] = id(lichess_seek_color).current_option();
             root["time_m"] = float(float(id(time_control_duration)) / 60.);
             root["time_s"] = int(round(float(id(time_control_duration)) / 15.)*15) ; // closes value to a multiple of 15
-            root["increment"] = int(id(time_control_increment));            
+            root["increment"] = int(id(time_control_increment));
             if (id(lichess_seek_rated).current_option() == "rated") {
               root["rated"] = true;
             } else {
@@ -4192,11 +4361,11 @@ script:
             root["otb"] = id(lichess_opponent_at_board_select).current_option();
 
             // the shortest seek posible is 10+0, so we set this time, if shorter time - control is choosen
-            if (id(lichess_opponent).current_option() == "random" && id(time_control_duration) < 600 ){              
-              id(oled_show_page_temporary_message).execute("{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"Invalid time control. Set the clock to 10+0.\"}", "both", 2000); 
+            if (id(lichess_opponent).current_option() == "random" && id(time_control_duration) < 600 ){
+              id(oled_show_page_temporary_message).execute("{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"Invalid time control. Set the clock to 10+0.\"}", "both", 2000);
               auto call = id(chess_time_control).make_call();
               call.set_option("Rapid (10+0)");
-              call.perform();              
+              call.perform();
               root["time_m"] = 10;
               root["time_s"] = 600;
               root["increment"] = 0;
@@ -4208,29 +4377,33 @@ script:
 
             // just for better representation in web-server
             std::string search = ",";
-            std::string replace = ", ";            
+            std::string replace = ", ";
             size_t pos = 0;
             while ((pos = json_string.find(search, pos)) != std::string::npos) {
                 json_string.replace(pos, search.length(), replace);
-                pos += replace.length(); 
+                pos += replace.length();
             }
 
             id(display_message_black) = std::string("{\"n_lines\": 2, \"line_0\": \"Waiting for lichess response\", \"line_1\": \"") + id(chess_time_control).current_option() + std::string("\"}");
-            id(display_message_white) = std::string("{\"n_lines\": 2, \"line_0\": \"Waiting for lichess response\", \"line_1\": \"") + id(chess_time_control).current_option() + std::string("\"}"); 
+            id(display_message_white) = std::string("{\"n_lines\": 2, \"line_0\": \"Waiting for lichess response\", \"line_1\": \"") + id(chess_time_control).current_option() + std::string("\"}");
             id(oled_show_page_message).execute();
 
-            // force changed state, to be able to call the same request 
-            id(perform_lichess_api_call).execute("api_call", json_string);
+            // we want to have a track of the request-id of the game to be created
+            id(create_request_id).execute(true);
+
+            // force changed state, to be able to call the same request
+            id(perform_lichess_api_call).execute("api_call", json_string, id(userdefined_request_id));
 
           } else {
               id(beep_long).execute();
               if (id(mqtt_client)->is_connected()) {
-                id(oled_show_page_temporary_message).execute("{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"Set initial position\"}", "both", 2000);   
+                id(oled_show_page_temporary_message).execute("{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"Set initial position\"}", "both", 2000);
               } else {
-                id(oled_show_page_temporary_message).execute("{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"No lichess-api connection\"}", "both", 2000); 
-              }                  
+                id(oled_show_page_temporary_message).execute("{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"No lichess-api connection\"}", "both", 2000);
+              }
           }
 
+  # Script: lichess_drain_queue — helper routine used by the main state machine / UI
   - id: lichess_drain_queue
     mode: restart   # only one drain loop; restart just ensures it runs
     then:
@@ -4250,8 +4423,9 @@ script:
             - delay: 1ms
 
       - lambda: |-
-          id(lichess_draining) = false;  
-  
+          id(lichess_draining) = false;
+
+  # Script: lichess_handle_response — helper routine used by the main state machine / UI
   - id: lichess_handle_response
     parameters:
       json_str: string
@@ -4262,7 +4436,7 @@ script:
           // std::string json_str = id(lichess_response).state;
 
           if (id(debug_mode)) {
-              id(perform_lichess_api_call).execute("debug", std::string("Handling response"));
+              id(perform_lichess_api_call).execute("debug", std::string("Handling response"), "");
           }
 
           JsonDocument root;
@@ -4271,7 +4445,7 @@ script:
           if (root["type"].is<std::string>() && root["type"].as<std::string>().length() > 0) {
 
             if (id(debug_mode)) {
-                id(perform_lichess_api_call).execute("debug", std::string("JSON to handle: " + json_str).c_str());
+                id(perform_lichess_api_call).execute("debug", std::string("JSON to handle: " + json_str).c_str(), "");
             }
 
             // #######################################
@@ -4281,12 +4455,25 @@ script:
             // ############# game id info ########
             // #######################################
             if ((root["type"].as<std::string>() == "createdGameId")){
-              if (root["status"].as<std::string>() == "seek") {
+              std::string request_id = root["request_id"].as<std::string>();
+              if (id(userdefined_request_id) == request_id) {
+                // we recevied in some cases (challenge) the game id
+                id(userdefined_request_id) =  "";
+              }
+
+              if (root["id"].as<std::string>() == "seek") {
+                // seek doesn't have a game_id
                 id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"Created game: " + root["id"].as<std::string>() + "\", \"line_1\": \"Waiting to be accepted ...\"}";
                 id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"Created game: " + root["id"].as<std::string>() + "\", \"line_1\": \"Waiting to be accepted ...\"}";
-              } else if (root["status"].as<std::string>() != "success") {
-                id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"" + root["error"].as<std::string>() + "\"}";
-                id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"" + root["error"].as<std::string>() + "\"}";
+              } else {
+                std::string game_id = root["id"].as<std::string>();                
+                if (root["status"].as<std::string>() == "success" && game_id != "idle" && game_id.length() == 8) {
+                  // we start board stream (we get game_id for challanges created only)
+                  id(lichess_game_id).publish_state(game_id);
+                } else if (root["status"].as<std::string>() != "success") {                  
+                  id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"" + root["error"].as<std::string>() + "\"}";
+                  id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"" + root["error"].as<std::string>() + "\"}";          
+                }
               }
               id(oled_show_page_message).execute();
             }
@@ -4297,7 +4484,7 @@ script:
               // we skip all the correspondence games, since the event is sent in that case
 
               if (id(debug_mode)) {
-                  id(perform_lichess_api_call).execute("debug", "Triggered by gameStart the gameId is " + root["gameId"].as<std::string>());
+                  id(perform_lichess_api_call).execute("debug", "Triggered by gameStart the gameId is " + root["gameId"].as<std::string>(), "");
               }
 
               if (id(lichess_tournament_id).state.length() == 8) {
@@ -4309,7 +4496,7 @@ script:
               id(game_running) = true;
               id(white_to_move) = true;
               // we could have some pgn_additionals from last game
-              id(pgn_history) = ""; 
+              id(pgn_history) = "";
               id(last_move_pgn_additional) = "";
 
               // extract opponents name to be shown on display
@@ -4330,11 +4517,11 @@ script:
                   me += ": " + std::to_string(root_me["classical"].as<int>());
                 } else {
                   me += ": " + std::to_string(root_me["rapid"].as<int>());
-                }              
+                }
               }
 
               // we check the white color
-              if ( root["color"].as<std::string>() == "white"){ 
+              if ( root["color"].as<std::string>() == "white"){
                 id(lichess_is_my_color_white) = true;
                 id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"" + me + "\", \"line_1\": \"" + id(chess_time_control).current_option() + "\"}";
                 id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"" + opponent + "\", \"line_1\": \"" + id(chess_time_control).current_option() + "\"}";
@@ -4346,7 +4533,7 @@ script:
                 id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"" + me + "\", \"line_1\": \"" + id(chess_time_control).current_option() + "\"}";
               }
 
-              id(lichess_opponent_name) = opponent;     
+              id(lichess_opponent_name) = opponent;
               id(oled_show_page_message).execute();
 
               // rise flag we are in lichess game
@@ -4359,7 +4546,7 @@ script:
             if ((root["type"].as<std::string>() == "gameFinish" ) && (root["gameId"].as<std::string>() == id(lichess_game_id).state)){
 
                 if (id(debug_mode)) {
-                    id(perform_lichess_api_call).execute("debug", "Triggered by gameFinish");
+                    id(perform_lichess_api_call).execute("debug", "Triggered by gameFinish", "");
                 }
 
                 // store the win-state
@@ -4369,13 +4556,13 @@ script:
                 // draw ?
                 if (state == "stalemate" || state == "draw") {
                   curr_game_result = "1/2-1/2";
-                } 
-                
+                }
+
                 id(lichess_game_id).publish_state("idle");
                 id(inform_game_over).execute(curr_game_result);
                 id(post_game_operation).execute();
-                id(reset_current_game_values).execute(); 
-                
+                id(reset_current_game_values).execute();
+
                 // if we are in tournament, withdraw the game to set the initial position
                 id(lichess_arena_withdraw_by_id).execute();
             }
@@ -4386,14 +4573,14 @@ script:
               if (root["status"].as<std::string>() == "success") {
                 id(lichess_tournament_id).publish_state(root["id"].as<std::string>());
                 id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"Joined: " + id(lichess_tournament_id).state + "\", \"line_1\": \"Start: " + root["starts_in"].as<std::string>() + "\"}";
-                id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"Joined: " + id(lichess_tournament_id).state + "\", \"line_1\": \"Start: " + root["starts_in"].as<std::string>() + "\"}";    
-                id(oled_show_page_message).execute();          
+                id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"Joined: " + id(lichess_tournament_id).state + "\", \"line_1\": \"Start: " + root["starts_in"].as<std::string>() + "\"}";
+                id(oled_show_page_message).execute();
               } else {
                 id(beep_long).execute();
-                id(oled_show_page_temporary_message).execute("{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"Failed to join\"}", "both", 2000); 
-              }                        
+                id(oled_show_page_temporary_message).execute("{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"Failed to join\"}", "both", 2000);
+              }
             }
-            
+
             // ############# rejoined arena tournament #############
             // #######################################
             if ((root["type"].as<std::string>() == "tournamentJoinedById") && root["id"].is<std::string>() && (root["id"].as<std::string>().length() == 8)){
@@ -4417,7 +4604,7 @@ script:
             // #######################################
             if ((root["type"].as<std::string>() == "accountInfoMain")){
               std::string serialized_json_str = "";
-              serializeJson(root, serialized_json_str);  
+              serializeJson(root, serialized_json_str);
               id(lichess_main_json) = serialized_json_str;
             }
 
@@ -4426,7 +4613,7 @@ script:
             if ((root["type"].as<std::string>() == "opponentGone") && (root["gone"].as<bool>() == true ) && (root["claimWinInSeconds"].as<int>() == 0) &&  (root["id"].as<std::string>() == id(lichess_game_id).state)  ){
               delay(1000);  // Wait 1s to sync
               // claim victory
-              id(perform_lichess_api_call).execute("api_call", "{\"type\": \"claim-victory\"}");            
+              id(perform_lichess_api_call).execute("api_call", "{\"type\": \"claim-victory\"}", "");
             }
 
             // ############# chat line #############
@@ -4434,15 +4621,15 @@ script:
             if ((root["type"].as<std::string>() == "chatLine") && (root["text"].as<std::string>() != "" ) &&  (root["id"].as<std::string>() == id(lichess_game_id).state) ){
 
               int maxCharsPerLine = 32;
-              std::string part_1 = root["text"].as<std::string>();            
+              std::string part_1 = root["text"].as<std::string>();
               std::string part_2 = "";
               if (part_1.length() > maxCharsPerLine) {
                 part_2 = part_1.substr(maxCharsPerLine, maxCharsPerLine);
-                part_1 = part_1.substr(0, maxCharsPerLine);              
+                part_1 = part_1.substr(0, maxCharsPerLine);
               }
               std::string chat_message = "{\"n_lines\": 2, \"line_0\": \"" + part_1 + "\", \"line_1\": \"" + part_2 + "\"}";
-              id(oled_show_page_temporary_message).execute(chat_message, "otb", 3000);   
-              id(beep_short).execute();      
+              id(oled_show_page_temporary_message).execute(chat_message, "otb", 3000);
+              id(beep_short).execute();
             }
 
             // ############# move on board #############
@@ -4450,9 +4637,9 @@ script:
             if ((root["type"].as<std::string>() == "gameState") && root["state"].is<std::string>() && (root["state"].as<std::string>() == "started") &&  (root["id"].as<std::string>() == id(lichess_game_id).state)){
 
               if (id(debug_mode)) {
-                  id(perform_lichess_api_call).execute("debug", std::string("Triggered by gameState: " + root["last"].as<std::string>()).c_str());
+                  id(perform_lichess_api_call).execute("debug", std::string("Triggered by gameState: " + root["last"].as<std::string>()).c_str(), "");
               }
-              
+
               // let the player know about the last move of opponent
               std::string last_move = root["last"].as<std::string>();
               std::string from = last_move.substr(0, 2);
@@ -4460,7 +4647,7 @@ script:
               int idx_from = id(chess_field_indexes)[from];
 
               std::string moved_piece = "";
-              if (idx_from > -1 && idx_from < 64) {              
+              if (idx_from > -1 && idx_from < 64) {
                 char moved_piece_char = toupper(id(fen_position_previous)[idx_from]);
                 if (moved_piece_char != 'P') {
                   moved_piece += moved_piece_char;
@@ -4469,18 +4656,18 @@ script:
               }
 
               // get number of moves
-              bool is_my_turn = (bool)( (root["n"].as<int>() % 2) == int(id(lichess_is_my_color_white)));            
+              bool is_my_turn = (bool)( (root["n"].as<int>() % 2) == int(id(lichess_is_my_color_white)));
 
               if (!is_my_turn) { // we want the opponents move
                 if( !id(lichess_opponent_at_board)) {
                   // opponent is white and its turn
-                  if (!id(lichess_is_my_color_white)){ 
-                    id(display_message_black) = "{\"n_lines\": 1, \"line_0\": \"" + moved_piece +  last_move + "\"}";                
+                  if (!id(lichess_is_my_color_white)){
+                    id(display_message_black) = "{\"n_lines\": 1, \"line_0\": \"" + moved_piece +  last_move + "\"}";
                     id(oled_black_acitve_page) = 2;
-                    id(beep_short).execute();       
-                  } 
+                    id(beep_short).execute();
+                  }
                   // opponent is black and its turn
-                  if (id(lichess_is_my_color_white)){  
+                  if (id(lichess_is_my_color_white)){
                     id(display_message_white) = "{\"n_lines\": 1, \"line_0\":  \""+ moved_piece  + last_move + "\"}";
                     id(oled_white_acitve_page) = 2;
                     id(beep_short).execute();
@@ -4500,12 +4687,12 @@ script:
               // if my turn, show the clock
               if (id(white_to_move) && is_my_turn){ // I'm white and my turn
                 id(oled_white_acitve_page) = 1;
-              } 
-              
+              }
+
               if (!id(white_to_move) && is_my_turn){  // I'm black and my turn
                 id(oled_black_acitve_page) = 1;
               }
-              
+
               // update chessboard clock by values from lichess
               std::string wclk = root["wclk"].as<std::string>();
               std::string bclk = root["bclk"].as<std::string>();
@@ -4514,7 +4701,7 @@ script:
               size_t pos = wclk.find('+'); // Find the "+" character
               if (pos != std::string::npos) {
                   std::string first_part = wclk.substr(0, pos); // Extract first part
-                  id(time_control_timer_white) = std::stoi(first_part); 
+                  id(time_control_timer_white) = std::stoi(first_part);
                   id(timer_white).update();
               }
 
@@ -4524,24 +4711,25 @@ script:
                   std::string first_part = bclk.substr(0, pos); // Extract first part
                   id(time_control_timer_black) = std::stoi(first_part);
                   id(timer_black).update();
-              }   
-            
+              }
+
               // draw offer ?
               if ( ((root["wdraw"].as<int>() == 1) && !id(lichess_is_my_color_white)) || ((root["bdraw"].as<int>() == 1) && id(lichess_is_my_color_white)) ) {
-                id(beep_long).execute(); 
-                id(oled_show_page_temporary_message).execute("{\"n_lines\": 1, \"line_0\": \"DRAW?\"}", "otb", 2000);                          
+                id(beep_long).execute();
+                id(oled_show_page_temporary_message).execute("{\"n_lines\": 1, \"line_0\": \"DRAW?\"}", "otb", 2000);
               }
 
               // take back offer ?
               if ( ((root["wback"].as<int>() == 1) && !id(lichess_is_my_color_white)) || ((root["bback"].as<int>() == 1) && id(lichess_is_my_color_white)) ) {
                 id(beep_long).execute();
-                id(oled_show_page_temporary_message).execute("{\"n_lines\": 1, \"line_0\": \"Takeback?\"}", "otb", 2000);                 
-              }                        
+                id(oled_show_page_temporary_message).execute("{\"n_lines\": 1, \"line_0\": \"Takeback?\"}", "otb", 2000);
+              }
             }
           }
 
           id(redraw_displays).execute();
 
+  # Script: oled_show_page_clock — helper routine used by the main state machine / UI
   - id: oled_show_page_clock
     then:
       - if:
@@ -4568,10 +4756,11 @@ script:
                   id(oled_white_acitve_page) = 2;
                 }
               }
-            }            
+            }
       - component.update: oled_white
       - component.update: oled_black
 
+  # Script: oled_show_page_menu — helper routine used by the main state machine / UI
   - id: oled_show_page_menu
     then:
       - if:
@@ -4579,13 +4768,14 @@ script:
             not:
               display_menu.is_active: my_menu
           then:
-            - display_menu.show:  my_menu    
+            - display_menu.show:  my_menu
       - lambda: |-
             id(oled_white_acitve_page) = 0;
             id(oled_black_acitve_page) = 0;
       - component.update: oled_white
       - component.update: oled_black
 
+  # Script: oled_show_page_message — helper routine used by the main state machine / UI
   - id: oled_show_page_message
     then:
       - if:
@@ -4602,10 +4792,10 @@ script:
 
     # color: "white", "black", "both", "otb" (player otb is selected, lichess games only)
   - id: oled_show_page_temporary_message
-    parameters:      
+    parameters:
       message: string
       color: string
-      duration_ms: int 
+      duration_ms: int
     then:
       - lambda: |-
             if (color == "otb") {
@@ -4628,11 +4818,11 @@ script:
             int page_b = id(oled_black_acitve_page);
 
             if (color == "white" || color == "both") {
-              id(display_message_white) = message; 
+              id(display_message_white) = message;
               id(oled_white_acitve_page) = 2;
             }
             if (color == "black" || color == "both") {
-              id(display_message_black) = message; 
+              id(display_message_black) = message;
               id(oled_black_acitve_page) = 2;
             }
             // show temporary message
@@ -4641,16 +4831,17 @@ script:
             delay(duration_ms);
             // restore previous message
             if (color == "white" || color == "both") {
-              id(display_message_white) = message_w; 
+              id(display_message_white) = message_w;
               id(oled_white_acitve_page) = page_w;
             }
             if (color == "black" || color == "both") {
-              id(display_message_black) = message_b; 
+              id(display_message_black) = message_b;
               id(oled_black_acitve_page) = page_b;
             }
             // show previous message
             id(redraw_displays).execute();
-  
+
+  # Script: led_update_initial_position_state — helper routine used by the main state machine / UI
   - id: led_update_initial_position_state
     then:
       - lambda: |-
@@ -4663,7 +4854,7 @@ script:
             int value = id(initial_position_state);
             // black -> red if not set
             if (value & 0b01) {
-              id(led_black_blue).execute(); 
+              id(led_black_blue).execute();
             } else {
               id(led_black_red).execute();
             }
@@ -4675,21 +4866,23 @@ script:
             }
           }
 
+  # Script: led_update_color_to_move — helper routine used by the main state machine / UI
   - id: led_update_color_to_move
     then:
       - lambda: |-
           // update only if game is running
           if (id(game_running)) {
             // white to move
-            if (id(white_to_move)) { 
-              id(led_black_turn_off).execute();           
-              id(led_white_blue).execute();              
+            if (id(white_to_move)) {
+              id(led_black_turn_off).execute();
+              id(led_white_blue).execute();
             } else { // black to move
               id(led_white_turn_off).execute();
               id(led_black_blue).execute();
             }
           }
-          
+
+  # Script: led_update_valid_move — helper routine used by the main state machine / UI
   - id: led_update_valid_move
     then:
       - lambda: |-
@@ -4701,22 +4894,23 @@ script:
               id(led_black_turn_off).execute();
               id(led_white_green).execute();
             } else {
-              id(led_black_green).execute(); 
-              id(led_white_turn_off).execute();          
+              id(led_black_green).execute();
+              id(led_white_turn_off).execute();
             }
           } else {
             if (id(white_to_move)) {
               id(led_white_red).execute();
               id(led_black_turn_off).execute();
             } else {
-              id(led_black_red).execute();  
-              id(led_white_turn_off).execute();             
+              id(led_black_red).execute();
+              id(led_white_turn_off).execute();
             }
           }
 
 
+  # Script: led_white_red — helper routine used by the main state machine / UI
   - id: led_white_red
-    then: 
+    then:
       - lambda: |-
           // r
           if (!id(led_white_nonvalid_move).state) {
@@ -4725,14 +4919,15 @@ script:
           // g
           if (id(led_white_valid_move).state) {
             id(led_white_valid_move).turn_off();
-          } 
+          }
           // b
           if (id(led_white_to_move).state) {
             id(led_white_to_move).turn_off();
           }
- 
+
+  # Script: led_white_green — helper routine used by the main state machine / UI
   - id: led_white_green
-    then: 
+    then:
       - lambda: |-
           // r
           if (id(led_white_nonvalid_move).state) {
@@ -4741,14 +4936,15 @@ script:
           // g
           if (!id(led_white_valid_move).state) {
             id(led_white_valid_move).turn_on();
-          } 
+          }
           // b
           if (id(led_white_to_move).state) {
             id(led_white_to_move).turn_off();
           }
 
+  # Script: led_white_blue — helper routine used by the main state machine / UI
   - id: led_white_blue
-    then: 
+    then:
       - lambda: |-
           // r
           if (id(led_white_nonvalid_move).state) {
@@ -4757,14 +4953,15 @@ script:
           // g
           if (id(led_white_valid_move).state) {
             id(led_white_valid_move).turn_off();
-          } 
+          }
           // b
           if (!id(led_white_to_move).state) {
             id(led_white_to_move).turn_on();
           }
 
+  # Script: led_black_red — helper routine used by the main state machine / UI
   - id: led_black_red
-    then: 
+    then:
       - lambda: |-
           // r
           if (!id(led_black_nonvalid_move).state) {
@@ -4773,14 +4970,15 @@ script:
           // g
           if (id(led_black_valid_move).state) {
             id(led_black_valid_move).turn_off();
-          } 
+          }
           // b
           if (id(led_black_to_move).state) {
             id(led_black_to_move).turn_off();
           }
- 
+
+  # Script: led_black_green — helper routine used by the main state machine / UI
   - id: led_black_green
-    then: 
+    then:
       - lambda: |-
           // r
           if (id(led_black_nonvalid_move).state) {
@@ -4789,14 +4987,15 @@ script:
           // g
           if (!id(led_black_valid_move).state) {
             id(led_black_valid_move).turn_on();
-          } 
+          }
           // b
           if (id(led_black_to_move).state) {
             id(led_black_to_move).turn_off();
           }
 
+  # Script: led_black_blue — helper routine used by the main state machine / UI
   - id: led_black_blue
-    then: 
+    then:
       - lambda: |-
           // r
           if (id(led_black_nonvalid_move).state) {
@@ -4805,18 +5004,20 @@ script:
           // g
           if (id(led_black_valid_move).state) {
             id(led_black_valid_move).turn_off();
-          } 
+          }
           // b
           if (!id(led_black_to_move).state) {
             id(led_black_to_move).turn_on();
           }
 
+  # Script: led_all_turn_off — helper routine used by the main state machine / UI
   - id: led_all_turn_off
     then:
       - lambda: |-
           id(led_white_turn_off).execute();
-          id(led_black_turn_off).execute(); 
+          id(led_black_turn_off).execute();
 
+  # Script: led_white_turn_off — helper routine used by the main state machine / UI
   - id: led_white_turn_off
     then:
       - lambda: |-
@@ -4828,8 +5029,9 @@ script:
           }
           if (id(led_white_valid_move).state) {
             id(led_white_valid_move).turn_off();
-          } 
-          
+          }
+
+  # Script: led_black_turn_off — helper routine used by the main state machine / UI
   - id: led_black_turn_off
     then:
       - lambda: |-
@@ -4842,3 +5044,17 @@ script:
           if (id(led_black_valid_move).state) {
             id(led_black_valid_move).turn_off();
           }
+
+  - id: create_request_id
+    parameters:
+      userdefinded: bool
+    then:
+      lambda: |-
+        uint32_t id_val = millis();
+        char buf[16];
+        snprintf(buf, sizeof(buf), "%010u", (unsigned int) id_val);
+        if (!userdefinded) {
+            id(current_request_id) = std::string(buf);
+        } else {
+            id(userdefined_request_id) = std::string(buf);
+        }
