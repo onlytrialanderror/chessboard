@@ -16,11 +16,6 @@ esphome:
         - lambda: |-
             id(reset_display_message).execute();
             id(lichess_tournament_id).publish_state("idle");
-    - priority: 900
-      then:
-        - lambda: |-
-            id(perform_lichess_api_call).execute("debug", "Chessboard started");
-
 esp32:
   board: esp32dev
   framework:
@@ -60,16 +55,15 @@ mqtt:
   on_connect:
     then:
       - lambda: |-
-          id(update_lichess_token).execute();
-          // this calls can be skipped by update_lichess_token script
-          id(perform_lichess_api_call).execute("token_opponent", id(chessboard_token_opponent));
-          id(perform_lichess_api_call).execute("token_main", id(chessboard_token_current));
+          id(update_lichess_token).execute(true);
+          id(perform_lichess_api_call).execute("debug", std::string("Board connected"));
   on_disconnect:
     then:
       - lambda: |-
           id(perform_lichess_api_call).execute("token_opponent", "idle");
           id(perform_lichess_api_call).execute("token_main", "idle");
           id(perform_lichess_api_call).execute("game_id", "idle");
+          id(perform_lichess_api_call).execute("debug", std::string("Board disconnected"));
 
 captive_portal:
 
@@ -551,6 +545,9 @@ globals:
   - id: chessboard_token_c
     type: std::string
     initial_value: !secret chessboard_token_c
+  - id: chessboard_token_d
+    type: std::string
+    initial_value: !secret chessboard_token_d
 
   # Currently active Lichess token (encrypted)
   - id: chessboard_token_current
@@ -824,7 +821,7 @@ graphical_display_menu:
               - lambda: |-
                   id(lichess_create_new_game).execute();
         - type: command
-          text: 'Preset: Lichess OTB'
+          text: 'Preset A: Lichess OTB'
           on_value:
             then:
               - lambda: |-
@@ -844,6 +841,60 @@ graphical_display_menu:
                   auto call_4 = id(lichess_seek_rated).make_call();
                   call_4.set_option("not rated");
                   call_4.perform();
+                  // delay
+                  delay(1000)
+                  // start lichess game
+                  id(lichess_create_new_game).execute();
+
+        - type: command
+          text: 'Preset B: Lichess OTB'
+          on_value:
+            then:
+              - lambda: |-
+                  // set main player
+                  auto call_1 = id(lichess_account).make_call();
+                  call_1.set_option(id(lichess_account).at(0).value());
+                  call_1.perform();
+                  // set opponent
+                  auto call_2 = id(lichess_opponent).make_call();
+                  call_2.set_option(id(lichess_opponent).at(2).value());
+                  call_2.perform();
+                  // set otb
+                  auto call_3 = id(lichess_opponent_at_board_select).make_call();
+                  call_3.set_option("yes");
+                  call_3.perform();            
+                  // set if rated
+                  auto call_4 = id(lichess_seek_rated).make_call();
+                  call_4.set_option("not rated");
+                  call_4.perform();
+                  // delay
+                  delay(1000)
+                  // start lichess game
+                  id(lichess_create_new_game).execute();
+
+        - type: command
+          text: 'Preset C: Lichess OTB'
+          on_value:
+            then:
+              - lambda: |-
+                  // set main player
+                  auto call_1 = id(lichess_account).make_call();
+                  call_1.set_option(id(lichess_account).at(1).value());
+                  call_1.perform();
+                  // set opponent
+                  auto call_2 = id(lichess_opponent).make_call();
+                  call_2.set_option(id(lichess_opponent).at(2).value());
+                  call_2.perform();
+                  // set otb
+                  auto call_3 = id(lichess_opponent_at_board_select).make_call();
+                  call_3.set_option("yes");
+                  call_3.perform();            
+                  // set if rated
+                  auto call_4 = id(lichess_seek_rated).make_call();
+                  call_4.set_option("not rated");
+                  call_4.perform();
+                  // delay
+                  delay(1000)
                   // start lichess game
                   id(lichess_create_new_game).execute();
 
@@ -876,6 +927,8 @@ graphical_display_menu:
                   auto call_6 = id(lichess_tournament_start).make_call();
                   call_6.set_option("Wait for next");
                   call_6.perform();
+                  // delay
+                  delay(1000)
                   // start lichess game
                   id(lichess_arena_join_new_tournament).execute();
 
@@ -908,6 +961,8 @@ graphical_display_menu:
                   auto call_6 = id(lichess_tournament_start).make_call();
                   call_6.set_option("Join now");
                   call_6.perform();
+                  // delay
+                  delay(1000)
                   // start lichess game
                   id(lichess_arena_join_new_tournament).execute();
 
@@ -1441,11 +1496,12 @@ select:
       - !secret chessboard_player_a
       - !secret chessboard_player_b
       - !secret chessboard_player_c
+      - !secret chessboard_player_d
     initial_option: !secret chessboard_player_b
     on_value: 
       then:
         lambda: |-
-          id(update_lichess_token).execute();
+          id(update_lichess_token).execute(false);
     web_server:
       sorting_group_id: sorting_group_lichess
       sorting_weight: 1
@@ -1457,6 +1513,7 @@ select:
     options:
       - !secret chessboard_opponent_a
       - !secret chessboard_opponent_b
+      - !secret chessboard_opponent_c
       - "random"
       - "AI_1"
       - "AI_2"
@@ -1466,15 +1523,14 @@ select:
       - "AI_6"
       - "AI_7"
       - "AI_8"
-      - !secret chessboard_opponent_c
-      - !secret chessboard_opponent_d
+      - !secret chessboard_opponent_d      
       - !secret chessboard_opponent_e
       - !secret chessboard_opponent_f
     initial_option: random
     on_value: 
       then:
         lambda: |-
-          id(update_lichess_token).execute();
+          id(update_lichess_token).execute(false);
     web_server:
       sorting_group_id: sorting_group_lichess
       sorting_weight: 3
@@ -2507,7 +2563,7 @@ script:
           id(n_queens_white) = 1;
           id(n_queens_black) = 1;   
           id(invalid_move_counter) = -1;   
-          id(update_lichess_token).execute();    
+          id(update_lichess_token).execute(true);    
           id(lichess_game_id).publish_state(std::string("idle"));
           id(current_move_uci_lichess) = "-";          
 
@@ -3893,13 +3949,19 @@ script:
 
           if (id(mqtt_client)->is_connected()) {
             id(mqtt_client).publish(topic, json_input);
+          } else {
+            ESP_LOGE("MQTT", "Publish of the MQTT-Message on %s failed: %s", api_endpoint.c_str(), json_input.c_str() );
           }
 
   - id: check_opponent_otb_select
     then:
       - lambda: |- 
-          bool otb_player = (id(lichess_opponent).current_option() == id(lichess_opponent).at(0) || id(lichess_opponent).current_option() == id(lichess_opponent).at(1) || id(lichess_opponent).current_option() == id(lichess_opponent).at(11));
-          if ( id(lichess_opponent_at_board) && !otb_player ) {
+          bool otb_player = (
+            id(lichess_opponent).current_option() == id(lichess_opponent).at(0) ||
+            id(lichess_opponent).current_option() == id(lichess_opponent).at(1) ||
+            id(lichess_opponent).current_option() == id(lichess_opponent).at(2) ||
+            id(lichess_opponent).current_option() == id(lichess_opponent).at(12));
+          if ( id(lichess_opponent_at_board) == true && otb_player == false ) {
             // not possible to play "on board"
             auto call = id(lichess_opponent_at_board_select).make_call();
             call.set_option("no");
@@ -4037,6 +4099,8 @@ script:
           }  
 
   - id: update_lichess_token
+    parameters:
+      enforce_update: bool
     then:
       - lambda: |-
           // update own token
@@ -4050,8 +4114,10 @@ script:
             id(chessboard_token_current) = id(chessboard_token_b);
           } else if (index.value() == 2) {
             id(chessboard_token_current) = id(chessboard_token_c);
+          } else if (index.value() == 3) {
+            id(chessboard_token_current) = id(chessboard_token_d);
           } else {
-            id(chessboard_token_current) = id(chessboard_token_c);
+            id(chessboard_token_current) = id(chessboard_token_d);
           }
 
           // encrypt token
@@ -4064,8 +4130,10 @@ script:
             id(chessboard_token_opponent) = id(chessboard_token_a);
           } else if (index.value() == 1) {
             id(chessboard_token_opponent) = id(chessboard_token_b);
-          } else if (index.value() == 11) {
+          } else if (index.value() == 2) {
             id(chessboard_token_opponent) = id(chessboard_token_c);
+          } else if (index.value() == 12) {
+            id(chessboard_token_opponent) = id(chessboard_token_d);
           } else {
             id(chessboard_token_opponent) = "idle";
           }
@@ -4080,13 +4148,17 @@ script:
           id(chessboard_token_opponent) = id(encrypted_message);
 
           if (id(mqtt_client)->is_connected()) {
-            // update opponents token if changed
-            if (previous_token_opponent != id(chessboard_token_opponent)) {
-              id(perform_lichess_api_call).execute("token_opponent", id(chessboard_token_opponent));
-            }
             // update main token if changed
-            if (previous_token_main != id(chessboard_token_current)) {
+            if (previous_token_main != id(chessboard_token_current) or enforce_update == true) {
               id(perform_lichess_api_call).execute("token_main", id(chessboard_token_current));              
+            }
+            // update opponents token if changed
+            if (previous_token_opponent != id(chessboard_token_opponent) or enforce_update == true) {
+              id(perform_lichess_api_call).execute("token_opponent", id(chessboard_token_opponent));
+            }            
+            // get user information
+            if (enforce_update == true) {
+              id(perform_lichess_api_call).execute("api_call", "{\"type\": \"getAccountInfoMain\"}");
             }
           } 
 
@@ -4099,17 +4171,11 @@ script:
           id(initial_position_state_update).execute();
           // not during the gave
           if (id(initial_position_state) == 3 && id(mqtt_client)->is_connected()) {
-            // update lichess token
-            id(update_lichess_token).execute();
-            // get account info
-            id(perform_lichess_api_call).execute("api_call", "{\"type\": \"getAccountInfoMain\"}");
             // stop timer, if running
             id(game_running) = false;
             // we try to close board stream events, if running
             id(lichess_game_id).publish_state("idle");
-            // if we have a game running, try to abort all pengling games
-            id(perform_lichess_api_call).execute("api_call", "{\"type\": \"abortRunningGames\"}");
- 
+             
             // Create JSON object
             JsonDocument root;  
             root["type"] = "createGame";   
@@ -4149,8 +4215,8 @@ script:
                 pos += replace.length(); 
             }
 
-            id(display_message_black) = std::string("{\"n_lines\": 2, \"line_0\": \"Waiting for new game ...\", \"line_1\": \"") + id(chess_time_control).current_option() + std::string("\"}");
-            id(display_message_white) = std::string("{\"n_lines\": 2, \"line_0\": \"Waiting for new game ...\", \"line_1\": \"") + id(chess_time_control).current_option() + std::string("\"}"); 
+            id(display_message_black) = std::string("{\"n_lines\": 2, \"line_0\": \"Waiting for lichess response\", \"line_1\": \"") + id(chess_time_control).current_option() + std::string("\"}");
+            id(display_message_white) = std::string("{\"n_lines\": 2, \"line_0\": \"Waiting for lichess response\", \"line_1\": \"") + id(chess_time_control).current_option() + std::string("\"}"); 
             id(oled_show_page_message).execute();
 
             // force changed state, to be able to call the same request 
@@ -4228,6 +4294,7 @@ script:
             // ############# new game started #############
             // #######################################
             if (root["type"].as<std::string>() == "gameStart"){
+              // we skip all the correspondence games, since the event is sent in that case
 
               if (id(debug_mode)) {
                   id(perform_lichess_api_call).execute("debug", "Triggered by gameStart the gameId is " + root["gameId"].as<std::string>());

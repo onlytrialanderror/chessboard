@@ -366,7 +366,7 @@ class LichessWorkerBoard:
             if self._board_worker and self._board_worker.is_alive():
                 self._log(f"Stopping board worker ({self.worker_type}) failed")
                 # we call dummy function (here abort) to provoke an event in the stream to call the loop-abort checks
-                lh.write_into_chat(self._client_lichess, self._current_game_id, {"text": f"Event on {self.worker_type} board-stream: {self._current_game_id}"})
+                lh.write_into_chat({"text": f"Event on {self.worker_type} board-stream: {self._current_game_id}"}, self._client_lichess, self._current_game_id)
             else:
                 self._log(f"Board worker ({self.worker_type}) stopped")
 
@@ -557,10 +557,14 @@ class LichessWorkerEvent:
         # open the stream for whole chess game
         for event in self._client_lichess.board.stream_incoming_events():
             if event:
-                reduced_data = json.dumps(lh.reduce_response_event(event))
-                self._log(f"Event: {reduced_data}")
-                if self._mqtt_publish_function is not None:
-                    self._mqtt_publish_function(reduced_data)
+                reduced_data = lh.reduce_response_event(event)
+                if reduced_data is not None:
+                    reduced_data_json = json.dumps(reduced_data)
+                    self._log(f"Event: {reduced_data_json}")
+                    if self._mqtt_publish_function is not None:
+                        self._mqtt_publish_function(reduced_data_json)
+                else:
+                    self._log(f"Event: manually skipped event {event}")
             if self._stop_event_stream.is_set():
                 self._log(f"Stream stop event set, terminating the stream (event): {self._lichess_stream_event_init_value}")
                 break
@@ -806,7 +810,7 @@ class LichessWorkerApi:
                 valid_token = self._current_token_main != self._idle_token and self._client_lichess_main is not None
                 valid_token_opponent = (self._current_token_opponent == self._idle_token and self._client_lichess_opponent is None) or (self._current_token_opponent != self._idle_token and self._client_lichess_opponent is not None)
                 valid_game_id = self._current_game_id != self._idle_game_id
-
+                
                 if valid_token == True:
 
                     if call_type == "getAccountInfoMain":
@@ -835,7 +839,7 @@ class LichessWorkerApi:
                 if valid_token == True and valid_token_opponent == True:
 
                     if call_type == "createGame" :
-                        json_response = lh.createGame(json_data, self._client_lichess_main, self._current_token_opponent, self_log=self._log)
+                        json_response = lh.createGame(json_data, self._client_lichess_main, self._client_lichess_opponent, self_log=self._log)
                         self._mqtt_publish_function(json_response)
                         return
 
@@ -872,15 +876,15 @@ class LichessWorkerApi:
                 if valid_token_opponent == True and valid_game_id == True:
 
                     if call_type == "makeMoveOpponent":
-                        lh.makeMoveOpponent(json_data, self._current_token_opponent, self._current_game_id, self_log=self._log)
+                        lh.makeMoveOpponent(json_data, self._client_lichess_opponent, self._current_game_id, self_log=self._log)
                         return
 
                     if call_type == "resignOpponent":
-                        lh.resignOpponent(json_data, self._current_token_opponent, self._current_game_id, self_log=self._log)
+                        lh.resignOpponent(json_data, self._client_lichess_opponent, self._current_game_id, self_log=self._log)
                         return
 
                     if call_type == "drawOpponent":
-                        lh.drawOpponent(json_data, self._current_token_opponent, self._current_game_id, self_log=self._log)
+                        lh.drawOpponent(json_data, self._client_lichess_opponent, self._current_game_id, self_log=self._log)
                         return
 
                 # we should return till that point

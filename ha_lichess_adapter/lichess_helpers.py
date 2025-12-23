@@ -236,20 +236,22 @@ def reduce_response_event(dat):
     reduced_data = dat
 
     if dat.get("type") == "gameStart":
-        reduced_data = {
-            "type": dat.get("type", ""),
-            "gameId": dat.get("game", {}).get("gameId", ""),
-            "color": dat.get("game", {}).get("color", ""),
-            "isMyTurn": dat.get("game", {}).get("isMyTurn", False),
-            "lastMove": dat.get("game", {}).get("lastMove", ""),
-            "opponent": "{}: {}".format(
-                dat.get("game", {}).get("opponent", {}).get("username", "player"),
-                dat.get("game", {}).get("opponent", {}).get("rating", 0),
-            ),
-            "rated": dat.get("game", {}).get("rated", False),
-            "speed": dat.get("game", {}).get("speed", ""),
-            "secondsLeft": dat.get("game", {}).get("secondsLeft", 0),
-        }
+        reduced_data = None # we want to skip correspondence events
+        if dat.get("game", {}).get("speed", "") != "correspondence":
+            reduced_data = {
+                "type": dat.get("type", ""),
+                "gameId": dat.get("game", {}).get("gameId", ""),
+                "color": dat.get("game", {}).get("color", ""),
+                "isMyTurn": dat.get("game", {}).get("isMyTurn", False),
+                "lastMove": dat.get("game", {}).get("lastMove", ""),
+                "opponent": "{}: {}".format(
+                    dat.get("game", {}).get("opponent", {}).get("username", "player"),
+                    dat.get("game", {}).get("opponent", {}).get("rating", 0),
+                ),
+                "rated": dat.get("game", {}).get("rated", False),
+                "speed": dat.get("game", {}).get("speed", ""),
+                "secondsLeft": dat.get("game", {}).get("secondsLeft", 0),
+            }
     else:
         if dat.get("type") == "gameFinish":
             reduced_data = {
