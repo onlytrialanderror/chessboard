@@ -236,8 +236,8 @@ def reduce_response_event(dat):
     reduced_data = dat
 
     if dat.get("type") == "gameStart":
-        reduced_data = None # we want to skip correspondence events
-        if dat.get("game", {}).get("speed", "") != "correspondence":
+        reduced_data = None # we want to skip already running games
+        if dat.get("game", {}).get("lastMove", "") == "":
             reduced_data = {
                 "type": dat.get("type", ""),
                 "gameId": dat.get("game", {}).get("gameId", ""),
@@ -307,7 +307,7 @@ def abortRunningGames(lichess_client, self_log=default_log):
         for game in my_games:
             if self_log:
                 self_log("Aborting: " + game["gameId"])
-                lichess_client.board.abort_game(game_id=game["gameId"])
+            lichess_client.board.abort_game(game_id=game["gameId"])
 
 def createGame(json_data, lichess_client, lichess_client_opponent, self_log=default_log):
     """

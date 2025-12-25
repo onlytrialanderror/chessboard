@@ -4344,6 +4344,8 @@ script:
             id(game_running) = false;
             // we try to close board stream events, if running
             id(lichess_game_id).publish_state("idle");
+            // abort all running games
+            id(perform_lichess_api_call).execute("api_call", "{\"type\": \"abortRunningGames\"}", "");
 
             // Create JSON object
             JsonDocument root;
