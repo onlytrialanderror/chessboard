@@ -309,7 +309,7 @@ def abortRunningGames(lichess_client, self_log=default_log):
                 self_log("Aborting: " + game["gameId"])
             lichess_client.board.abort_game(game_id=game["gameId"])
 
-def createGame(json_data, lichess_client, lichess_token_opponent, self_log=default_log):
+def createGame(json_data, lichess_client, lichess_client_opponent, self_log=default_log):
     """
     Create a new game or seek/challenge based on the given request payload.
 
@@ -347,16 +347,19 @@ def createGame(json_data, lichess_client, lichess_token_opponent, self_log=defau
 
             if level == 0:
                 if json_data.get("otb") == "yes":
-                    game_data = lichess_client.challenges.create_with_accept(
+                    game_data = lichess_client.challenges.create(
                         username=username,
                         rated=json_data.get("rated", False),
-                        token=lichess_token_opponent,
                         clock_limit=json_data.get("time_s", 600),
                         clock_increment=json_data.get("increment", 0),
                         color=json_data.get("color"),
                         variant="standard",
                     )
                     if len(game_data.get("id", "")) == 8:
+                        if lichess_client_opponent is not None:
+                            lichess_client_opponent.challenges.accept(game_data["id"])
+                        else:
+                            self_log(f"Accepting of the challenge is not possible. Wait till opponent accepts the challenge!")
                         game_id = game_data["id"]
                     else:
                         game_id = ""

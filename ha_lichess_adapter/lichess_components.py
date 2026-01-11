@@ -16,6 +16,7 @@ import json
 import paho.mqtt.client as paho
 import ssl
 import time
+import httpx
 import lichess_helpers as lh
 
 CA_CERT_PATH = "/config/hivemq.pem"
@@ -446,19 +447,18 @@ class LichessWorkerEvent:
         self._lock = threading.Lock()
         self._stop_event_stream = threading.Event()
 
-        self._client_lichess: Optional[berserk.Client] = None
-
         self._mqtt_publish_function  = None
         self._log = log
 
         self._log(f"Event worker is initialized", LEVEL = "INFO")
 
 
-    def update_lichess_client(self, lichess_client: berserk.Client, new_token: str) -> None:
+    def update_lichess_token(self, new_token: str) -> None:
         """
-        Update the Lichess client instance and (optionally) restart the worker if the token changed.
+        Update the Lichess client token and (optionally) restart the worker if the token changed.
+        We dont use berserk client here, because we berserk - stream doesn't sents heartbeat every 7s,
+        so, we are not able to abort the stream manually.
         """
-        self._client_lichess = lichess_client
         # check if token really changed
         if new_token == self._current_token:
             return
@@ -554,31 +554,35 @@ class LichessWorkerEvent:
 
         self._log(f"Starting the stream (event): {token_init}")
 
-        # open the stream for whole chess game
-        for event in self._client_lichess.board.stream_incoming_events():
-            self._log(f"Event loop: {event}")
-            if event:
-                reduced_data = lh.reduce_response_event(event)
-                if reduced_data is not None:
-                    reduced_data_json = json.dumps(reduced_data)
-                    self._log(f"Event: {reduced_data_json}")
-                    if self._mqtt_publish_function is not None:
-                        self._mqtt_publish_function(reduced_data_json)
-                else:
-                    self._log(f"Event: manually skipped event {event}")
-            if self._stop_event_stream.is_set():
-                self._log(f"Stream stop event set, terminating the stream (event): {self._lichess_stream_event_init_value}")
-                break
-            with  self._lock:
-                if self._lichess_stream_event_init_value != self._current_token:
-                    self._log(f"Terminating the event stream (token changed): {self._lichess_stream_event_init_value}->{self._current_token}")
-                    # close the stream
+        URL = "https://lichess.org/api/stream/event"
+        headers={
+        "Authorization": f"Bearer {token_init}"
+        }
+
+        # we use httpx here, because berserk - stream doesn't sents heartbeat every 7s
+        with httpx.stream("GET", URL, headers=headers, timeout=None) as response:
+            for line in response.iter_lines():
+                if line:
+                    event = json.loads(line)
+                    reduced_data = lh.reduce_response_event(event)
+                    if reduced_data is not None:
+                        reduced_data_json = json.dumps(reduced_data)
+                        self._log(f"Event: {reduced_data_json}")
+                        if self._mqtt_publish_function is not None:
+                            self._mqtt_publish_function(reduced_data_json)
+                    else:
+                        self._log(f"Event: manually skipped event {event}")
+                if self._stop_event_stream.is_set():
+                    self._log(f"Stream stop event set, terminating the stream (event): {self._lichess_stream_event_init_value}")
                     break
+                with  self._lock:
+                    if self._lichess_stream_event_init_value != self._current_token:
+                        self._log(f"Terminating the event stream (token changed): {self._lichess_stream_event_init_value}->{self._current_token}")
+                        # close the stream
+                        break
 
         self._log(f"Terminated the stream (event): {self._lichess_stream_event_init_value}")
         self._lichess_stream_event_init_value = self._idle_token
-
-
 
 
 class LichessWorkerApi:
@@ -840,7 +844,7 @@ class LichessWorkerApi:
                 if valid_token == True and valid_token_opponent == True:
 
                     if call_type == "createGame" :
-                        json_response = lh.createGame(json_data, self._client_lichess_main, self._current_token_opponent, self_log=self._log)
+                        json_response = lh.createGame(json_data, self._client_lichess_main, self._client_lichess_opponent, self_log=self._log)
                         self._mqtt_publish_function(json_response)
                         return
 

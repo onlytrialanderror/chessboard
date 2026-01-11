@@ -48,7 +48,6 @@ SECRET_PATH = "/config/secrets.yaml"
 # Client/session identifiers for :class:`lichess_components.LichessClientPool`
 CLIENT_NAME_API_MAIN = "client_api_main"
 CLIENT_NAME_API_OPPONENT = "client_api_opponent"
-CLIENT_NAME_EVENT = "client_event"
 CLIENT_NAME_BOARD_MAIN = "client_board_main"
 CLIENT_NAME_BOARD_OPPONENT = "client_board_opponent"
 
@@ -220,7 +219,6 @@ class LichessApiHandler(hass.Hass):
 
         # Close sessions/clients dependent on the main token.
         self._clients.close(CLIENT_NAME_API_MAIN)
-        self._clients.close(CLIENT_NAME_EVENT)
         self._clients.close(CLIENT_NAME_BOARD_MAIN)
 
         # Stop running workers that were using the previous token.
@@ -233,12 +231,11 @@ class LichessApiHandler(hass.Hass):
         # Start new sessions/clients and restart workers if we have a real token.
         if new_token != IDLE_LICHESS_TOKEN:
             self._clients.set_token(CLIENT_NAME_API_MAIN, new_token, idle_token=IDLE_LICHESS_TOKEN)
-            self._clients.set_token(CLIENT_NAME_EVENT, new_token, idle_token=IDLE_LICHESS_TOKEN)
             self._clients.set_token(CLIENT_NAME_BOARD_MAIN, new_token, idle_token=IDLE_LICHESS_TOKEN)
 
-            # Update worker clients so subsequent calls/streams use the new sessions.
+            # Update worker clients so subsequent calls/streams use the new sessions.            
             self._worker_api.update_lichess_client_main(self._clients.get(CLIENT_NAME_API_MAIN), new_token)
-            self._worker_event.update_lichess_client(self._clients.get(CLIENT_NAME_EVENT), new_token)
+            self._worker_event.update_lichess_token(new_token)
 
             # Event stream should be running for main token.
             self._worker_event.run_worker()
@@ -340,7 +337,6 @@ class LichessApiHandler(hass.Hass):
     def _init_sessions_all(self) -> None:
         """Ensure all Lichess clients exist for the currently stored tokens."""
         self._clients.set_token(CLIENT_NAME_API_MAIN, self._token_main, idle_token=IDLE_LICHESS_TOKEN)
-        self._clients.set_token(CLIENT_NAME_EVENT, self._token_main, idle_token=IDLE_LICHESS_TOKEN)
         self._clients.set_token(CLIENT_NAME_API_OPPONENT, self._token_opponent, idle_token=IDLE_LICHESS_TOKEN)
         self._clients.set_token(CLIENT_NAME_BOARD_MAIN, self._token_main, idle_token=IDLE_LICHESS_TOKEN)
         self._clients.set_token(CLIENT_NAME_BOARD_OPPONENT, self._token_opponent, idle_token=IDLE_LICHESS_TOKEN)
