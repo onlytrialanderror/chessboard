@@ -204,7 +204,7 @@ class LichessApiHandler(hass.Hass):
           - stop workers that depend on it
           - update the token and recreate clients/workers if the token is not idle
         """
-        if payload:
+        if payload and payload != IDLE_LICHESS_TOKEN:
             data = json.loads(payload)                # convert JSON string -> Python dict
             payload = data["token"]
         # Decrypt token from MQTT payload (board sends encrypted token).
@@ -250,7 +250,7 @@ class LichessApiHandler(hass.Hass):
 
         Similar to the main token handler, but only affects opponent API/board clients.
         """
-        if payload:
+        if payload and payload != IDLE_LICHESS_TOKEN:
             data = json.loads(payload)                # convert JSON string -> Python dict
             payload = data["token"]
         # Decrypt token from MQTT payload.
@@ -286,7 +286,7 @@ class LichessApiHandler(hass.Hass):
         A game-id change triggers (re)starting the board stream workers so they subscribe to
         the new game stream.
         """
-        if payload:
+        if payload and payload != IDLE_GAME_ID:
             data = json.loads(payload)                # convert JSON string -> Python dict
             payload = data["game_id"]
 

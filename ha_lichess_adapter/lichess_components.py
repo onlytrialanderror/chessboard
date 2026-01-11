@@ -360,13 +360,12 @@ class LichessWorkerBoard:
 
             self._log(f"Board ({self.worker_type}) worker stopping")
             # wait main board thread is finished
-            self._board_worker.join(timeout=1)
+            # stream sends alive check every 7s, we wait longer here
+            self._board_worker.join(timeout=8)
 
             # check if main thread is stopped
             if self._board_worker and self._board_worker.is_alive():
                 self._log(f"Stopping board worker ({self.worker_type}) failed")
-                # we call dummy function (here abort) to provoke an event in the stream to call the loop-abort checks
-                lh.write_into_chat({"text": f"Event on {self.worker_type} board-stream: {self._current_game_id}"}, self._client_lichess, self._current_game_id)
             else:
                 self._log(f"Board worker ({self.worker_type}) stopped")
 
@@ -526,7 +525,8 @@ class LichessWorkerEvent:
             self._current_token =  self._idle_token
 
             if self._stream_worker and self._stream_worker.is_alive():
-                self._stream_worker.join(timeout=2)
+                # stream sends alive check every 7s, we wait longer here
+                self._stream_worker.join(timeout=8)
 
             # check if stream thread is stopped
             if self._stream_worker and self._stream_worker.is_alive():
@@ -556,6 +556,7 @@ class LichessWorkerEvent:
 
         # open the stream for whole chess game
         for event in self._client_lichess.board.stream_incoming_events():
+            self._log(f"Event loop: {event}")
             if event:
                 reduced_data = lh.reduce_response_event(event)
                 if reduced_data is not None:
@@ -839,7 +840,7 @@ class LichessWorkerApi:
                 if valid_token == True and valid_token_opponent == True:
 
                     if call_type == "createGame" :
-                        json_response = lh.createGame(json_data, self._client_lichess_main, self._client_lichess_opponent, self_log=self._log)
+                        json_response = lh.createGame(json_data, self._client_lichess_main, self._current_token_opponent, self_log=self._log)
                         self._mqtt_publish_function(json_response)
                         return
 

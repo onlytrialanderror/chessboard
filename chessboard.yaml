@@ -893,7 +893,7 @@ graphical_display_menu:
               - lambda: |-
                   id(lichess_create_new_game).execute();
         - type: command
-          text: 'Preset A: Lichess OTB'
+          text: !secret chessboard_preset_a
           on_value:
             then:
               - lambda: |-
@@ -911,7 +911,7 @@ graphical_display_menu:
                   call_3.perform();
                   // set if rated
                   auto call_4 = id(lichess_seek_rated).make_call();
-                  call_4.set_option("not rated");
+                  call_4.set_option("rated");
                   call_4.perform();
                   // delay
                   delay(1000);
@@ -919,7 +919,7 @@ graphical_display_menu:
                   id(lichess_create_new_game).execute();
 
         - type: command
-          text: 'Preset B: Lichess OTB'
+          text: !secret chessboard_preset_b
           on_value:
             then:
               - lambda: |-
@@ -945,7 +945,7 @@ graphical_display_menu:
                   id(lichess_create_new_game).execute();
 
         - type: command
-          text: 'Preset C: Lichess OTB'
+          text: !secret chessboard_preset_c
           on_value:
             then:
               - lambda: |-
