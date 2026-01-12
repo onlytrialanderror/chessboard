@@ -328,7 +328,13 @@ class LichessWorkerBoard:
         token_plus_game_id = lh.concat_values(self._current_token, self._current_game_id)
 
         # check if api thread is already running or token still not set, we skip starting
-        if (self._lichess_stream_board_init_value == token_plus_game_id and self._board_worker and self._board_worker.is_alive()) or self._current_token == self._idle_token or self._current_game_id == self._idle_game_id:
+        if ((self._lichess_stream_board_init_value == token_plus_game_id and self._board_worker and self._board_worker.is_alive()) 
+            or self._current_token == self._idle_token 
+            or self._current_game_id == self._idle_game_id
+            or self._current_token is None 
+            or self._current_token == "" 
+            or self._current_game_id is None 
+            or self._current_game_id == ""):
             return
 
         self._stop_event_board.clear()
@@ -491,7 +497,10 @@ class LichessWorkerEvent:
         Start the worker thread if prerequisites are met and no worker is running.
         """
         # check if api thread is already running or token still not set, we skip starting
-        if (self._lichess_stream_event_init_value == self._current_token and self._lichess_stream_event_init_value != self._idle_token and self._stream_worker and self._stream_worker.is_alive()) or self._current_token == self._idle_token:
+        if ((self._lichess_stream_event_init_value == self._current_token and self._lichess_stream_event_init_value != self._idle_token and self._stream_worker and self._stream_worker.is_alive()) 
+                or self._current_token == self._idle_token 
+                or self._current_token is None 
+                or self._current_token == ""):
             return
 
         self._stop_event_stream.clear()
@@ -642,6 +651,16 @@ class LichessWorkerApi:
         # update token
         self._current_token_main = new_token
 
+        # let the chessboard know, we changed the token
+        if self._mqtt_publish_function is not None:
+            token_json = json.dumps(
+                {
+                    "type": "mainTokenChanged",
+                    "status": "success"
+                }
+            )
+            self._mqtt_publish_function(token_json)
+
     def update_lichess_client_opponent(self, lichess_client: berserk.Client, new_token: str) -> None:
         """
         Update the opponent Lichess token/client used for opponent actions (best-effort).
@@ -691,7 +710,7 @@ class LichessWorkerApi:
         Start the worker thread if prerequisites are met and no worker is running.
         """
         # check if api thread is already running, we skip starting
-        if self._api_worker and self._api_worker.is_alive():
+        if (self._api_worker and self._api_worker.is_alive()) or self._current_token_main == self._idle_token or self._current_token_main is None or self._current_token_main == "":
             return
 
         self._log(f"API worker starting")
@@ -749,7 +768,8 @@ class LichessWorkerApi:
         # we set to any value, that is not equal to idle
         self._lichess_api_init_value = "loop_is_running"
         # init_value is token main
-        self._log(f"Starting main-loop")
+        self._log(f"Starting main-loop")        
+
         while True:
             # get next item from the queue
             try:
@@ -897,4 +917,4 @@ class LichessWorkerApi:
                         return
 
                 # we should return till that point
-                self._log(f"API-Call " + json.dumps(json_data) + " could not be performed!", level="WARNING")
+                self._log(f"API-Call " + json.dumps(json_data) + f" could not be performed! Main:({self._current_token_main}), Opp:({self._current_token_opponent}), GameID:({self._current_game_id})", level="WARNING")
