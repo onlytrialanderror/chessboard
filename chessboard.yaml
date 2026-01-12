@@ -478,6 +478,11 @@ globals:
     type: std::string
     initial_value: '""'
 
+  # Challenge ID for incoming Lichess challenges
+  - id: lichess_challenge_id
+    type: std::string
+    initial_value: '""'
+
   # The piece that was moved in the last move (FEN char)
   - id: moved_piece
     type: char
@@ -969,7 +974,27 @@ graphical_display_menu:
                   delay(1000);
                   // start lichess game
                   id(lichess_create_new_game).execute();
-
+        - type: command
+          text: 'Accept challenge'
+          on_value:
+            then:
+              - lambda: |-
+                  if (id(initial_position_state) == 3 && id(mqtt_client)->is_connected() && id(lichess_challenge_id).length() == 8) {
+                      std::string challenge_json = "{\"type\": \"acceptChallenge\", \"id\": \"" + id(lichess_challenge_id) + "\"}";
+                      id(perform_lichess_api_call).execute("api_call", challenge_json, "");
+                      id(lichess_challenge_id) = "";
+                  } else {
+                        id(beep_long).execute();
+                        if (id(mqtt_client)->is_connected()) {
+                          if (id(lichess_challenge_id).length() == 8) {
+                            id(oled_show_page_temporary_message).execute("{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"Set initial position\"}", "both", 2000);
+                          } else {
+                            id(oled_show_page_temporary_message).execute("{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"Not valid id: " + id(lichess_challenge_id) +  "\"}", "both", 2000);
+                          }
+                        } else {
+                          id(oled_show_page_temporary_message).execute("{\"n_lines\": 2, \"line_0\": \"WARNING\", \"line_1\": \"No lichess-api connection\"}", "both", 2000);
+                        }
+                  }
         - type: command
           text: 'Preset: Wait Daily Arena'
           on_value:
@@ -1614,6 +1639,7 @@ select:
       - !secret chessboard_opponent_d
       - !secret chessboard_opponent_e
       - !secret chessboard_opponent_f
+      - !secret chessboard_opponent_g
     initial_option: random
     on_value:
       then:
@@ -2676,7 +2702,7 @@ script:
           id(invalid_move_counter) = -1;
           id(update_lichess_token).execute(true);
           id(lichess_game_id).publish_state(std::string("idle"));
-          id(current_move_uci_lichess) = "-";
+          id(current_move_uci_lichess) = "-";          
 
   # Script: reset_display_message — helper routine used by the main state machine / UI
   - id: reset_display_message
@@ -4567,6 +4593,40 @@ script:
 
                 // if we are in tournament, withdraw the game to set the initial position
                 id(lichess_arena_withdraw_by_id).execute();
+            }
+
+            // ############# new challenge #############
+            // #######################################
+            if ((root["type"].as<std::string>() == "challenge" ) && !id(game_running) && (root["gameId"].as<std::string>().length() == 8) && (root["variant"].as<std::string>() == "standard")){
+
+                if (id(debug_mode)) {
+                    id(perform_lichess_api_call).execute("debug", "Triggered by new challenge", "");
+                }
+
+                std::string rated_string = "";
+                if (root["rated"].as<bool>() == false) {
+                  rated_string = ", not rated";
+                }
+                
+                id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"" + root["opponent"].as<std::string>() + "\", \"line_1\": \"Accept?: "+ root["time_control"].as<std::string>() + rated_string + ", " + root["color"].as<std::string>() + "\"}";
+                id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"" + root["opponent"].as<std::string>() + "\", \"line_1\": \"Accept?: "+ root["time_control"].as<std::string>() + rated_string + ", " + root["color"].as<std::string>() + "\"}";
+                id(oled_show_page_message).execute();
+                id(beep_long).execute();
+                id(lichess_challenge_id) = root["gameId"].as<std::string>();            
+            }
+
+            // ############# challenge declined #############
+            // #######################################
+            if ((root["type"].as<std::string>() == "challengeCanceled" or root["type"].as<std::string>() == "challengeDeclined" ) && (root["id"].as<std::string>().length() == 8) && (root["id"].as<std::string>() == id(lichess_challenge_id))){
+
+                if (id(debug_mode)) {
+                    id(perform_lichess_api_call).execute("debug", "Triggered by new challenge declined", "");
+                }
+                id(beep_long).execute();
+                id(lichess_challenge_id) = "";
+                id(oled_show_page_temporary_message).execute("{\"n_lines\": 2, \"line_0\": \"Challenge canceled\", \"line_1\": \"Id: "+ root["id"].as<std::string>() + "\"}", "both", 2000);
+                id(reset_display_message).execute();              
+                            
             }
 
             // ############# joined new arena tournament #############

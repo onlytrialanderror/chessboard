@@ -361,8 +361,7 @@ class LichessWorkerBoard:
 
             self._log(f"Board ({self.worker_type}) worker stopping")
             # wait main board thread is finished
-            # stream sends alive check every 7s, we wait longer here
-            self._board_worker.join(timeout=8)
+            self._board_worker.join(timeout=2)
 
             # check if main thread is stopped
             if self._board_worker and self._board_worker.is_alive():
@@ -838,6 +837,11 @@ class LichessWorkerApi:
 
                     if call_type == "joinTournamentById":
                         json_response = lh.joinTournamentById(json_data, self._client_lichess_main, self_log=self._log)
+                        self._mqtt_publish_function(json_response)
+                        return
+                    
+                    if call_type == "acceptChallenge":
+                        json_response = lh.acceptChallenge(json_data, self._client_lichess_main, self_log=self._log)
                         self._mqtt_publish_function(json_response)
                         return
 

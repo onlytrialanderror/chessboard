@@ -252,8 +252,7 @@ def reduce_response_event(dat):
                 "speed": dat.get("game", {}).get("speed", ""),
                 "secondsLeft": dat.get("game", {}).get("secondsLeft", 0),
             }
-    else:
-        if dat.get("type") == "gameFinish":
+    elif dat.get("type") == "gameFinish":
             reduced_data = {
                 "type": dat.get("type", ""),
                 "gameId": dat.get("game", {}).get("gameId", ""),
@@ -269,13 +268,32 @@ def reduce_response_event(dat):
                 "status": dat.get("game", {}).get("status", {}).get("name", ""),
                 "win": {"white": "1-0", "black": "0-1"}.get(dat.get("game", {}).get("winner", ""), ""),
             }
-        else:
-            if dat.get("type") in {"challenge", "challengeCanceled", "challengeDeclined"}:
-                reduced_data = {
-                    "type": dat.get("type", ""),
-                    "id": dat.get("challenge", {}).get("id", ""),
-                    "status": dat.get("challenge", {}).get("status", ""),
-                }
+    elif dat.get("type") == "challenge":
+            challenge = dat.get("challenge", {})    
+            reduced_data  = {
+                "type": dat.get("type", ""),
+                "gameId": challenge.get("id", ""),
+                "variant": challenge.get("variant", {}).get("key", ""),
+                "opponent": "{}: {}".format(
+                    challenge.get("challenger", {}).get("name", ""),
+                    challenge.get("challenger", {}).get("rating", ""),
+                ),
+                "rated": challenge.get("rated", True),
+                "time_control": challenge.get("timeControl", {}).get("show", ""),
+                "color": challenge.get("color", "")
+            }
+    elif dat.get("type") in {"challengeCanceled", "challengeDeclined"}:
+            reduced_data = {
+                "type": dat.get("type", ""),
+                "id": dat.get("challenge", {}).get("id", ""),
+                "status": dat.get("challenge", {}).get("status", ""),
+            }
+    else:
+        reduced_data = {
+                "type": "unknown: {}".format(dat.get("type", "")),
+                "id": "",
+                "status": "Warning: Unhandled event type",
+            }
 
     return reduced_data
 
@@ -495,6 +513,24 @@ def joinTournamentById(json_data, lichess_client, self_log=default_log):
 
     return json.dumps(data)
 
+def acceptChallenge(json_data, lichess_client, self_log=default_log):
+    """
+    Accept a challenge by its id.
+    """
+    challenge_id = json_data.get("id")
+    if len(challenge_id) == 8 and lichess_client.challenges.accept(challenge_id = challenge_id):
+        data = {
+            "type": "acceptChallenge",
+            "id": challenge_id,
+            "status": "success",
+        }
+    else:
+        data = {
+            "type": "acceptChallenge",
+            "id": challenge_id,
+            "status": "failed",
+        }
+    return json.dumps(data)
 
 def abort(lichess_client, current_game_id, self_log=default_log):
     """
