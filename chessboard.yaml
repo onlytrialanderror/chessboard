@@ -11,14 +11,18 @@ esphome:
 
   # Do some initialition work
   on_boot:
-    - priority: 400
+    - priority: 0
       then:
         - script.execute: reset_current_game_values
-    - priority: 700
+    - priority: -100
       then:
         - lambda: |-
             id(reset_display_message).execute();
             id(lichess_tournament_id).publish_state("idle");
+    - priority: -200
+      then:
+        - lambda: |-
+            id(update_lichess_token).execute(true);
 
 # -----------------------------------------------------------------------------
 # ESP32 platform and framework settings
@@ -79,7 +83,7 @@ mqtt:
   on_connect:
     then:
       - lambda: |-
-          id(update_lichess_token).execute(true);
+          id(update_lichess_token).execute(true);          
           id(perform_lichess_api_call).execute("debug", std::string("Board connected"), "");
   on_disconnect:
     then:
@@ -4489,10 +4493,14 @@ script:
                 id(userdefined_request_id) =  "";
               }
 
+              // set the challenge id, for the case, the challenge is declined or canceled, so we can display the message
+              id(lichess_challenge_id) = root["id"].as<std::string>();
+
               if (root["id"].as<std::string>() == "seek") {
                 // seek doesn't have a game_id
                 id(display_message_white) = "{\"n_lines\": 2, \"line_0\": \"Created game: " + root["id"].as<std::string>() + "\", \"line_1\": \"Waiting to be accepted ...\"}";
                 id(display_message_black) = "{\"n_lines\": 2, \"line_0\": \"Created game: " + root["id"].as<std::string>() + "\", \"line_1\": \"Waiting to be accepted ...\"}";
+                
               } else {
                 std::string game_id = root["id"].as<std::string>();                
                 if (root["status"].as<std::string>() == "success" && game_id != "idle" && game_id.length() == 8) {
@@ -4617,7 +4625,7 @@ script:
 
             // ############# challenge declined #############
             // #######################################
-            if ((root["type"].as<std::string>() == "challengeCanceled" or root["type"].as<std::string>() == "challengeDeclined" ) && (root["id"].as<std::string>().length() == 8) && (root["id"].as<std::string>() == id(lichess_challenge_id))){
+            if ((root["type"].as<std::string>() == "challengeCanceled" || root["type"].as<std::string>() == "challengeDeclined" ) && (root["id"].as<std::string>().length() == 8) && (root["id"].as<std::string>() == id(lichess_challenge_id))){
 
                 if (id(debug_mode)) {
                     id(perform_lichess_api_call).execute("debug", "Triggered by new challenge declined", "");
