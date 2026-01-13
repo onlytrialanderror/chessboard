@@ -242,7 +242,9 @@ class LichessWorkerBoard:
         Create a worker that streams board state for a single game.
 
         Args:
-            main_worker: If True, publishes reduced board state updates.
+            main_worker: If True, the loop with client based on main-token is excuted,
+                otherwise, for opponent, just stream is open, but no board-events are perovided.
+                Nessesary to avoid "opponent left" notifications in the case of OTB games.
             idle_token: Sentinel token indicating an inactive client.
             idle_game_id: Sentinel game id indicating no active game.
             log: Logger function accepting (message, level).

@@ -94,6 +94,18 @@ class LichessApiHandler(hass.Hass):
         self._mqtt.register_handler(MQTT_TOKEN_OPP_TOPIC, self._on_mqtt_token_opponent)
         self._mqtt.register_handler(MQTT_STATUS_TOPIC, self._on_mqtt_chessboard_status)
 
+        # ---- Initialize MQTT client ----
+        # Subscribing to all relevant topics; handlers above will dispatch work.
+        self._mqtt.connect_and_loop(
+            (
+                (MQTT_API_CALL_TOPIC, 0),
+                (MQTT_GAME_ID_TOPIC, 0),
+                (MQTT_TOKEN_MAIN_TOPIC, 0),
+                (MQTT_TOKEN_OPP_TOPIC, 0),
+                (MQTT_STATUS_TOPIC, 0),
+            )
+        )
+
         # Current runtime state (protected by worker-internal locks where needed).
         self._current_game_id = IDLE_GAME_ID
         self._token_main = IDLE_LICHESS_TOKEN
@@ -107,42 +119,16 @@ class LichessApiHandler(hass.Hass):
         # - Board workers stream board/game state per player token
         # - Event worker streams account events for the main token
         # - API worker performs on-demand API calls and pushes responses
-        self._worker_board_main = LichessWorkerBoard(
-            main_worker=True,
-            idle_token=IDLE_LICHESS_TOKEN,
-            idle_game_id=IDLE_GAME_ID,
-            log=self.log,
-        )
-        self._worker_board_opponent = LichessWorkerBoard(
-            main_worker=False,
-            idle_token=IDLE_LICHESS_TOKEN,
-            idle_game_id=IDLE_GAME_ID,
-            log=self.log,
-        )
-        self._worker_event = LichessWorkerEvent(idle_token=IDLE_LICHESS_TOKEN, log=self.log)
-        self._worker_api = LichessWorkerApi(
-            idle_token=IDLE_LICHESS_TOKEN,
-            idle_game_id=IDLE_GAME_ID,
-            log=self.log,
-        )
+        self._worker_board_main = LichessWorkerBoard(True, IDLE_LICHESS_TOKEN, IDLE_GAME_ID, self.log)
+        self._worker_board_opponent = LichessWorkerBoard(False, IDLE_LICHESS_TOKEN, IDLE_GAME_ID, self.log)
+        self._worker_event = LichessWorkerEvent(IDLE_LICHESS_TOKEN, self.log)
+        self._worker_api = LichessWorkerApi(IDLE_LICHESS_TOKEN, IDLE_GAME_ID, self.log)
 
         # Register a shared publisher for all workers so they can send results back over MQTT.
         self._worker_board_main.register_publish_function(self.publish_response)
         self._worker_board_opponent.register_publish_function(self.publish_response)
         self._worker_event.register_publish_function(self.publish_response)
         self._worker_api.register_publish_function(self.publish_response)
-
-        # ---- Initialize MQTT client ----
-        # Subscribing to all relevant topics; handlers above will dispatch work.
-        self._mqtt.connect_and_loop(
-            (
-                (MQTT_API_CALL_TOPIC, 0),
-                (MQTT_GAME_ID_TOPIC, 0),
-                (MQTT_TOKEN_MAIN_TOPIC, 0),
-                (MQTT_TOKEN_OPP_TOPIC, 0),
-                (MQTT_STATUS_TOPIC, 0),
-            )
-        )
 
         self.log("Initialization complete for LichessApiHandler")
 
