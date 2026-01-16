@@ -138,7 +138,7 @@ class MqttGateway:
         self._client_id = mqtt_cfg.get("client_id", "appdaemon-lichess")
         self._log = log
 
-        self._client = paho.Client(client_id=self._client_id, protocol=paho.MQTTv311, clean_session=True)
+        self._client = paho.Client(client_id=self._client_id, protocol=paho.MQTTv311, clean_session=False)
 
         if username is not None:
             self._client.username_pw_set(username, password=password)

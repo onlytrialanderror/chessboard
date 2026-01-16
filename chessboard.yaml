@@ -79,7 +79,7 @@ mqtt:
   password: !secret mqtt_password
   certificate_authority: !include {file: hivemq.pem}
   client_id: "chessboard"
-  clean_session: true
+  clean_session: false
   on_connect:
     then:
       - lambda: |-
