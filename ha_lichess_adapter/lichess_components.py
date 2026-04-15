@@ -911,7 +911,7 @@ class LichessWorkerApi:
                         return
 
                     if call_type == "resignOpponent":
-                        lh.resignOpponent(json_data, self._client_lichess_opponent, self._current_game_id, self_log=self._log)
+                        lh.resignOpponent(self._client_lichess_opponent, self._current_game_id, self_log=self._log)
                         return
 
                     if call_type == "drawOpponent":
